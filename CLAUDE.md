@@ -642,8 +642,29 @@ docker run --rm --user $(id -u):$(id -g) -e USER=pipeline -v $PWD:/pipeline \
   cline-go:latest Rscript -e 'setwd("/pipeline/scripts/clinego.app/tests"); source("testthat.R")'
 ```
 
-Baseline as of 2026-09-10: `tests/` = **473 passing / 10 skipped**, app = **213 passing /
-1 skipped**. `run_tests.R` exits non-zero on any failure, so it is CI-able as-is.
+Baseline as of 2026-09-10 (after Tier 5): `tests/` = **567 passing / 14 skipped**, app =
+**213 passing / 1 skipped**. `run_tests.R` exits non-zero on any failure, so it is CI-able
+as-is. (The earlier figure of 473 recorded here was stale — it predated Tier 4; the counts
+reconcile against the dossier's post-Tier-4 494 plus Tier 5's 73.)
+
+**Tier 5 — app/pipeline equivalence** lives in
+`tests/testthat/test-equivalence-app-pipeline.R` (33 tests, 73 assertions, 4 `skip()`ped).
+It asserts the Shiny app and the Snakemake pipeline compute the same science across the
+**five** divergence surfaces, and is the only place that does. Two facts about it matter
+before editing:
+
+- **Both sides load in one session without colliding**, which is what makes the file
+  possible: `zzz.R:57-60` sources the shared libs into `asNamespace("clinego.app")` while
+  `helper-libs.R:28-41` sources the pipeline libs into the test env. `combine_sigsnps`
+  exists on **both** sides with different arity, so the app's must always be written
+  `clinego.app:::combine_sigsnps`. Do **not** add `library(clinego.app)` to
+  `helper-libs.R` — `test_dir()` sources every helper for the directory, so the whole
+  pipeline suite would fail whenever the app is not installed; the skip is file-local.
+- **The `qval` equivalence is asserted structurally, not live, on purpose.**
+  `helper-libs.R:14` attaches `qvalue` and namespace lookup falls through to the search
+  path, so the app's qval branch *works under this suite* while returning `NA` in
+  production. The file asserts the cause instead — that `qvalue` is absent from the app's
+  DESCRIPTION Imports. A live qval comparison there would pass and prove nothing.
 
 **`--invariants` is opt-in and is EXPECTED to be red**, which is why it is not part of the
 default gate. `scripts/check_invariants.R` validates a `{PROJECT}_results/` tree against
