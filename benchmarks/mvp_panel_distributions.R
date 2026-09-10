@@ -15,7 +15,7 @@
 
 suppressPackageStartupMessages({library(data.table); library(ggplot2)})
 PIPELINE_ROOT <- Sys.getenv("PIPELINE_ROOT", "/pipeline")
-source(file.path(PIPELINE_ROOT, "scripts/R/utils/theme_adaptogene.R"))
+source(file.path(PIPELINE_ROOT, "scripts/R/utils/theme_clinego.R"))
 # Which scored offset root to read. Defaults to offset09, the 32-replicate run, so an
 # unparameterised call reproduces the frozen figure set; a new cohort passes OFFSET_DIR.
 OFF <- Sys.getenv("OFFSET_DIR", "offset09")
@@ -80,10 +80,10 @@ fwrite(res, file.path(OUT, "panel_paired_tests.tsv"), sep = "\t")
 mk <- function(var, title, sub, ylab, logy = FALSE) {
     p <- ggplot(D, aes(panel, get(var))) +
         geom_boxplot(outlier.shape = NA, width = 0.6, fill = "grey95",
-                     colour = ADAPT_COL$secondary, linewidth = 0.4) +
-        geom_jitter(width = 0.13, height = 0, size = 1.5, alpha = 0.65, colour = ADAPT_RETAINED) +
+                     colour = CLINEGO_COL$secondary, linewidth = 0.4) +
+        geom_jitter(width = 0.13, height = 0, size = 1.5, alpha = 0.65, colour = CLINEGO_RETAINED) +
         labs(title = title, subtitle = sub, x = NULL, y = ylab) +
-        theme_adaptogene() + theme(axis.text.x = element_text(size = 7.5))
+        theme_clinego() + theme(axis.text.x = element_text(size = 7.5))
     if (logy) p <- p + scale_y_log10()
     p
 }

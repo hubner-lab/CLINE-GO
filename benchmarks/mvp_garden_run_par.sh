@@ -12,8 +12,8 @@
 # Usage:  mvp_garden_run_par.sh [SEEDS_CSV|all] [CLONES_PER_SEED] [CPUS_PER_LANE] [SNAKE_CORES]
 set -uo pipefail
 
-ROOT="${PIPELINE_ROOT:-/mnt/data/eugene/ADAPTOGENE}"
-IMAGE="${IMAGE:-adaptogene:latest}"
+ROOT="${PIPELINE_ROOT:-/mnt/data/eugene/CLINE-GO}"
+IMAGE="${IMAGE:-cline-go:latest}"
 SEEDS_ARG="${1:-all}"
 CLONES="${2:-4}"
 CPUS_PER_LANE="${3:-2}"
@@ -53,7 +53,7 @@ trap 'kill "$WD" 2>/dev/null' EXIT
 
 snake() {   # snake <name> <configfile> <log> <cores>
     "${DOCKER[@]}" run --user "$(id -u):$(id -g)" --rm --name "$1" \
-        -e USER=adaptogene -e OPENBLAS_NUM_THREADS="$BLAS_THREADS" \
+        -e USER=cline-go -e OPENBLAS_NUM_THREADS="$BLAS_THREADS" \
         -e OMP_NUM_THREADS="$BLAS_THREADS" \
         --cpus="$CPUS_PER_LANE" --memory="$MEM_PER_LANE" \
         -v "$ROOT:/pipeline" "$IMAGE" \

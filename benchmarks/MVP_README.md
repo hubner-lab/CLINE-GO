@@ -251,7 +251,7 @@ Validation on seed 1232548 (their p-values → our harness vs their published va
 These are the deltas that could legitimately move a number. State them whenever a comparison
 is reported.
 
-| # | Aspect | Lotterhos 2023 | ADAPTOGENE | Effect on comparability |
+| # | Aspect | Lotterhos 2023 | CLINE-GO | Effect on comparability |
 |---|---|---|---|---|
 | 1 | SNP set | 10,394 loci (seed 1232548) | 10,325 | We collapse recurrent mutations sharing a map position (69 here), keeping the causal row; they keep both. <0.7% of loci |
 | 2 | MAF | MAF > 0.01, applied by them before deposit | `Filter.maf: 0.01` — a verified no-op | **None** — identical effective threshold |
@@ -271,7 +271,7 @@ Their code (`ModelValidationProgram/MVP-NonClinalAF`, `src/c-AnalyzeSimOutput.R`
 both — `covRob(..., estim="pairwiseGK")` → `lambda <- median(resmaha)/qchisq(0.5, df=K)` →
 `pchisq(resmaha/lambda, K, lower.tail=FALSE)`. Everything that differs is around it:
 
-| Parameter | Lotterhos 2023 | ADAPTOGENE | Consequence |
+| Parameter | Lotterhos 2023 | CLINE-GO | Consequence |
 |---|---|---|---|
 | Ordination call | `rda(t(G) ~ sal + temp)` — no `scale=` → **`scale=FALSE`** (covariance-based) | `rda(..., scale=TRUE)` (correlation-based) | SNP columns standardised to unit variance → different loadings → different Mahalanobis distances |
 | Structure correction | two separate arms: none, and `Condition(PC1 + PC2)` — **2 PCs** | `Condition(PC1..PC5)` — **5 PCs**, because `condition_pcs` defaults to the `@k_best` sentinel = `sNMF.k_best` | we remove more structure-aligned variance; closest published arm is `_corr`, but not equal |
@@ -387,7 +387,7 @@ buried in ~99% false discoveries.
 
 ```bash
 D="nix shell nixpkgs#docker-client -c docker run --user $(id -u):$(id -g) --rm -e USER=pipeline \
-   --cpus=64 --memory=300g -v /mnt/data/eugene/ADAPTOGENE:/pipeline adaptogene:latest"
+   --cpus=64 --memory=300g -v /mnt/data/eugene/CLINE-GO:/pipeline cline-go:latest"
 for m in processing prestructure structure climate pregea gea gwas; do
   $D snakemake -c16 -s Snakefile --config mode=$m --configfile config_MVP1232548.yaml --scheduler greedy
 done

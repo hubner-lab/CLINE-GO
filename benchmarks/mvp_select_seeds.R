@@ -132,46 +132,86 @@ BAND_HI <- as.numeric(Sys.getenv("MVP_BAND_HI", "0.60"))
 COHORT     <- Sys.getenv("MVP_COHORT",     "group1")
 COHORT_TAG <- Sys.getenv("MVP_COHORT_TAG", "group1_expansion")
 
-message(sprintf("== expansion to %d per stratum, band [%.2f, %.2f], cohort %s/%s ==",
-                PER_STRATUM, BAND_LO, BAND_HI, COHORT, COHORT_TAG))
-pool <- d[demog_level == "SS-Mtn" & meanFst >= 0.05 &
-          r2_pc1_temp >= BAND_LO & r2_pc1_temp <= BAND_HI & r2_pc1_sal <= 0.20]
-message(sprintf("  in-band SS-Mtn pool [%.2f, %.2f]: %d seeds", BAND_LO, BAND_HI, nrow(pool)))
-print(pool[, .N, by = arch_level][order(arch_level)])
+# ---------------------------------------------------------------- complete block ----
+# MVP_BLOCK = "landscape:demography", e.g. "SS-Clines:N-variable_m-variable".
+#
+# When set, the expansion is EVERY 2-trait seed of that design block -- 3 genic levels x
+# 4 architecture sub-levels x 10 replicates = 120 -- with no threshold on any realized
+# statistic. The band/stratum machinery below is bypassed entirely: a complete block has no
+# selection rule inside it, which is the point. Confounding (the PC1~env correlation) then
+# becomes a reported covariate spanning whatever the design produces, not a criterion, so
+# there is nothing left for "you picked the easy replicates" to attach to.
+#
+# 1-trait is excluded on identifiability grounds, not convenience: with a single selected
+# axis, structure is near-collinear with the environment by construction (those replicates
+# sit at |tau|(PC1,temp) > 0.95), which is the same failure that retired the Laruson set.
+#
+# New rows get their OWN arm value, not "primary". Every existing figure script filters
+# arm == "primary", so a new landscape stays invisible until a script opts in explicitly.
+# The alternative silently mixes two landscapes into every marginal.
+BLOCK     <- Sys.getenv("MVP_BLOCK", "")
+BLOCK_ARM <- Sys.getenv("MVP_BLOCK_ARM", "primary_ssclines")
 
-if (!all(PRIMARY_SEEDS %in% pool$seed)) {
-  stop("Widening the band dropped a transcribed primary seed -- refusing to proceed: ",
-       paste(setdiff(PRIMARY_SEEDS, pool$seed), collapse = ", "))
-}
-# A held seed outside the current band is kept anyway (it is already computed), but it is
-# not silently ignored either -- narrowing the band after a cohort has run is a mistake.
-out_of_band <- setdiff(HELD_PRIMARY, pool$seed)
-if (length(out_of_band)) {
-  message("  NOTE: ", length(out_of_band), " already-selected primary seed(s) fall outside ",
-          "the current band and are kept regardless: ", paste(out_of_band, collapse = ", "))
-}
-
-pick_stratum <- function(lvl) {
-  have  <- held[arch_level == lvl]$seed
-  avail <- pool[arch_level == lvl & !seed %in% have][order(r2_pc1_temp)]
-  need  <- PER_STRATUM - length(have)
-  if (need <= 0L) {
-    message(sprintf("  %-18s have %d, adding 0 (already at or above target)", lvl, length(have)))
-    return(avail[0L])
+if (nzchar(BLOCK)) {
+  bp <- strsplit(BLOCK, ":", fixed = TRUE)[[1]]
+  if (length(bp) != 2L) stop("MVP_BLOCK must be 'landscape:demography', got: ", BLOCK)
+  message(sprintf("== complete block %s / %s, cohort %s/%s, arm %s ==",
+                  bp[1], bp[2], COHORT, COHORT_TAG, BLOCK_ARM))
+  block_pool <- d[demog_level == bp[1] & demog_level_sub == bp[2] &
+                  arch_level_sub != "1-trait"]
+  if (!nrow(block_pool)) stop("MVP_BLOCK matched no seeds in the deposit: ", BLOCK)
+  # The deposit is a full factorial at 10 reps per cell. Assert it rather than assume it --
+  # a partial block is not a complete block and must not be reported as one.
+  .cells <- block_pool[, .N, by = .(arch_level, arch_level_sub)]
+  if (nrow(.cells) != 12L || any(.cells$N != 10L)) {
+    print(.cells[order(arch_level, arch_level_sub)])
+    stop("block is not the expected 3 genic x 4 sub-level x 10 replicate design")
   }
-  if (nrow(avail) < need) {
-    stop(sprintf("stratum %s: need %d more seeds but only %d available in band [%.2f, %.2f]",
-                 lvl, need, nrow(avail), BAND_LO, BAND_HI))
-  }
-  idx <- unique(round(seq(1, nrow(avail), length.out = need)))
-  message(sprintf("  %-18s have %d, adding %d of %d available",
-                  lvl, length(have), need, nrow(avail)))
-  avail[idx]
-}
+  expansion <- block_pool[!seed %in% PREV$seed]
+  message(sprintf("  block holds %d seeds, %d already in the manifest, adding %d",
+                  nrow(block_pool), nrow(block_pool) - nrow(expansion), nrow(expansion)))
+} else {
+  message(sprintf("== expansion to %d per stratum, band [%.2f, %.2f], cohort %s/%s ==",
+                  PER_STRATUM, BAND_LO, BAND_HI, COHORT, COHORT_TAG))
+  pool <- d[demog_level == "SS-Mtn" & meanFst >= 0.05 &
+            r2_pc1_temp >= BAND_LO & r2_pc1_temp <= BAND_HI & r2_pc1_sal <= 0.20]
+  message(sprintf("  in-band SS-Mtn pool [%.2f, %.2f]: %d seeds", BAND_LO, BAND_HI, nrow(pool)))
+  print(pool[, .N, by = arch_level][order(arch_level)])
 
-strata <- sort(unique(held$arch_level))
-expansion <- rbindlist(lapply(strata, pick_stratum))
-message(sprintf("  expansion: %d seeds", nrow(expansion)))
+  if (!all(PRIMARY_SEEDS %in% pool$seed)) {
+    stop("Widening the band dropped a transcribed primary seed -- refusing to proceed: ",
+         paste(setdiff(PRIMARY_SEEDS, pool$seed), collapse = ", "))
+  }
+  # A held seed outside the current band is kept anyway (it is already computed), but it is
+  # not silently ignored either -- narrowing the band after a cohort has run is a mistake.
+  out_of_band <- setdiff(HELD_PRIMARY, pool$seed)
+  if (length(out_of_band)) {
+    message("  NOTE: ", length(out_of_band), " already-selected primary seed(s) fall outside ",
+            "the current band and are kept regardless: ", paste(out_of_band, collapse = ", "))
+  }
+
+  pick_stratum <- function(lvl) {
+    have  <- held[arch_level == lvl]$seed
+    avail <- pool[arch_level == lvl & !seed %in% have][order(r2_pc1_temp)]
+    need  <- PER_STRATUM - length(have)
+    if (need <= 0L) {
+      message(sprintf("  %-18s have %d, adding 0 (already at or above target)", lvl, length(have)))
+      return(avail[0L])
+    }
+    if (nrow(avail) < need) {
+      stop(sprintf("stratum %s: need %d more seeds but only %d available in band [%.2f, %.2f]",
+                   lvl, need, nrow(avail), BAND_LO, BAND_HI))
+    }
+    idx <- unique(round(seq(1, nrow(avail), length.out = need)))
+    message(sprintf("  %-18s have %d, adding %d of %d available",
+                    lvl, length(have), need, nrow(avail)))
+    avail[idx]
+  }
+
+  strata <- sort(unique(held$arch_level))
+  expansion <- rbindlist(lapply(strata, pick_stratum))
+  message(sprintf("  expansion: %d seeds", nrow(expansion)))
+}
 
 # ---------------------------------------------------------------- controls ------
 # Degenerate arm: same demography sub-level and architecture as a primary seed, but the
@@ -286,16 +326,27 @@ if (is.null(PREV)) {
   }
   message(sprintf("== %d existing rows reproduced exactly (%d columns checked) ==",
                   nrow(kept), length(cmp)))
-  manifest <- rbind(kept, mk(expansion, "primary", COHORT_TAG, group = COHORT))
+  manifest <- rbind(kept, mk(expansion,
+                             if (nzchar(BLOCK)) BLOCK_ARM else "primary",
+                             COHORT_TAG, group = COHORT))
 }
 setorder(manifest, arm, -meanFst)
 
 # The panel must be balanced by construction, not by hope -- check it here rather than
 # discovering an unbalanced stratum after 18 seeds have been fetched and run.
+# Block mode does not go through pick_stratum at all -- its rows carry BLOCK_ARM, and the
+# SS-Mtn primaries it leaves untouched sit at whatever PER_STRATUM built them (30), not at
+# this run's PER_STRATUM default. Checking them here would fail on rows this run did not
+# create. The block's own completeness is asserted where it is built (3 x 4 x 10).
 .bal <- manifest[arm == "primary", .N, by = arch_level]
-if (any(.bal$N != PER_STRATUM)) {
+if (!nzchar(BLOCK) && any(.bal$N != PER_STRATUM)) {
   print(.bal)
   stop(sprintf("architecture strata are not balanced at %d each", PER_STRATUM))
+}
+if (nzchar(BLOCK)) {
+  .blk <- manifest[arm == BLOCK_ARM, .N, by = .(demog_level, demog_level_sub)]
+  message("== block arm rows ==")
+  print(.blk)
 }
 if (anyDuplicated(manifest$seed)) stop("duplicate seed in manifest")
 

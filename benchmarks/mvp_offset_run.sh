@@ -7,7 +7,7 @@
 #
 # Docker client: /snap/bin/docker cannot start on this host (setuid blocked under
 # nosuid+NoNewPrivs), so every call goes through `nix shell nixpkgs#docker-client -c docker`
-# -- see CLAUDE.local.md. `-e USER=adaptogene` is mandatory: under --user $(id -u):$(id -g)
+# -- see CLAUDE.local.md. `-e USER=cline-go` is mandatory: under --user $(id -u):$(id -g)
 # there is no /etc/passwd entry inside the container and snakemake's getpass.getuser() dies
 # with KeyError: getpwuid(). OPENBLAS/OMP thread caps are mandatory too: containers see all
 # 192 host cores and uncapped BLAS runs far slower while eating tens of GB.
@@ -20,8 +20,8 @@
 # Usage:  benchmarks/mvp_offset_run.sh [SEEDS_CSV|all] [PARALLEL] [CPUS_PER_SEED]
 set -uo pipefail
 
-ROOT="${PIPELINE_ROOT:-/mnt/data/eugene/ADAPTOGENE}"
-IMAGE="${IMAGE:-adaptogene:latest}"
+ROOT="${PIPELINE_ROOT:-/mnt/data/eugene/CLINE-GO}"
+IMAGE="${IMAGE:-cline-go:latest}"
 SEEDS_ARG="${1:-all}"
 PARALLEL="${2:-7}"
 CPUS_PER_SEED="${3:-16}"
@@ -85,7 +85,7 @@ run_seed() {
     local res="$ROOT/${proj}_results"
     if [[ -d "$res/.snakemake/locks" ]] && [[ -n "$(ls -A "$res/.snakemake/locks" 2>/dev/null)" ]]; then
         echo "[$proj] clearing stale snakemake lock" | tee -a "$log"
-        "${DOCKER[@]}" run --user "$(id -u):$(id -g)" --rm -e USER=adaptogene \
+        "${DOCKER[@]}" run --user "$(id -u):$(id -g)" --rm -e USER=cline-go \
             -v "$ROOT:/pipeline" "$IMAGE" \
             snakemake -s Snakefile --unlock --config mode=maladaptation \
                 --configfile "$cfg" >> "$log" 2>&1
@@ -93,7 +93,7 @@ run_seed() {
 
     echo "[$proj] start $(date -Is)" | tee -a "$log"
     "${DOCKER[@]}" run --user "$(id -u):$(id -g)" --rm --name "off08_${proj}" \
-        -e USER=adaptogene -e OPENBLAS_NUM_THREADS="$BLAS_THREADS" \
+        -e USER=cline-go -e OPENBLAS_NUM_THREADS="$BLAS_THREADS" \
         -e OMP_NUM_THREADS="$BLAS_THREADS" \
         --cpus="$CPUS_PER_SEED" --memory="$MEM_PER_SEED" \
         -v "$ROOT:/pipeline" "$IMAGE" \

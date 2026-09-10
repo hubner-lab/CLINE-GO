@@ -4,7 +4,7 @@ library(data.table)
 library(scatterpie)
 library(qs)
 
-source("/pipeline/scripts/R/utils/theme_adaptogene.R")
+source("/pipeline/scripts/R/utils/theme_clinego.R")
 
 args = commandArgs(trailingOnly=TRUE)
 #################################
@@ -53,10 +53,10 @@ gPCA <- ggplot(df, aes(PC1, PC2)) +
                   aes(x = PC1, y = PC2),
                   cols = paste0('C', 1:K),
                   color = 'black', alpha = 0.8) +
-  scale_fill_manual(name = "Clusters", values = adapt_cluster_palette(K)) +
+  scale_fill_manual(name = "Clusters", values = clinego_cluster_palette(K)) +
   xlab(paste0('PC1 (', round(var.explained[1], 1), '%)')) +
   ylab(paste0('PC2 (', round(var.explained[2], 1), '%)')) +
-  theme_adaptogene()
+  theme_clinego()
 
 # Save
 ggsave(OUT_PNG, gPCA)

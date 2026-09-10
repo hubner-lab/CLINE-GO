@@ -3,6 +3,29 @@
 # Requires: data.table, dplyr loaded by the sourcing script
 
 EMMAX_BIN <- "/pipeline/scripts/emmax-intel64"
+EMMAX_RUN <- "/pipeline/scripts/emmax_run.sh"
+
+# Run EMMAX through the preflight wrapper (scripts/emmax_run.sh) and STOP on a
+# non-zero exit.
+#
+# Two things this fixes. (1) The wrapper refuses to launch the x86-64 EMMAX
+# binary on a host that cannot run it natively — under x86-on-arm64 emulation
+# EMMAX's Intel OpenMP/MKL runtime hangs forever instead of failing, which
+# stalls Snakemake and orphans the container. (2) Every call site used bare
+# system() and ignored its status, so an EMMAX failure surfaced later as a
+# missing .ps file: emmax.R then errored inside fread() with an unrelated
+# message, and emmax_phenotypes.R downgraded it to a warning and returned NULL,
+# silently dropping that trait from the association results.
+run_emmax <- function(args) {
+    cmd <- paste(shQuote(EMMAX_RUN), shQuote(EMMAX_BIN), args)
+    message(paste0("INFO: Running: ", cmd))
+    status <- system(cmd)
+    if (status != 0) {
+        stop(paste0("ERROR: EMMAX exited with status ", status,
+                    " — see the messages above for the cause. Command: ", cmd))
+    }
+    invisible(status)
+}
 
 # Extract CHROM:POS SNP IDs from a VCF (reads only non-header lines, first 2 columns).
 read_vcf_snpids <- function(vcf_path) {

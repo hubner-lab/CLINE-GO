@@ -48,7 +48,7 @@ suppressPackageStartupMessages({
 
 PIPELINE_ROOT <- Sys.getenv("PIPELINE_ROOT", "/pipeline")
 source(file.path(PIPELINE_ROOT, "scripts/R/utils/pval_threshold.R"))
-source(file.path(PIPELINE_ROOT, "scripts/R/utils/theme_adaptogene.R"))
+source(file.path(PIPELINE_ROOT, "scripts/R/utils/theme_clinego.R"))
 source(file.path(PIPELINE_ROOT, "benchmarks/lib_detection.R"))
 
 args <- parse_kv_args(commandArgs(trailingOnly = TRUE))
@@ -253,14 +253,14 @@ if (nrow(pf)) {
         geom_step(data = front[order(recall_testable)],
                   aes(x = recall_testable, y = precision),
                   inherit.aes = FALSE, direction = "vh",
-                  colour = ADAPT_THRESHOLD, linetype = "dashed", linewidth = 0.5) +
+                  colour = CLINEGO_THRESHOLD, linetype = "dashed", linewidth = 0.5) +
         scale_colour_n(uniqueN(pf$kind)) +
         scale_x_continuous(limits = c(0, 1)) + scale_y_continuous(limits = c(0, 1)) +
         labs(title = paste0("Causal-locus detection: precision vs recall (", TAG, ")"),
              x = "Recall (causal loci in the tested SNP set)",
              y = "Precision (TP / (TP + background-neutral FP))",
              colour = "Method / rule") +
-        theme_adaptogene()
+        theme_clinego()
     ggsave(file.path(OUTDIR, paste0(TAG, "_precision_recall.png")), p,
            width = 9, height = 6, dpi = 150)
     ggsave(file.path(OUTDIR, paste0(TAG, "_precision_recall.svg")), p, width = 9, height = 6)

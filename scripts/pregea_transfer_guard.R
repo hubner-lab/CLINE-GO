@@ -21,7 +21,7 @@ suppressPackageStartupMessages({
     library(ggplot2)
 })
 
-source("/pipeline/scripts/R/utils/theme_adaptogene.R")
+source("/pipeline/scripts/R/utils/theme_clinego.R")
 source("/pipeline/scripts/R/utils/emmax_core.R")
 
 args <- commandArgs(trailingOnly = TRUE)
@@ -182,12 +182,12 @@ message("INFO: Wrote transfer guard table (", nrow(out), " rows) to ", OUT_TSV)
 ################################################################################
 plot_dt <- out[method == "LFMM"]
 g <- ggplot(plot_dt, aes(x = scope, y = value_measured)) +
-    geom_hline(yintercept = 1, color = ADAPT_THRESHOLD, linetype = "dashed") +
-    geom_col(fill = ADAPT_NEUTRAL) +
+    geom_hline(yintercept = 1, color = CLINEGO_THRESHOLD, linetype = "dashed") +
+    geom_col(fill = CLINEGO_NEUTRAL) +
     labs(x = NULL, y = expression(lambda[GC]),
         title = "Transfer guard: LFMM lambda, pruned vs full marker set",
         subtitle = sprintf("K=%s | verdict=%s", lfmm_k, verdict_lfmm)) +
-    theme_adaptogene()
+    theme_clinego()
 ggsave(file.path(PLOT_DIR, "transfer_guard_lambda.png"), g, width = 6, height = 4.5, dpi = 300)
 ggsave(file.path(PLOT_DIR, "transfer_guard_lambda.svg"), g, width = 6, height = 4.5,
       device = svglite::svglite, bg = "transparent")

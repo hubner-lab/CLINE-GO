@@ -1,4 +1,4 @@
-# ADAPTOGENE Pipeline
+# CLINE-GO Pipeline
 # vim: filetype=python
 #
 # Modular Snakemake workflow for population genomics.

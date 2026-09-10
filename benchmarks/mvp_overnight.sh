@@ -14,7 +14,7 @@
 # watchdog still stops a container above 900 GB as a last resort.
 set -uo pipefail
 
-ROOT="${PIPELINE_ROOT:-/mnt/data/eugene/ADAPTOGENE}"
+ROOT="${PIPELINE_ROOT:-/mnt/data/eugene/CLINE-GO}"
 OUT="$ROOT/benchmarks/mvp_eval/offset09"
 LOG="$OUT/runlogs/overnight.log"
 MANIFEST="$ROOT/benchmarks/mvp_seeds.tsv"
@@ -77,15 +77,15 @@ fi
 
 # ---- 4. score ---------------------------------------------------------------
 say "scoring with the Lind & Lotterhos metric"
-"${DOCKER[@]}" run --rm --user "$(id -u):$(id -g)" -e USER=adaptogene \
+"${DOCKER[@]}" run --rm --user "$(id -u):$(id -g)" -e USER=cline-go \
     -e OPENBLAS_NUM_THREADS=8 --cpus=16 --memory=96g \
-    -v "$ROOT:/pipeline" adaptogene:latest \
+    -v "$ROOT:/pipeline" cline-go:latest \
     Rscript /pipeline/benchmarks/eval_offset_lind.R >> "$OUT/runlogs/score.log" 2>&1
 say "eval_offset_lind.R exit=$?"
 
-"${DOCKER[@]}" run --rm --user "$(id -u):$(id -g)" -e USER=adaptogene \
+"${DOCKER[@]}" run --rm --user "$(id -u):$(id -g)" -e USER=cline-go \
     -e OPENBLAS_NUM_THREADS=8 --cpus=16 --memory=96g \
-    -v "$ROOT:/pipeline" adaptogene:latest \
+    -v "$ROOT:/pipeline" cline-go:latest \
     Rscript /pipeline/benchmarks/mvp_lind_compare.R >> "$OUT/runlogs/score.log" 2>&1
 say "mvp_lind_compare.R exit=$?"
 

@@ -53,7 +53,7 @@ suppressPackageStartupMessages({
 
 PIPELINE_ROOT <- Sys.getenv("PIPELINE_ROOT", "/pipeline")
 source(file.path(PIPELINE_ROOT, "scripts/R/utils/pval_threshold.R"))
-source(file.path(PIPELINE_ROOT, "scripts/R/utils/theme_adaptogene.R"))
+source(file.path(PIPELINE_ROOT, "scripts/R/utils/theme_clinego.R"))
 source(file.path(PIPELINE_ROOT, "benchmarks/lib_detection.R"))
 
 args <- parse_kv_args(commandArgs(trailingOnly = TRUE))
@@ -216,7 +216,7 @@ p <- ggplot(out[!is.na(precision) & n_called_windows > 0],
     labs(title = paste0("WZA window-level detection (", TAG, ")"),
          x = "Recall (causal loci testable by WZA)",
          y = "Precision (TP windows / (TP + background windows))", colour = NULL) +
-    theme_adaptogene()
+    theme_clinego()
 ggsave(file.path(OUTDIR, paste0(TAG, "_wza_pr.png")), p, width = 9, height = 6, dpi = 150)
 ggsave(file.path(OUTDIR, paste0(TAG, "_wza_pr.svg")), p, width = 9, height = 6)
 message("INFO: WZA outputs in ", OUTDIR)

@@ -196,7 +196,7 @@ ft16 = load_phenotype(os.path.join(cache_dir, 'pheno_ft16.json'))
 print(f"INFO: FT10 values: {len(ft10)}, FT16 values: {len(ft16)}", file=sys.stderr)
 
 # Write metadata TSV
-# ADAPTOGENE format: site, sample, latitude, longitude, [trait1, trait2, ...]
+# CLINE-GO format: site, sample, latitude, longitude, [trait1, trait2, ...]
 matched_coords = 0
 matched_ft10 = 0
 matched_ft16 = 0

@@ -24,7 +24,15 @@ OUTPUT = args[12]
 # nospatial branch never reads these).
 DBMEM_VECTORS = args[13]   # PreGEA/tables/spatial/dbmem_vectors.tsv, or "NULL"
 DBMEM_SELECTED = args[14]  # PreGEA/tables/varpart/dbmem_selected.tsv, or "NULL"
+# Appended 2026-08-22, same "append after outputs" convention as 13-14 above.
+RESPONSE_UNIT = if (length(args) >= 15) args[15] else 'individual'  # 'individual' | 'site_frequency'
+FREQ_MIN_CALLS = if (length(args) >= 16) as.integer(args[16]) else 2L
 ##############
+
+if (!RESPONSE_UNIT %in% c('individual', 'site_frequency')) {
+  stop(sprintf("ERROR: RESPONSE_UNIT must be 'individual' or 'site_frequency'; got '%s'",
+               RESPONSE_UNIT))
+}
 
 set.seed(42)
 message(paste0('INFO: Building ', MODEL_TYPE, ' Gradient Forest model'))
@@ -100,7 +108,7 @@ if (MODEL_TYPE == 'adaptive') {
 # (sNMF.ploidy > 2, dosages 3,4,...) is not falsely rejected. 9 is LFMM's reserved missing code,
 # so it is never a valid dosage in this format regardless of ploidy.
 subset_mat <- as.matrix(snp_subset)
-if (any(subset_mat == 9, na.rm = TRUE)) {
+if (RESPONSE_UNIT == 'individual' && any(subset_mat == 9, na.rm = TRUE)) {
   frac9 <- mean(subset_mat == 9, na.rm = TRUE)
   stop(sprintf(paste0('Gradient Forest: genotype matrix contains the LFMM missing code 9 in ',
                       '%.1f%% of cells - this is an UNIMPUTED LFMM file. gradientForest() has no ',
@@ -110,7 +118,8 @@ if (any(subset_mat == 9, na.rm = TRUE)) {
 }
 rm(subset_mat)
 
-# Compute maxLevel for gradient forest
+# Compute maxLevel for gradient forest. Recomputed after site aggregation below when
+# RESPONSE_UNIT == 'site_frequency' (n rows drops from samples to sites).
 maxLevel <- log2(0.368 * nrow(lfmm_dt) / 2)
 
 # Load samples (also the sample-ID key for the dbMEM join below)
@@ -122,6 +131,70 @@ samples <- fread(SAMPLES,
 
 # Load climate predictors
 env.bio <- fread(CLIM_PRESENT_SITE) %>% dplyr::select(!!PREDICTORS_SELECTED)
+
+# ── Site-allele-frequency aggregation (imputation-sensitivity control) ──────────────────
+# Collapse samples to one row per site, with each SNP's value the observed allele frequency
+# mean(x[x != 9]) / 2. Nothing is imputed: a site's frequency is computed from the calls it
+# actually has, and a site with fewer than FREQ_MIN_CALLS observed calls at a SNP yields NA,
+# which drops that SNP entirely (gradientForest() has no na.action). `site_rows` is reused
+# below to collapse the dbMEM scores the same way.
+site_rows <- NULL
+if (RESPONSE_UNIT == 'site_frequency') {
+  stopifnot(nrow(snp_subset) == nrow(samples))
+  site_levels <- unique(samples$site)
+  site_rows   <- lapply(site_levels, function(s) which(samples$site == s))
+  names(site_rows) <- site_levels
+
+  geno <- as.matrix(snp_subset)
+  geno[geno == 9] <- NA_real_
+  n_calls <- t(vapply(site_rows, function(ix) colSums(!is.na(geno[ix, , drop = FALSE])),
+                      numeric(ncol(geno))))
+  freq <- t(vapply(site_rows, function(ix) colMeans(geno[ix, , drop = FALSE], na.rm = TRUE) / 2,
+                   numeric(ncol(geno))))
+  freq[n_calls < FREQ_MIN_CALLS] <- NA_real_
+
+  n_in       <- ncol(freq)
+  keep_full  <- colSums(is.na(freq)) == 0
+  # A SNP constant across every site carries no turnover signal and gradientForest() cannot
+  # fit it. Note this is variance ACROSS sites, NOT within-site polymorphism: Fitzpatrick &
+  # Keller's "polymorphic in >5 populations" filter assumes an outcrosser and removes 100% of
+  # markers on a het-collapsed selfer, where every site is internally fixed but sites differ
+  # from each other — which is exactly the informative case.
+  keep_var   <- keep_full & (apply(freq, 2, function(v) var(v, na.rm = TRUE)) > 0)
+  keep_var[is.na(keep_var)] <- FALSE
+  freq <- freq[, keep_var, drop = FALSE]
+
+  message(sprintf('INFO: site-frequency aggregation: %d samples -> %d sites', nrow(geno), nrow(freq)))
+  message(sprintf('INFO: observed calls per SNP per site: min %.2f, mean %.2f, max %.2f',
+                  min(rowMeans(n_calls)), mean(n_calls), max(rowMeans(n_calls))))
+  message(sprintf('INFO: SNPs %d in -> %d kept (%d dropped: a site below %d observed calls; %d constant across sites)',
+                  n_in, ncol(freq), sum(!keep_full), FREQ_MIN_CALLS, sum(keep_full & !keep_var)))
+  if (ncol(freq) > 0) {
+    message(sprintf('INFO: %.1f%% of site-frequency cells are exactly 0 or 1 (near-fixed)',
+                    100 * mean(freq == 0 | freq == 1, na.rm = TRUE)))
+  }
+  if (ncol(freq) < 10) {
+    # Do NOT stop(). This model exists only to feed the imputation-sensitivity check, and a
+    # diagnostic must never take mode=maladaptation down with it. Write a sentinel the
+    # checker recognises, and let every real offset product finish.
+    msg <- sprintf(paste0('only %d SNPs survived observed-only aggregation (need >=10) — too ',
+                          'few observed calls per site. Lower ',
+                          'Maladaptation.methods.gradient_forest.freq_min_calls (currently %d), ',
+                          'or accept that this panel cannot support the check.'),
+                   ncol(freq), FREQ_MIN_CALLS)
+    message('WARNING: Gradient Forest site-frequency model: ', msg)
+    qsave(list(status = 'insufficient', reason = msg,
+               n_snps = ncol(freq), n_sites = nrow(freq)), OUTPUT)
+    message('INFO: wrote insufficient-data sentinel to: ', OUTPUT)
+    quit(save = 'no', status = 0)
+  }
+
+  snp_subset <- as.data.frame(freq)
+  # Predictors are already constant within a site, so take the first row of each.
+  env.bio <- env.bio[vapply(site_rows, `[`, integer(1), 1), , drop = FALSE]
+  maxLevel <- log2(0.368 * nrow(snp_subset) / 2)
+  message(sprintf('INFO: maxLevel recomputed for %d site rows: %.2f', nrow(snp_subset), maxLevel))
+}
 
 # Build input matrix and predictor list. Spatial covariates are the climate
 # module's forward-selected dbMEM vectors (adespatial::dbmem() + ordiR2step,
@@ -158,6 +231,18 @@ if (SPATIAL_CORRECTION == 'with') {
   colnames(mem_scores) <- selected_mems
   message(paste0('INFO: Using ', ncol(mem_scores), ' forward-selected dbMEM axes: ',
                  paste(selected_mems, collapse = ', ')))
+
+  # Collapse dbMEM scores to site rows when the response was aggregated, so the predictor
+  # block keeps the same row count as snp_subset. dbMEMs are built from coordinates, which
+  # are identical within a site, so the site mean is the site's value.
+  if (RESPONSE_UNIT == 'site_frequency') {
+    mem_scores <- as.data.frame(t(vapply(
+      site_rows,
+      function(ix) colMeans(mem_scores[ix, , drop = FALSE]),
+      numeric(ncol(mem_scores))
+    )))
+    colnames(mem_scores) <- selected_mems
+  }
 
   input_matrix <- cbind(env.bio, mem_scores, snp_subset)
   predictor_vars <- c(colnames(env.bio), colnames(mem_scores))

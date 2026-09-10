@@ -46,7 +46,7 @@ OFF  <- Sys.getenv("OFFSET_DIR", "offset09")
 OUT  <- Sys.getenv("FIG_OUT", file.path(EVAL, "figures_ms"))
 dir.create(OUT, recursive = TRUE, showWarnings = FALSE)
 
-source(file.path(ROOT, "scripts/R/utils/theme_adaptogene.R"))
+source(file.path(ROOT, "scripts/R/utils/theme_clinego.R"))
 
 # Constants from the seed-selection screen. Sourced from
 # docs/gea_simulation_benchmarks.md sections 3.1 and 8.2 -- not re-derived here.
@@ -73,7 +73,7 @@ reg <- function(id, kind, shows, sources, n_note) # figure_manifest row
     MANIFEST[[length(MANIFEST) + 1L]] <<- data.table(
         id = id, kind = kind, shows = shows, sources = sources, coverage = n_note)
 save_fig <- function(p, stem, w, h) {
-    adapt_save_both(file.path(OUT, stem), p, w = w, h = h)
+    clinego_save_both(file.path(OUT, stem), p, w = w, h = h)
     # Guarantee a SAME-STEM table beside every image, so figure and values pair
     # mechanically rather than by knowing which emit() call fed which plot.
     # ggplot objects carry their data; cowplot composites do not, and those
@@ -108,11 +108,11 @@ funnel <- data.table(
 emit(funnel, "A1a_selection_funnel")
 
 a1 <- ggplot(funnel, aes(stage, n)) +
-    geom_col(fill = ADAPT_RETAINED, width = 0.62) +
-    geom_text(aes(label = n), vjust = -0.4, size = 3.4, colour = ADAPT_COL$fg) +
+    geom_col(fill = CLINEGO_RETAINED, width = 0.62) +
+    geom_text(aes(label = n), vjust = -0.4, size = 3.4, colour = CLINEGO_COL$fg) +
     scale_y_log10(expand = expansion(mult = c(0, 0.18))) +
     labs(title = "A  Replicate selection", x = NULL, y = "replicates (log scale)") +
-    theme_adaptogene()
+    theme_clinego()
 
 a1b_src <- seeds[, .(seed, arch = arch_lab, is_control, meanFst, r2_pc1_temp,
                      r2_pc1_sal, n_snps, n_causal_maf01, final_LA, k_best,
@@ -121,24 +121,24 @@ emit(a1b_src, "A1b_seed_properties")
 
 a2 <- ggplot(a1b_src, aes(meanFst, r2_pc1_temp, colour = arch, shape = is_control)) +
     geom_hline(yintercept = R2_BAND, linetype = "dashed",
-               colour = ADAPT_THRESHOLD, linewidth = 0.4) +
+               colour = CLINEGO_THRESHOLD, linewidth = 0.4) +
     geom_point(size = 2.6, stroke = 0.9) +
     scale_shape_manual(values = c(`FALSE` = 16, `TRUE` = 1),
                        labels = c("primary", "degenerate control"), name = NULL) +
-    scale_color_adaptogene(name = NULL) +
+    scale_color_clinego(name = NULL) +
     labs(title = "B  Structure and its alignment with the environment",
          x = expression(mean~italic(F)[ST]),
          y = expression(italic(R)^2*"(PC1 ~ temperature)")) +
-    theme_adaptogene() +
+    theme_clinego() +
     theme(legend.box = "vertical", legend.spacing.y = unit(0, "pt"))
 
 a3 <- ggplot(PRIM, aes(arch_lab, n_causal_maf01, colour = arch_lab)) +
-    geom_boxplot(outlier.shape = NA, width = 0.55, colour = ADAPT_COL$secondary) +
+    geom_boxplot(outlier.shape = NA, width = 0.55, colour = CLINEGO_COL$secondary) +
     geom_jitter(width = 0.14, height = 0, size = 2, alpha = 0.85) +
-    scale_y_log10() + scale_color_adaptogene(guide = "none") +
+    scale_y_log10() + scale_color_clinego(guide = "none") +
     labs(title = "C  Testable causal loci", x = NULL,
          y = "causal loci at MAF > 0.01 (log scale)") +
-    theme_adaptogene() + theme(axis.text.x = element_text(angle = 12, hjust = 1))
+    theme_clinego() + theme(axis.text.x = element_text(angle = 12, hjust = 1))
 
 save_fig(plot_grid(a1, a2, a3, nrow = 1, rel_widths = c(0.9, 1.25, 0.95)),
          "A1_benchmark_design", 14, 4.8)
@@ -154,11 +154,11 @@ a2src[, property := factor(property, levels = c("n_snps", "final_LA", "meanFst",
                    "mean Fst", "R2(PC1 ~ temp)"))]
 emit(a2src, "A2_replicate_covariates")
 save_fig(ggplot(a2src, aes(arch, value, colour = arch)) +
-             geom_boxplot(outlier.shape = NA, width = 0.55, colour = ADAPT_COL$secondary) +
+             geom_boxplot(outlier.shape = NA, width = 0.55, colour = CLINEGO_COL$secondary) +
              geom_jitter(width = 0.14, height = 0, size = 1.8, alpha = 0.85) +
              facet_wrap(~ property, scales = "free_y", nrow = 1) +
-             scale_color_adaptogene(guide = "none") +
-             labs(x = NULL, y = NULL) + theme_adaptogene_grid() +
+             scale_color_clinego(guide = "none") +
+             labs(x = NULL, y = NULL) + theme_clinego_grid() +
              theme(axis.text.x = element_text(angle = 20, hjust = 1)),
          "A2_replicate_covariates", 13, 4.2)
 reg("A2", "figure", "Replicate covariates by architecture (size, local adaptation, Fst, confounding)",
@@ -192,17 +192,17 @@ n_lab <- mrank[arm == "base", .(method, lab = paste0("n=", n_seeds))]
 n_lab[, method := factor(method, levels = ord)]
 
 save_fig(ggplot(b1_src, aes(method, auc_pr)) +
-    geom_boxplot(outlier.shape = NA, width = 0.62, colour = ADAPT_COL$secondary) +
+    geom_boxplot(outlier.shape = NA, width = 0.62, colour = CLINEGO_COL$secondary) +
     geom_jitter(aes(colour = arch, shape = control), width = 0.16, height = 0,
                 size = 1.9, alpha = 0.9) +
     geom_text(data = n_lab, aes(x = method, y = -0.04, label = lab), inherit.aes = FALSE,
-              size = 2.6, colour = ADAPT_COL$muted) +
+              size = 2.6, colour = CLINEGO_COL$muted) +
     facet_wrap(~ arm, ncol = 1) +
     scale_shape_manual(values = c(`FALSE` = 16, `TRUE` = 1),
                        labels = c("primary", "degenerate control"), name = NULL) +
-    scale_color_adaptogene(name = NULL) +
+    scale_color_clinego(name = NULL) +
     labs(x = NULL, y = "AUC-PR (default rung c3)") +
-    theme_adaptogene_grid() + theme(axis.text.x = element_text(angle = 30, hjust = 1)),
+    theme_clinego_grid() + theme(axis.text.x = element_text(angle = 30, hjust = 1)),
     "B1_detection_aucpr", 9.5, 7.5)
 reg("B1", "figure", "Threshold-free ranking quality (AUC-PR) per method, both MAF arms",
     "report07/aucpr_by_arm.tsv; method_rank.tsv",
@@ -222,11 +222,11 @@ if (!is.null(lad)) {
     b2m[, metric := factor(metric, levels = c("auc_pr", "best_f1"),
                            labels = c("AUC-PR (threshold-free)", "best achievable F1"))]
     save_fig(ggplot(b2m, aes(reorder(method, value, median), value)) +
-        geom_boxplot(outlier.shape = NA, width = 0.6, colour = ADAPT_COL$secondary) +
+        geom_boxplot(outlier.shape = NA, width = 0.6, colour = CLINEGO_COL$secondary) +
         geom_jitter(aes(colour = arch), width = 0.15, height = 0, size = 1.9, alpha = 0.9) +
         facet_wrap(~ metric, scales = "free_x") + coord_flip() +
-        scale_color_adaptogene(name = NULL) +
-        labs(x = NULL, y = NULL) + theme_adaptogene_grid(),
+        scale_color_clinego(name = NULL) +
+        labs(x = NULL, y = NULL) + theme_clinego_grid(),
         "B2_aucpr_vs_bestf1", 10, 5)
     reg("B2", "figure", "Same methods under a threshold-free vs a threshold-dependent metric",
         "report/mvp_ladders.tsv", "14 replicates, 4 methods, default rung c3")
@@ -238,12 +238,12 @@ b3_src <- auc_arm[!is.na(ratio) & is.finite(ratio)]
 b3_src[, arch := relabel_arch(arch)]
 emit(b3_src, "B3_maf_arm_ratio")
 save_fig(ggplot(b3_src, aes(reorder(method, ratio, median), ratio)) +
-    geom_hline(yintercept = 1, colour = ADAPT_THRESHOLD, linewidth = 0.4) +
-    geom_boxplot(outlier.shape = NA, width = 0.6, colour = ADAPT_COL$secondary) +
+    geom_hline(yintercept = 1, colour = CLINEGO_THRESHOLD, linewidth = 0.4) +
+    geom_boxplot(outlier.shape = NA, width = 0.6, colour = CLINEGO_COL$secondary) +
     geom_jitter(aes(colour = arch), width = 0.15, height = 0, size = 1.9, alpha = 0.9) +
-    coord_flip() + scale_y_log10() + scale_color_adaptogene(name = NULL) +
+    coord_flip() + scale_y_log10() + scale_color_clinego(name = NULL) +
     labs(x = NULL, y = "AUC-PR ratio, MAF 0.05 arm / MAF 0.01 arm (log scale)") +
-    theme_adaptogene(),
+    theme_clinego(),
     "B3_maf_arm_effect", 8.5, 5.5)
 reg("B3", "figure", "Effect of the MAF filter on ranking quality, paired within replicate",
     "report07/aucpr_by_arm.tsv", "14 replicates; truth denominator refiltered to match")
@@ -254,9 +254,9 @@ if (!is.null(mafr)) {
     emit(mafr, "B4_recall_by_maf_bin")
     save_fig(ggplot(mafr, aes(maf_bin, recall, group = method, colour = method)) +
         geom_line(linewidth = 0.7) + geom_point(size = 1.9) +
-        scale_color_manual(values = adapt_cluster_palette(uniqueN(mafr$method)), name = NULL) +
+        scale_color_manual(values = clinego_cluster_palette(uniqueN(mafr$method)), name = NULL) +
         labs(x = "minor-allele-frequency bin", y = "recall of causal loci") +
-        theme_adaptogene() + theme(axis.text.x = element_text(angle = 20, hjust = 1)),
+        theme_clinego() + theme(axis.text.x = element_text(angle = 20, hjust = 1)),
         "B4_low_maf_ceiling", 9, 5)
     reg("B4", "figure", "Recall as a function of causal-locus allele frequency",
         "report06/maf_recall.tsv", "1 replicate (1232548), 11 methods")
@@ -270,9 +270,9 @@ if (!is.null(mfam)) {
     save_fig(ggplot(mfam, aes(reorder(method, auc_pr), auc_pr,
                               fill = factor(cluster), shape = representative)) +
         geom_col(width = 0.68) + coord_flip() +
-        scale_fill_manual(values = adapt_cluster_palette(uniqueN(mfam$cluster)),
+        scale_fill_manual(values = clinego_cluster_palette(uniqueN(mfam$cluster)),
                           name = "redundancy cluster") +
-        labs(x = NULL, y = "AUC-PR") + theme_adaptogene(),
+        labs(x = NULL, y = "AUC-PR") + theme_clinego(),
         "B5_method_redundancy", 8, 5)
     reg("B5", "figure", "Methods grouped by how similarly they rank SNPs",
         "report06/method_families.tsv", "1 replicate (1232548), 11 methods")
@@ -337,10 +337,10 @@ if (length(comp)) {
 
     save_fig(ggplot(cml[arm == "base"], aes(label, loci, fill = class)) +
         geom_col(width = 0.72) + coord_flip() + facet_wrap(~ arch, nrow = 1, scales = "free_x") +
-        scale_fill_manual(values = c(ADAPT_RETAINED, ADAPT_THRESHOLD, ADAPT_REMOVED),
+        scale_fill_manual(values = c(CLINEGO_RETAINED, CLINEGO_THRESHOLD, CLINEGO_REMOVED),
                           name = NULL) +
         labs(x = NULL, y = "markers called (median across replicates)") +
-        theme_adaptogene_grid(),
+        theme_clinego_grid(),
         "B6_call_composition_absolute", 13, 5.4)
     reg("B6", "figure",
         "Absolute causal / linked / background composition of what each method calls",
@@ -352,10 +352,10 @@ if (length(comp)) {
     save_fig(ggplot(cml[arm == "base" & loci > 0], aes(label, loci, fill = class)) +
         geom_col(position = position_dodge(width = 0.75), width = 0.7) +
         coord_flip() + facet_wrap(~ arch, nrow = 1) + scale_y_log10() +
-        scale_fill_manual(values = c(ADAPT_RETAINED, ADAPT_THRESHOLD, ADAPT_REMOVED),
+        scale_fill_manual(values = c(CLINEGO_RETAINED, CLINEGO_THRESHOLD, CLINEGO_REMOVED),
                           name = NULL) +
         labs(x = NULL, y = "markers called, log scale (median across replicates)") +
-        theme_adaptogene_grid(),
+        theme_clinego_grid(),
         "B6b_call_composition_log", 13, 5.4)
     reg("B6b", "figure", "Same partition, dodged on a log axis so small call sets stay legible",
         "sweep07*/MVP*_c3_any_threshold_sweep.tsv", "12 primary replicates, both MAF arms")
@@ -374,10 +374,10 @@ if (length(comp)) {
                           labels = c("causal", "linked to a causal locus", "background (noise)"))]
     save_fig(ggplot(dml, aes(reorder(label, loci, sum), loci, fill = class)) +
         geom_col(width = 0.72) + coord_flip() + facet_wrap(~ family, scales = "free") +
-        scale_fill_manual(values = c(ADAPT_RETAINED, ADAPT_THRESHOLD, ADAPT_REMOVED),
+        scale_fill_manual(values = c(CLINEGO_RETAINED, CLINEGO_THRESHOLD, CLINEGO_REMOVED),
                           name = NULL) +
         labs(x = NULL, y = "markers called (median across replicates)") +
-        theme_adaptogene_grid(),
+        theme_clinego_grid(),
         "D8_composition_single_vs_combined", 12, 5.4)
     reg("D8", "figure", "Absolute call composition, single methods against combination rules",
         "sweep07*/MVP*_c3_any_threshold_sweep.tsv",
@@ -404,16 +404,16 @@ if (!is.null(lad)) {
 
     # C1 -- relative. The "what the default costs" framing.
     save_fig(ggplot(c_src, aes(cell, ratio, group = seed)) +
-        geom_hline(yintercept = 1, colour = ADAPT_THRESHOLD, linewidth = 0.4) +
-        geom_vline(xintercept = 3, linetype = "dashed", colour = ADAPT_THRESHOLD,
+        geom_hline(yintercept = 1, colour = CLINEGO_THRESHOLD, linewidth = 0.4) +
+        geom_vline(xintercept = 3, linetype = "dashed", colour = CLINEGO_THRESHOLD,
                    linewidth = 0.35) +
-        geom_line(colour = ADAPT_NEUTRAL, alpha = 0.35, linewidth = 0.35) +
-        geom_line(data = c_med, aes(cell, ratio, group = 1), colour = ADAPT_REMOVED,
+        geom_line(colour = CLINEGO_NEUTRAL, alpha = 0.35, linewidth = 0.35) +
+        geom_line(data = c_med, aes(cell, ratio, group = 1), colour = CLINEGO_REMOVED,
                   linewidth = 0.9) +
         facet_grid(arch ~ method) + scale_y_continuous(trans = "log2") +
         labs(x = "structure-correction rung (c3 = pipeline default)",
              y = "AUC-PR relative to the default rung (log2)") +
-        theme_adaptogene_grid(),
+        theme_clinego_grid(),
         "C1_ladder_relative", 11, 7)
     reg("C1", "figure", "Cost of the default structure-correction rung, normalised per replicate",
         "report/mvp_ladders.tsv", "14 replicates x 5 rungs x 4 methods, axis truth_any")
@@ -421,14 +421,14 @@ if (!is.null(lad)) {
     # C2 -- absolute. Same data, no normalisation; shows the architecture spread
     # that C1 deliberately removes.
     save_fig(ggplot(c_src, aes(cell, auc_pr, group = seed)) +
-        geom_vline(xintercept = 3, linetype = "dashed", colour = ADAPT_THRESHOLD,
+        geom_vline(xintercept = 3, linetype = "dashed", colour = CLINEGO_THRESHOLD,
                    linewidth = 0.35) +
-        geom_line(colour = ADAPT_NEUTRAL, alpha = 0.35, linewidth = 0.35) +
-        geom_line(data = c_med, aes(cell, auc_pr, group = 1), colour = ADAPT_REMOVED,
+        geom_line(colour = CLINEGO_NEUTRAL, alpha = 0.35, linewidth = 0.35) +
+        geom_line(data = c_med, aes(cell, auc_pr, group = 1), colour = CLINEGO_REMOVED,
                   linewidth = 0.9) +
         facet_grid(arch ~ method, scales = "free_y") +
         labs(x = "structure-correction rung (c3 = pipeline default)", y = "AUC-PR") +
-        theme_adaptogene_grid(),
+        theme_clinego_grid(),
         "C2_ladder_absolute", 11, 7)
     reg("C2", "figure", "Same ladder without normalisation",
         "report/mvp_ladders.tsv", "14 replicates x 5 rungs x 4 methods")
@@ -441,21 +441,21 @@ if (!is.null(lad)) {
                   gain = auc_pr / auc_pr_default)], "C3_best_rung_per_replicate")
     save_fig(ggplot(best_tab, aes(cell, N, fill = arch)) +
         geom_col(width = 0.7) + facet_wrap(~ method, nrow = 1) +
-        scale_fill_adaptogene(name = NULL) +
+        scale_fill_clinego(name = NULL) +
         labs(x = "rung achieving the highest AUC-PR (c3 = default)",
-             y = "replicates") + theme_adaptogene_grid(),
+             y = "replicates") + theme_clinego_grid(),
         "C3_best_rung_frequency", 12, 4.2)
     reg("C3", "figure", "How often each rung is the best one",
         "report/mvp_ladders.tsv", "14 replicates x 4 methods")
 
     # C4 -- the size of the gain a defaults-only user forgoes.
     save_fig(ggplot(best, aes(reorder(method, ratio, median), auc_pr / auc_pr_default)) +
-        geom_hline(yintercept = 1, colour = ADAPT_THRESHOLD, linewidth = 0.4) +
-        geom_boxplot(outlier.shape = NA, width = 0.6, colour = ADAPT_COL$secondary) +
+        geom_hline(yintercept = 1, colour = CLINEGO_THRESHOLD, linewidth = 0.4) +
+        geom_boxplot(outlier.shape = NA, width = 0.6, colour = CLINEGO_COL$secondary) +
         geom_jitter(aes(colour = arch), width = 0.14, height = 0, size = 2, alpha = 0.9) +
-        coord_flip() + scale_y_log10() + scale_color_adaptogene(name = NULL) +
+        coord_flip() + scale_y_log10() + scale_color_clinego(name = NULL) +
         labs(x = NULL, y = "AUC-PR at the best rung / at the default rung (log scale)") +
-        theme_adaptogene(),
+        theme_clinego(),
         "C4_gain_over_default", 8.5, 5)
     reg("C4", "figure", "Gain available from tuning the rung, per method",
         "report/mvp_ladders.tsv", "14 replicates x 4 methods")
@@ -487,11 +487,11 @@ if (!is.null(tsum)) {
                                         order(med_gain_default), unique(label)])]
     emit(d1_src, "D1_scheme_gain")
     save_fig(ggplot(d1_src, aes(median_gain_f1, label, colour = baseline, shape = arm)) +
-        geom_vline(xintercept = 0, colour = ADAPT_THRESHOLD, linewidth = 0.4) +
+        geom_vline(xintercept = 0, colour = CLINEGO_THRESHOLD, linewidth = 0.4) +
         geom_point(size = 2.6, position = position_dodge(width = 0.45)) +
-        scale_color_manual(values = c(ADAPT_RETAINED, ADAPT_REMOVED), name = NULL) +
+        scale_color_manual(values = c(CLINEGO_RETAINED, CLINEGO_REMOVED), name = NULL) +
         scale_shape_manual(values = c(16, 17), name = NULL) +
-        labs(x = "median gain in F1", y = NULL) + theme_adaptogene(),
+        labs(x = "median gain in F1", y = NULL) + theme_clinego(),
         "D1_scheme_gain", 9, 5.4)
     reg("D1", "figure", "Gain of each transferred scheme over the default AND over a tuned single method",
         "report07/transfer_summary.tsv", "8 adequately powered replicates, recalibrated arm")
@@ -504,11 +504,11 @@ if (!is.null(tsum)) {
                                 shape = mode, size = med_called)) +
         geom_point(alpha = 0.85) +
         facet_wrap(~ arm, labeller = as_labeller(c(base = "MAF > 0.01", m05 = "MAF > 0.05"))) +
-        scale_color_manual(values = adapt_cluster_palette(uniqueN(d2_src$label)), name = NULL) +
+        scale_color_manual(values = clinego_cluster_palette(uniqueN(d2_src$label)), name = NULL) +
         scale_size_continuous(trans = "log10", name = "SNPs called") +
         scale_shape_manual(values = c(verbatim = 1, recal = 16), name = NULL) +
         labs(x = "median precision", y = "median F1") +
-        theme_adaptogene_grid() + theme(legend.box = "vertical"),
+        theme_clinego_grid() + theme(legend.box = "vertical"),
         "D2_scheme_operating_point", 12, 6)
     reg("D2", "figure", "Precision / F1 / number of calls for every scheme and transfer mode",
         "report07/transfer_summary.tsv", "8 replicates x 2 arms x 2 modes")
@@ -519,13 +519,13 @@ if (!is.null(tsum)) {
     if (all(c("verbatim", "recal") %in% names(d3))) {
         emit(d3, "D3_verbatim_vs_recal")
         save_fig(ggplot(d3, aes(verbatim, recal, colour = label, shape = arm)) +
-            geom_abline(slope = 1, intercept = 0, colour = ADAPT_THRESHOLD, linewidth = 0.4) +
+            geom_abline(slope = 1, intercept = 0, colour = CLINEGO_THRESHOLD, linewidth = 0.4) +
             geom_point(size = 3) +
-            scale_color_manual(values = adapt_cluster_palette(uniqueN(d3$label)), name = NULL) +
+            scale_color_manual(values = clinego_cluster_palette(uniqueN(d3$label)), name = NULL) +
             scale_shape_manual(values = c(base = 16, m05 = 17), name = NULL) +
             labs(x = "gain over default, operating point imported verbatim",
                  y = "gain over default, operating point recalibrated") +
-            theme_adaptogene(),
+            theme_clinego(),
             "D3_verbatim_vs_recal", 9, 6)
         reg("D3", "figure", "How much of a transferred scheme survives without recalibration",
             "report07/transfer_summary.tsv", "8 replicates x 2 arms")
@@ -534,11 +534,11 @@ if (!is.null(tsum)) {
 if (!is.null(cwin)) {
     emit(cwin, "D4_window_effect")
     save_fig(ggplot(cwin, aes(combine_window_kb, median_f1_delta, colour = rule, group = rule)) +
-        geom_hline(yintercept = 0, colour = ADAPT_THRESHOLD, linewidth = 0.4) +
+        geom_hline(yintercept = 0, colour = CLINEGO_THRESHOLD, linewidth = 0.4) +
         geom_line(linewidth = 0.8) + geom_point(size = 2.2) +
-        scale_color_adaptogene(name = NULL) +
+        scale_color_clinego(name = NULL) +
         labs(x = "agreement window (kb)", y = "median change in F1") +
-        theme_adaptogene(),
+        theme_clinego(),
         "D4_agreement_window", 8, 5)
     reg("D4", "figure", "Effect of scoring method agreement on LD blocks rather than exact SNPs",
         "report06/combine_window_summary.tsv",
@@ -549,11 +549,11 @@ if (!is.null(sbia)) {
     s[, arch := relabel_arch(arch)]
     emit(s, "D5_selection_bias")
     save_fig(ggplot(s, aes(selection_bias, arch, colour = arm)) +
-        geom_vline(xintercept = 0, colour = ADAPT_THRESHOLD, linewidth = 0.4) +
+        geom_vline(xintercept = 0, colour = CLINEGO_THRESHOLD, linewidth = 0.4) +
         geom_jitter(height = 0.16, size = 2, alpha = 0.85) +
-        scale_color_manual(values = c(base = ADAPT_RETAINED, m05 = ADAPT_REMOVED), name = NULL) +
+        scale_color_manual(values = c(base = CLINEGO_RETAINED, m05 = CLINEGO_REMOVED), name = NULL) +
         labs(x = "F1 advantage of searching on the same replicate (selection bias)",
-             y = NULL) + theme_adaptogene(),
+             y = NULL) + theme_clinego(),
         "D5_selection_bias", 9, 4.6)
     reg("D5", "figure", "How much of an in-sample combining gain is search, not signal",
         "report07/selection_bias.tsv", "14 replicates x 5 rungs x 2 arms")
@@ -577,10 +577,10 @@ if (!is.null(wza_s)) {
     emit(w, "E1_wza_window_detection")
     save_fig(ggplot(w, aes(recall, precision, colour = method, shape = adjust)) +
         geom_point(size = 2.4, alpha = 0.9) +
-        scale_color_manual(values = adapt_cluster_palette(uniqueN(w$method)), name = NULL) +
+        scale_color_manual(values = clinego_cluster_palette(uniqueN(w$method)), name = NULL) +
         scale_shape_manual(values = c(bonf = 16, qval = 17), name = NULL) +
         labs(x = "recall of causal loci", y = "window-level precision") +
-        theme_adaptogene(),
+        theme_clinego(),
         "E1_wza_precision_recall", 9, 5.6)
     reg("E1", "figure", "Window-level detection at a 1 kb window, Bonferroni and q-value rules only",
         "report06/wza_scores.tsv", "1 replicate (1232548); `top` rows excluded by design")
@@ -635,12 +635,12 @@ if (!is.null(tau)) {
     emit(f1_src, "F1_accuracy_panel_arch_method")
     save_fig(ggplot(f1_src, aes(panel, accuracy, colour = method_label)) +
         geom_hline(data = oracle_arch, aes(yintercept = y), inherit.aes = FALSE,
-                   linetype = "dashed", colour = ADAPT_THRESHOLD, linewidth = 0.4) +
+                   linetype = "dashed", colour = CLINEGO_THRESHOLD, linewidth = 0.4) +
         geom_point(size = 2.4, position = position_dodge(width = 0.5)) +
         facet_wrap(~ arch, nrow = 1) + coord_flip() +
-        scale_color_adaptogene(name = NULL) +
+        scale_color_clinego(name = NULL) +
         labs(x = NULL, y = expression("offset accuracy ("*-tau*", higher is better)")) +
-        theme_adaptogene_grid(),
+        theme_clinego_grid(),
         "F1_offset_panel_by_architecture", 12, 5.6)
     reg("F1", "figure", "Offset accuracy by marker panel, architecture and offset method",
         paste0(OFF, "/phase1_seed_medians_solo.tsv; mvp_seeds.tsv"),
@@ -650,12 +650,12 @@ if (!is.null(tau)) {
     emit(tau[, .(seed, panel, method_label, arch, accuracy)], "F2_accuracy_distribution")
     save_fig(ggplot(tau, aes(panel, accuracy)) +
         geom_hline(yintercept = oracle_all, linetype = "dashed",
-                   colour = ADAPT_THRESHOLD, linewidth = 0.4) +
-        geom_boxplot(outlier.shape = NA, width = 0.62, colour = ADAPT_COL$secondary) +
+                   colour = CLINEGO_THRESHOLD, linewidth = 0.4) +
+        geom_boxplot(outlier.shape = NA, width = 0.62, colour = CLINEGO_COL$secondary) +
         geom_jitter(aes(colour = arch), width = 0.16, height = 0, size = 1.4, alpha = 0.55) +
-        coord_flip() + scale_color_adaptogene(name = NULL) +
+        coord_flip() + scale_color_clinego(name = NULL) +
         labs(x = NULL, y = expression("offset accuracy ("*-tau*")")) +
-        theme_adaptogene(),
+        theme_clinego(),
         "F2_offset_distribution", 9, 5.4)
     reg("F2", "figure", "Spread of offset accuracy across replicates, per panel",
         paste0(OFF, "/phase1_seed_medians_solo.tsv"),
@@ -669,13 +669,13 @@ if (!is.null(tau)) {
     emit(f3[, .(seed, panel, method_label, arch, accuracy, oracle, delta)],
          "F3_paired_vs_oracle")
     save_fig(ggplot(f3, aes(reorder(panel, delta, median), delta)) +
-        geom_hline(yintercept = 0, colour = ADAPT_THRESHOLD, linewidth = 0.5) +
-        geom_boxplot(outlier.shape = NA, width = 0.6, colour = ADAPT_COL$secondary) +
+        geom_hline(yintercept = 0, colour = CLINEGO_THRESHOLD, linewidth = 0.5) +
+        geom_boxplot(outlier.shape = NA, width = 0.6, colour = CLINEGO_COL$secondary) +
         geom_jitter(aes(colour = arch), width = 0.15, height = 0, size = 1.4, alpha = 0.55) +
         coord_flip() + facet_wrap(~ method_label, nrow = 1) +
-        scale_color_adaptogene(name = NULL) +
+        scale_color_clinego(name = NULL) +
         labs(x = NULL, y = "accuracy minus the QTN oracle, paired within replicate") +
-        theme_adaptogene_grid(),
+        theme_clinego_grid(),
         "F3_paired_vs_oracle", 13, 5.2)
     reg("F3", "figure", "Every panel scored against the true-QTN oracle, paired within replicate",
         paste0(OFF, "/phase1_seed_medians_solo.tsv"),
@@ -705,13 +705,13 @@ if (!is.null(tau)) {
     emit(f4s, "F4_panel_stability")
     save_fig(ggplot(f4s, aes(reorder(panel, -spread), spread, fill = aggregation)) +
         geom_col(width = 0.68, position = position_dodge(width = 0.75)) + coord_flip() +
-        scale_fill_manual(values = c(ADAPT_RETAINED, ADAPT_THRESHOLD), name = NULL) +
+        scale_fill_manual(values = c(CLINEGO_RETAINED, CLINEGO_THRESHOLD), name = NULL) +
         geom_text(aes(label = sprintf("%.3f", spread)),
                   position = position_dodge(width = 0.75), hjust = -0.15, size = 2.7,
-                  colour = ADAPT_COL$fg) +
+                  colour = CLINEGO_COL$fg) +
         scale_y_continuous(expand = expansion(mult = c(0, 0.22))) +
         labs(x = NULL, y = "accuracy range across the three architectures") +
-        theme_adaptogene() + theme(legend.position = "bottom", legend.direction = "vertical"),
+        theme_clinego() + theme(legend.position = "bottom", legend.direction = "vertical"),
         "F4_panel_stability", 9.5, 5.2)
     reg("F4", "figure",
         "Architecture-to-architecture spread of each panel, under two aggregations that disagree",
@@ -780,15 +780,15 @@ if (!is.null(tau)) {
                 rho_tab[estimand == "pooled_seed_x_panel", spearman_rho]))
 
         save_fig(ggplot(f5l, aes(x, accuracy)) +
-            geom_line(aes(group = seed), colour = ADAPT_NEUTRAL, alpha = 0.3,
+            geom_line(aes(group = seed), colour = CLINEGO_NEUTRAL, alpha = 0.3,
                       linewidth = 0.3) +
             geom_point(aes(colour = arch), size = 1.6, alpha = 0.8) +
             geom_text(data = ann, aes(x = Inf, y = Inf, label = lab), inherit.aes = FALSE,
-                      hjust = 1.05, vjust = 1.25, size = 2.9, colour = ADAPT_COL$fg) +
+                      hjust = 1.05, vjust = 1.25, size = 2.9, colour = CLINEGO_COL$fg) +
             facet_wrap(~ x_metric, scales = "free_x", nrow = 1) +
-            scale_color_adaptogene(name = NULL) +
+            scale_color_clinego(name = NULL) +
             labs(x = NULL, y = expression("offset accuracy ("*-tau*")")) +
-            theme_adaptogene_grid(),
+            theme_clinego_grid(),
             "F5_detection_vs_prediction", 13, 5)
         reg("F5", "figure",
             "Detection metrics against prediction accuracy, one line per replicate",
@@ -813,14 +813,14 @@ if (!is.null(tau)) {
     save_fig(ggplot(f6l, aes(x, accuracy)) +
         geom_point(aes(colour = arch), size = 1.5, alpha = 0.7) +
         geom_smooth(method = "lm", formula = y ~ x, se = FALSE,
-                    colour = ADAPT_THRESHOLD, linewidth = 0.6) +
+                    colour = CLINEGO_THRESHOLD, linewidth = 0.6) +
         geom_text(data = rho6a, aes(x = Inf, y = Inf, label = sprintf("rho = %.2f", rho)),
                   inherit.aes = FALSE, hjust = 1.05, vjust = 1.5, size = 3,
-                  colour = ADAPT_COL$fg) +
+                  colour = CLINEGO_COL$fg) +
         facet_wrap(~ property, scales = "free_x", nrow = 1) +
-        scale_color_adaptogene(name = NULL) +
+        scale_color_clinego(name = NULL) +
         labs(x = NULL, y = expression("offset accuracy ("*-tau*")")) +
-        theme_adaptogene_grid(),
+        theme_clinego_grid(),
         "F6_what_predicts_accuracy", 13, 4.8)
     reg("F6", "figure", "Replicate properties against offset accuracy (local adaptation vs Fst)",
         paste0(OFF, "/phase1_seed_medians_solo.tsv; mvp_seeds.tsv"),
@@ -902,13 +902,13 @@ if (!is.null(pr)) {
         geom_col(width = 0.72) +
         geom_text(data = unique(f8[, .(panel, arch, markers, accuracy)]),
                   aes(x = panel, y = markers, label = sprintf("acc %.2f", accuracy)),
-                  inherit.aes = FALSE, hjust = -0.12, size = 2.8, colour = ADAPT_COL$fg) +
+                  inherit.aes = FALSE, hjust = -0.12, size = 2.8, colour = CLINEGO_COL$fg) +
         coord_flip() + facet_wrap(~ arch, nrow = 1, scales = "free_x") +
         scale_y_continuous(expand = expansion(mult = c(0, 0.3))) +
-        scale_fill_manual(values = c(ADAPT_RETAINED, ADAPT_THRESHOLD, ADAPT_REMOVED),
+        scale_fill_manual(values = c(CLINEGO_RETAINED, CLINEGO_THRESHOLD, CLINEGO_REMOVED),
                           name = NULL) +
         labs(x = NULL, y = "markers in the panel (mean across replicates)") +
-        theme_adaptogene_grid(),
+        theme_clinego_grid(),
         "F8_panel_composition_absolute", 13.5, 5.4)
     reg("F8", "figure",
         "Absolute causal / linked / background composition of each offset marker panel, with the accuracy it achieves",
@@ -929,10 +929,10 @@ if (!is.null(novc)) {
     save_fig(ggplot(nv, aes(dev, -tau_med, colour = panel, group = panel)) +
         geom_line(linewidth = 0.7) + geom_point(size = 1.6) +
         facet_wrap(~ method_label, nrow = 1) +
-        scale_color_manual(values = adapt_cluster_palette(uniqueN(nv$panel)), name = NULL) +
+        scale_color_manual(values = clinego_cluster_palette(uniqueN(nv$panel)), name = NULL) +
         labs(x = "climate novelty (deviation from the training range)",
              y = expression("offset accuracy ("*-tau*")")) +
-        theme_adaptogene_grid(),
+        theme_clinego_grid(),
         "F7_climate_novelty", 13, 4.6)
     reg("F7", "figure", "Offset accuracy as climate moves outside the training range",
         paste0(OFF, "/novelty_curve.tsv"), "12 replicates (earlier generation); open disagreement with the source paper")
@@ -948,12 +948,12 @@ if (!is.null(pubcmp)) {
     g <- pubcmp[!is.na(published) & !is.na(ours_default_c3)]
     if (nrow(g)) save_fig(ggplot(g, aes(published, ours_default_c3, colour = method,
                                         shape = axis)) +
-        geom_abline(slope = 1, intercept = 0, colour = ADAPT_THRESHOLD, linewidth = 0.4) +
+        geom_abline(slope = 1, intercept = 0, colour = CLINEGO_THRESHOLD, linewidth = 0.4) +
         geom_point(size = 2.8, alpha = 0.9) +
-        scale_color_adaptogene(name = NULL) +
+        scale_color_clinego(name = NULL) +
         labs(x = "AUC-PR reported by Lotterhos 2023",
              y = "AUC-PR, this pipeline at the default rung") +
-        theme_adaptogene(),
+        theme_clinego(),
         "G1_published_vs_ours", 8, 6)
     reg("G1", "figure", "Our AUC-PR against the values published for the same replicates",
         "report/published_comparison.tsv",

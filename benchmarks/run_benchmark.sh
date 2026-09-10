@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# run_benchmark.sh — Headless end-to-end ADAPTOGENE pipeline run for benchmarking.
+# run_benchmark.sh — Headless end-to-end CLINE-GO pipeline run for benchmarking.
 #
 # Chains Snakemake modes sequentially (never parallel — all modes share one results dir/lock).
 # Runs: processing → prestructure → structure → gea → [promote_snp_set] → maladaptation
@@ -10,7 +10,7 @@
 #   configfile    Path to config YAML (e.g. config_SIMDATA_custom.yaml)
 #   set_name      SNP set name for maladaptation (default: "gea_sig")
 #                 Must match Maladaptation.snp_sets in the configfile.
-#   docker_image  Docker image tag (default: adaptogene:latest)
+#   docker_image  Docker image tag (default: cline-go:latest)
 #   cpu           Number of cores (default: 4)
 #
 # DEFERRED (Phase 4/5 — requires Gate G1 dataset deep-research):
@@ -23,7 +23,7 @@ set -euo pipefail
 
 CONFIGFILE="${1:?Usage: $0 <configfile> [set_name] [docker_image] [cpu]}"
 SET_NAME="${2:-gea_sig}"
-DOCKER_IMAGE="${3:-adaptogene:latest}"
+DOCKER_IMAGE="${3:-cline-go:latest}"
 CPU="${4:-4}"
 
 # ── Derive project name from config ──────────────────────────────────────────
@@ -44,7 +44,7 @@ INTER_DIR="${RESULTS_DIR}/_intermediate"
 SNP_SETS_DIR="${INTER_DIR}/snp_sets"
 
 echo "========================================================"
-echo "  ADAPTOGENE headless benchmark"
+echo "  CLINE-GO headless benchmark"
 echo "  Config:   $CONFIGFILE"
 echo "  Project:  $PROJECT"
 echo "  SNP set:  $SET_NAME"

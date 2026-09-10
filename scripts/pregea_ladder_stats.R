@@ -78,10 +78,24 @@ stats_one_trait <- function(pvec, trait_name) {
     chisq1 <- suppressWarnings(qchisq(pvec_nona, df = 1, lower.tail = FALSE))
     lambda <- stats::median(chisq1, na.rm = TRUE) / qchisq(0.5, df = 1)
 
+    # LEA's lfmm2.test(genomic.control = TRUE) divides the chi-sq statistics by
+    # the GIF WHATEVER it is, with no floor at 1 — and so does this project's own
+    # reimplementation of the same quantity in benchmarks/lib_detection.R:77,
+    # which is what scores the pipeline against ground truth. A max(lambda, 1)
+    # floor used to sit here; it silently turned APPLY_GC into a no-op on every
+    # DEFLATED rung (lambda < 1), which is exactly the regime this project lives
+    # in (EMMAX deflation under high selfing; over-corrected high-K LFMM rungs,
+    # the ones classify_shape() calls "depleted"). Since production LFMM runs
+    # with genomic.control = TRUE, the floored hit counts were NOT "what the
+    # production run would produce" — the stated purpose of applying GC here.
+    # Measured on a synthetic deflated null at lambda = 0.90, Bonferroni 0.05,
+    # 200k tests: 79 hits floored vs 100 unfloored, a 21% understatement of the
+    # metric the ladder plots and pregea_recommend.R read.
     if (APPLY_GC) {
-        lambda_use <- max(lambda, 1)   # never artificially deflate further
+        lambda_use <- if (is.finite(lambda) && lambda > 0) lambda else 1
         p_for_hits <- pchisq(chisq1 / lambda_use, df = 1, lower.tail = FALSE)
     } else {
+        lambda_use <- NA_real_
         p_for_hits <- pvec_nona
     }
 
@@ -113,9 +127,15 @@ stats_one_trait <- function(pvec, trait_name) {
 
     data.table(
         trait  = trait_name,
-        metric = c("n_tests", "lambda_gc", "hits_bonf", "hits_qval",
+        metric = c("n_tests", "lambda_gc", "lambda_gc_applied",
+                  "hits_bonf", "hits_qval",
                   "hist_flatness_ks", "hist_spike0", "frac_p_gt_half", "hist_shape"),
+        # lambda_gc      = the rung's raw inflation factor (diagnostic)
+        # lambda_gc_applied = the divisor actually used for hits_* (NA when
+        #                   APPLY_GC is FALSE) — without it the hit columns
+        #                   cannot be audited against the production run.
         value  = c(as.character(n_tests), as.character(lambda),
+                  as.character(lambda_use),
                   as.character(hits_bonf), as.character(hits_qval),
                   as.character(hist_flatness_ks), as.character(first_ratio > 1.3),
                   as.character(frac_p_gt_half), hist_shape)

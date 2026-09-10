@@ -12,7 +12,7 @@
 # no unscored DONE markers remain.
 set -uo pipefail
 
-PIPELINE_ROOT="${PIPELINE_ROOT:-/mnt/data/eugene/ADAPTOGENE}"
+PIPELINE_ROOT="${PIPELINE_ROOT:-/mnt/data/eugene/CLINE-GO}"
 LOG="${1:-$PIPELINE_ROOT/benchmarks/mvp_eval/sweep_run4.log}"
 CELLS="${2:-5}"
 MANIFEST="$PIPELINE_ROOT/benchmarks/mvp_seeds.tsv"

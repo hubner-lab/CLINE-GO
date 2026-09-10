@@ -23,7 +23,7 @@
 #   {SNP_SETS_DIR}/{SET_NAME}/selected_snps.tsv  — canonical SNP set (SNPID, chr, pos, min_pvalue)
 #   {SNP_SETS_DIR}/manifest.json                  — upserted with this set's entry (Shiny-compatible)
 #
-# Manifest contract (shared with scripts/adaptogene.app/R/fct_snp_sets.R):
+# Manifest contract (shared with scripts/clinego.app/R/fct_snp_sets.R):
 #   {SNP_SETS_DIR}/manifest.json  — JSON array of objects:
 #     { name, n_snps, created, source_module }
 #   Written by this script OR by Shiny save_snp_set(); pipeline resolves sets by glob only.
@@ -108,7 +108,7 @@ message("INFO: SNP set written → ", tsv_path)
 #=============================================================================
 # Upsert manifest.json (atomic write: tempfile → rename)
 # Manifest schema: JSON array of { name, n_snps, created, source_module, ... }
-# Mirrors .write_manifest_atomic() in scripts/adaptogene.app/R/fct_snp_sets.R
+# Mirrors .write_manifest_atomic() in scripts/clinego.app/R/fct_snp_sets.R
 #=============================================================================
 manifest_path <- file.path(SNP_SETS_DIR, "manifest.json")
 dir.create(dirname(manifest_path), recursive = TRUE, showWarnings = FALSE)

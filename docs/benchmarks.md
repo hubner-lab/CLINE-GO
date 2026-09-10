@@ -1,4 +1,4 @@
-# ADAPTOGENE Benchmark Datasets
+# CLINE-GO Benchmark Datasets
 
 Benchmark datasets for validating GWAS, GEA, and maladaptation analysis. Each dataset targets a different sequencing technology, organism, and pipeline mode combination.
 
@@ -143,7 +143,7 @@ bcftools stats balsam_core336inds_42pops.vcf.gz | grep "number of SNPs"
 ## Benchmark Comparison Plan
 
 ### For each dataset:
-1. Run ADAPTOGENE pipeline (appropriate modes)
+1. Run CLINE-GO pipeline (appropriate modes)
 2. Extract significant regions from `regions_combined.tsv`
 3. Check if known ground truth loci fall within identified regions
 4. For maladaptation: visually compare genetic offset spatial patterns

@@ -18,7 +18,7 @@ library(terra)
 library(stringr)
 library(ggplot2)
 
-source("/pipeline/scripts/R/utils/theme_adaptogene.R")
+source("/pipeline/scripts/R/utils/theme_clinego.R")
 source("/pipeline/scripts/R/utils/emmax_core.R")  # load_pca_covariates() — condition_pcs > 0 only
 
 args <- commandArgs(trailingOnly = TRUE)
@@ -394,7 +394,7 @@ tryCatch({
     names(contrib) <- v
     png(OUT_IMPORTANCE, width = 800, height = 500)
     par(mar = c(8, 4, 3, 1))
-    barplot(sort(contrib, decreasing = TRUE), las = 2, col = ADAPT_RETAINED,
+    barplot(sort(contrib, decreasing = TRUE), las = 2, col = CLINEGO_RETAINED,
             main = 'RDA Offset: Predictor Contribution',
             ylab = 'Weighted |biplot loading|', cex.names = 0.85)
     dev.off()
@@ -418,11 +418,11 @@ eig_dt <- merge(eig_dt, axis_p_dt, by = "axis", all.x = TRUE)
 g_scree <- ggplot(eig_dt, aes(x = factor(axis), y = eigenvalue, fill = retained)) +
     geom_col() +
     geom_text(aes(label = ifelse(!is.na(p), sprintf("p=%.3g", p), "")),
-              vjust = -0.3, size = 3, color = ADAPT_COL$fg) +
-    scale_fill_manual(values = c(`TRUE` = ADAPT_RETAINED, `FALSE` = ADAPT_REMOVED), guide = "none") +
+              vjust = -0.3, size = 3, color = CLINEGO_COL$fg) +
+    scale_fill_manual(values = c(`TRUE` = CLINEGO_RETAINED, `FALSE` = CLINEGO_REMOVED), guide = "none") +
     labs(x = "Constrained axis", y = "Eigenvalue", title = "RDA offset constrained eigenvalues",
          subtitle = paste0("K=", K_sel, " (", K_selection, "), K_max=", K_max)) +
-    theme_adaptogene()
+    theme_clinego()
 ggsave(file.path(PLOT_DIR, "rda_axis_screeplot.png"), g_scree, width = 7, height = 5, dpi = 300)
 ggsave(file.path(PLOT_DIR, "rda_axis_screeplot.svg"), g_scree, width = 7, height = 5,
        device = svglite::svglite, bg = "transparent")

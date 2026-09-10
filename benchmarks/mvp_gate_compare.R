@@ -32,7 +32,7 @@ suppressPackageStartupMessages({
     library(tools)
 })
 
-ROOT <- Sys.getenv("PIPELINE_ROOT", "/mnt/data/eugene/ADAPTOGENE")
+ROOT <- Sys.getenv("PIPELINE_ROOT", "/mnt/data/eugene/CLINE-GO")
 args <- commandArgs(trailingOnly = TRUE)
 kv <- function(k, d = NULL) {
     hit <- grep(paste0("^--", k, "="), args, value = TRUE)

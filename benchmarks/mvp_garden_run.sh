@@ -24,8 +24,8 @@
 #   GARDENS: 'all' | an integer N (first N gardens) | a comma list of garden_ids
 set -uo pipefail
 
-ROOT="${PIPELINE_ROOT:-/mnt/data/eugene/ADAPTOGENE}"
-IMAGE="${IMAGE:-adaptogene:latest}"
+ROOT="${PIPELINE_ROOT:-/mnt/data/eugene/CLINE-GO}"
+IMAGE="${IMAGE:-cline-go:latest}"
 SEEDS_ARG="${1:-all}"
 PARALLEL="${2:-14}"
 CPUS_PER_SEED="${3:-8}"
@@ -70,7 +70,7 @@ trap 'kill "$WATCHDOG_PID" 2>/dev/null' EXIT
 # ---- one snakemake invocation ----------------------------------------------
 snake() {   # snake <container_name> <configfile> <logfile> <cores>
     "${DOCKER[@]}" run --user "$(id -u):$(id -g)" --rm --name "$1" \
-        -e USER=adaptogene -e OPENBLAS_NUM_THREADS="$BLAS_THREADS" \
+        -e USER=cline-go -e OPENBLAS_NUM_THREADS="$BLAS_THREADS" \
         -e OMP_NUM_THREADS="$BLAS_THREADS" \
         --cpus="$CPUS_PER_SEED" --memory="$MEM_PER_SEED" \
         -v "$ROOT:/pipeline" "$IMAGE" \
@@ -109,7 +109,7 @@ run_seed() {
     # a stale lock at seed start is a corpse: this driver is the only writer of MVP* projects
     if [[ -d "$res/.snakemake/locks" ]] && [[ -n "$(ls -A "$res/.snakemake/locks" 2>/dev/null)" ]]; then
         echo "[$proj] clearing stale snakemake lock" | tee -a "$log"
-        "${DOCKER[@]}" run --user "$(id -u):$(id -g)" --rm -e USER=adaptogene \
+        "${DOCKER[@]}" run --user "$(id -u):$(id -g)" --rm -e USER=cline-go \
             -v "$ROOT:/pipeline" "$IMAGE" \
             snakemake -s Snakefile --unlock --config mode=maladaptation \
                 --configfile "config_${proj}_g.yaml" >> "$log" 2>&1

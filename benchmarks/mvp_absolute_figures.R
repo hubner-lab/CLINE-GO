@@ -17,7 +17,7 @@
 
 suppressPackageStartupMessages({library(data.table); library(ggplot2)})
 PIPELINE_ROOT <- Sys.getenv("PIPELINE_ROOT", "/pipeline")
-source(file.path(PIPELINE_ROOT, "scripts/R/utils/theme_adaptogene.R"))
+source(file.path(PIPELINE_ROOT, "scripts/R/utils/theme_clinego.R"))
 # Which scored offset root to read. Defaults to offset09, the 32-replicate run, so an
 # unparameterised call reproduces the frozen figure set; a new cohort passes OFFSET_DIR.
 OFF <- Sys.getenv("OFFSET_DIR", "offset09")
@@ -72,16 +72,16 @@ CL[, category := factor(category, levels = c("causal","linked","background"),
 pD <- ggplot(CL, aes(panel, n, fill = category)) +
     geom_col(width = 0.7) +
     geom_text(data = CM, aes(panel, total, label = as.integer(causal + linked)),
-              inherit.aes = FALSE, vjust = -0.35, size = 2.7, colour = ADAPT_COL$fg) +
+              inherit.aes = FALSE, vjust = -0.35, size = 2.7, colour = CLINEGO_COL$fg) +
     facet_wrap(~ arch, nrow = 1) +
     coord_flip() +
-    scale_fill_manual(values = c(ADAPT_RETAINED, ADAPT_CATEGORICAL[1], ADAPT_REMOVED)) +
+    scale_fill_manual(values = c(CLINEGO_RETAINED, CLINEGO_CATEGORICAL[1], CLINEGO_REMOVED)) +
     scale_y_continuous(expand = expansion(mult = c(0, 0.12))) +
     labs(title = "D. How many markers each selection rule actually delivers",
          subtitle = paste("ABSOLUTE counts, obtainable panels only. Number = usable markers (causal + linked).",
                           "\nEMMAX's high purity is 20% of ~12 markers; >=2-agree is 6% of ~150."),
          x = NULL, y = "markers (median per replicate)", fill = NULL) +
-    theme_adaptogene() +
+    theme_clinego() +
     theme(axis.text.y = element_text(size = 7.5), legend.position = "bottom") +
     guides(fill = guide_legend(nrow = 1))
 ggsave(file.path(OUT, "abs_D_composition_counts.png"), pD, width = 12, height = 5.5, dpi = 300, bg = "white")
@@ -104,11 +104,11 @@ EL[, what := factor(what, levels = c("markers","accuracy"),
 pE <- ggplot(EL, aes(arch, v, colour = panel, group = panel)) +
     geom_line(linewidth = 0.8) + geom_point(size = 2.4) +
     facet_wrap(~ what, scales = "free_y") +
-    scale_colour_manual(values = ADAPT_CATEGORICAL[1:6]) +
+    scale_colour_manual(values = CLINEGO_CATEGORICAL[1:6]) +
     labs(title = "E. Why ≥2-agree wins: it is the only rule that grows with the trait",
          subtitle = "EMMAX shrinks 22→10→5 markers exactly as more are needed, and its accuracy collapses. ≥2-agree grows 140→150→158.",
          x = NULL, y = NULL, colour = NULL) +
-    theme_adaptogene() +
+    theme_clinego() +
     theme(axis.text.x = element_text(size = 7.5)) +
     guides(colour = guide_legend(nrow = 1))
 ggsave(file.path(OUT, "abs_E_size_vs_architecture.png"), pE, width = 12, height = 5.5, dpi = 300, bg = "white")
@@ -122,12 +122,12 @@ FF <- M[, .(usable = as.numeric(median(n_causal + n_linked)), noise = as.numeric
 pF <- ggplot(FF, aes(usable, accuracy, colour = panel, shape = arch)) +
     geom_point(size = 3.4, alpha = 0.9) +
     scale_x_log10() +
-    scale_colour_manual(values = ADAPT_CATEGORICAL[1:8]) +
+    scale_colour_manual(values = CLINEGO_CATEGORICAL[1:8]) +
     labs(title = "F. Too few usable markers is as bad as too many noisy ones",
          subtitle = "x = causal + linked markers in the set (log scale). Each point is one panel in one architecture.",
          x = "usable markers (causal + linked)", y = "prediction accuracy",
          colour = NULL, shape = NULL) +
-    theme_adaptogene() + guides(colour = guide_legend(nrow = 2), shape = guide_legend(nrow = 2))
+    theme_clinego() + guides(colour = guide_legend(nrow = 2), shape = guide_legend(nrow = 2))
 ggsave(file.path(OUT, "abs_F_usable_vs_accuracy.png"), pF, width = 10, height = 6, dpi = 300, bg = "white")
 fwrite(FF, file.path(OUT, "abs_F_usable_vs_accuracy.tsv"), sep = "\t")
 

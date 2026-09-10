@@ -53,7 +53,7 @@ SCOPE="${2:-sweep}"
 INTERVAL_S="${3:-15}"
 MAX_KILLS_PER_CYCLE="${MAX_KILLS_PER_CYCLE:-2}"
 
-PIPELINE_ROOT="${PIPELINE_ROOT:-/mnt/data/eugene/ADAPTOGENE}"
+PIPELINE_ROOT="${PIPELINE_ROOT:-/mnt/data/eugene/CLINE-GO}"
 LOG="$PIPELINE_ROOT/benchmarks/mvp_eval/ram_watchdog.log"
 DOCKER=(nix shell nixpkgs#docker-client -c docker)
 

@@ -82,7 +82,7 @@ rule pregea_kinship_pruned:
     output: W['pregea_kinship']
     params: prefix = f"{WORK_LD}climate/emmax/{VCF_BASE}"
     log:    f"{LOGDIR}pregea/kinship_pruned.log"
-    shell:  "/pipeline/scripts/emmax-kin-intel64 -v -d 10 -x {params.prefix} > {log} 2>&1"
+    shell:  "/pipeline/scripts/emmax_run.sh /pipeline/scripts/emmax-kin-intel64 -v -d 10 -x {params.prefix} > {log} 2>&1"
 
 
 rule pregea_screeplot:
@@ -297,7 +297,7 @@ rule pregea_rda_setup:
     drawn as cumulative adjusted R2 per step with the full-model ceiling (A17).
 
     scripts/pregea_rda_setup.R — REUSES scripts/R/lib/rdadapt.R (extracted
-    from rda.R), emmax_core.R::load_pca_covariates(), theme_adaptogene.R.
+    from rda.R), emmax_core.R::load_pca_covariates(), theme_clinego.R.
     Diagnostics only (Rule 5) — does not call find_sig_snps.R or touch any
     GEA output.
 

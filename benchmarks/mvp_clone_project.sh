@@ -26,7 +26,7 @@
 #         -> creates MVP{SEED}{CLONE_TAG}_results/ and MVP{SEED}{CLONE_TAG}_logs/
 set -euo pipefail
 
-ROOT="${PIPELINE_ROOT:-/mnt/data/eugene/ADAPTOGENE}"
+ROOT="${PIPELINE_ROOT:-/mnt/data/eugene/CLINE-GO}"
 SEED="$1"; TAG="$2"
 SRC="$ROOT/MVP${SEED}_results"
 DST="$ROOT/MVP${SEED}${TAG}_results"

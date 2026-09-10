@@ -21,7 +21,7 @@
 
 suppressPackageStartupMessages(library(data.table))
 
-ROOT <- Sys.getenv("PIPELINE_ROOT", "/mnt/data/eugene/ADAPTOGENE")
+ROOT <- Sys.getenv("PIPELINE_ROOT", "/mnt/data/eugene/CLINE-GO")
 
 args <- commandArgs(trailingOnly = TRUE)
 kv <- function(k, d = NULL) {

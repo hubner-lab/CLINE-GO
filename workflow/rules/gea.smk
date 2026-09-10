@@ -79,7 +79,7 @@ rule kinship_gea:
     params: prefix = f"{WORK_FILT}emmax/{VCF_BASE}"
     log: f"{LOGDIR}gea/kinship_assoc.log"
     shell:
-        "/pipeline/scripts/emmax-kin-intel64 -v -d 10 -x {params.prefix} > {log} 2>&1"
+        "/pipeline/scripts/emmax_run.sh /pipeline/scripts/emmax-kin-intel64 -v -d 10 -x {params.prefix} > {log} 2>&1"
 
 # --- EMMAX climate-coord subset (climate coordinate NA handling) ---
 # EMMAX binds climate values to genotypes positionally (cbind on TFAM row order),
@@ -126,7 +126,7 @@ if "EMMAX" in GEA_OTHER_CONFIGS:
         params: prefix = f"{WORK_FILT}climate/emmax/{VCF_BASE}"
         log: f"{LOGDIR}gea/kinship_gea_climate.log"
         shell:
-            "/pipeline/scripts/emmax-kin-intel64 -v -d 10 -x {params.prefix} > {log} 2>&1"
+            "/pipeline/scripts/emmax_run.sh /pipeline/scripts/emmax-kin-intel64 -v -d 10 -x {params.prefix} > {log} 2>&1"
 
     # EMMAX.kinship='IBS' flavor — a SEPARATE file, never overwriting the BN one
     # above. Only built when configured (GEA_PARAMS gate below), so a config
@@ -142,7 +142,7 @@ if "EMMAX" in GEA_OTHER_CONFIGS:
             params: prefix = f"{WORK_FILT}climate/emmax/{VCF_BASE}"
             log: f"{LOGDIR}gea/kinship_gea_climate_ibs.log"
             shell:
-                "/pipeline/scripts/emmax-kin-intel64 -v -s -d 10 -x {params.prefix} > {log} 2>&1"
+                "/pipeline/scripts/emmax_run.sh /pipeline/scripts/emmax-kin-intel64 -v -s -d 10 -x {params.prefix} > {log} 2>&1"
 
 # =============================================================================
 # GEA Association rules — per-factor caching (Phase 2)

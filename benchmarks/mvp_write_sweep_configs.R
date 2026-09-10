@@ -153,8 +153,16 @@ pad_to <- function(v, n, lo, hi = 20L) {
     v
 }
 
-npc_ladder  <- function(k) pad_to(c(0, round(k / 2), k, 2 * k, min(20, 4 * k)), N_CELLS, lo = 0L)
-lfmm_ladder <- function(k) pad_to(c(k - 2, k - 1, k, k + 2, k + 4),            N_CELLS, lo = 1L)
+# N_CELLS == 1 means "the default rung only" -- the one cell that marker-panel construction
+# reads (is_default = value == k_best, below). pad_to() sorts ascending and keeps the FIRST
+# n rungs, so at n = 1 it would return 0 for the #PC ladder and k-2 for the LFMM ladder,
+# neither of which equals k_best: is_default would be FALSE on every row, default_cell() in
+# mvp_build_snp_sets.R would resolve nothing, and the panels would come out empty AFTER the
+# upstream sweep hours were already spent. Special-case it. At n >= 2 behaviour is unchanged.
+npc_ladder  <- function(k) if (N_CELLS == 1L) as.integer(k) else
+                   pad_to(c(0, round(k / 2), k, 2 * k, min(20, 4 * k)), N_CELLS, lo = 0L)
+lfmm_ladder <- function(k) if (N_CELLS == 1L) as.integer(k) else
+                   pad_to(c(k - 2, k - 1, k, k + 2, k + 4),            N_CELLS, lo = 1L)
 
 # ------------------------------------------------------------- GEA block emitter
 # Methods declared unusable for a given replicate in mvp_method_exclusions.tsv are omitted

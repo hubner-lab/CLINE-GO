@@ -34,7 +34,7 @@ suppressPackageStartupMessages({
     library(ggplot2)
 })
 
-source("/pipeline/scripts/R/utils/theme_adaptogene.R")
+source("/pipeline/scripts/R/utils/theme_clinego.R")
 
 args <- commandArgs(trailingOnly = TRUE)
 ################################################################################
@@ -160,12 +160,12 @@ message("INFO: Wrote ", nrow(out), " sample rows x ", n_mem, " MEM(s) to ", OUT_
 ################################################################################
 eig_dt <- data.table(mem = seq_len(n_mem), eigenvalue = if (!is.null(mem_eigs)) mem_eigs[seq_len(n_mem)] else rep(NA_real_, n_mem))
 g <- ggplot(eig_dt, aes(x = factor(mem), y = eigenvalue)) +
-    geom_col(fill = ADAPT_RETAINED) +
+    geom_col(fill = CLINEGO_RETAINED) +
     labs(x = "MEM", y = "Eigenvalue (Moran's I)",
         title = "dbMEM spatial eigenvector screeplot",
         subtitle = sprintf("site-level | %d positive-autocorrelation MEM(s) | MST threshold=%.1f km",
                            n_mem_positive, threshold / 1000)) +
-    theme_adaptogene()
+    theme_clinego()
 ggsave(OUT_PNG, g, width = 7, height = 5, dpi = 300)
 ggsave(OUT_SVG, g, width = 7, height = 5, device = svglite::svglite, bg = "transparent")
 

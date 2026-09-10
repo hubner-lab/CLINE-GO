@@ -18,7 +18,7 @@ SEEDS_ARG="${2:-all}"
 SEEDS_TSV="$ROOT/benchmarks/mvp_seeds.tsv"
 RAW="$ROOT/data/mvp/raw"
 DOCKER=(nix shell nixpkgs#docker-client -c docker run --user "$(id -u):$(id -g)" --rm
-        -e USER=pipeline -v "$ROOT:/pipeline" adaptogene:latest)
+        -e USER=pipeline -v "$ROOT:/pipeline" cline-go:latest)
 
 if [[ "$SEEDS_ARG" == "all" ]]; then
   mapfile -t SEEDS < <(awk 'NR>1 {print $1}' "$SEEDS_TSV")

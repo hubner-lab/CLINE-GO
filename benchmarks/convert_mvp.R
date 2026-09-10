@@ -1,6 +1,6 @@
 #!/usr/bin/env Rscript
 # convert_mvp.R -- convert ONE MVP simulation replicate (Lotterhos 2023, PNAS
-# 120(12):e2220313120; data BCO-DMO doi:10.26008/1912/bco-dmo.889769.1) into ADAPTOGENE's
+# 120(12):e2220313120; data BCO-DMO doi:10.26008/1912/bco-dmo.889769.1) into CLINE-GO's
 # standard input set, using Climate.source: custom.
 #
 # Usage:

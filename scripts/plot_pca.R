@@ -4,7 +4,7 @@ library(dplyr)
 library(data.table)
 library(qs)
 
-source("/pipeline/scripts/R/utils/theme_adaptogene.R")
+source("/pipeline/scripts/R/utils/theme_clinego.R")
 
 args = commandArgs(trailingOnly=TRUE)
 #################################
@@ -45,11 +45,11 @@ gPCA <- ggplot(isrPCA, aes(x = PC1, y = PC2,
                            color = site)) +
         geom_label() +
         scale_color_manual(name = "Site",
-                           values = adapt_cluster_palette(nlevels(isrPCA$site))) +
+                           values = clinego_cluster_palette(nlevels(isrPCA$site))) +
         xlab("PC1") +
         ylab("PC2") +
         guides(color = guide_legend(ncol=2)) +
-        theme_adaptogene()
+        theme_clinego()
 
 ggsave(OUT_PCA_PNG, gPCA)
 ggsave(OUT_PCA_SVG, gPCA, device = svglite::svglite, bg = 'transparent')
@@ -59,10 +59,10 @@ qsave(gPCA, OUT_PCA_QS)
 tw <- tracy.widom(pc)
 
 gTW <- ggplot(data = tw, aes(x = N, y = percentage)) +
-       geom_point(color = ADAPT_NEUTRAL) +
+       geom_point(color = CLINEGO_NEUTRAL) +
        xlim(1, 25) +
        ggtitle("Tracy Widom") +
-       theme_adaptogene() +
+       theme_clinego() +
        theme(plot.title = element_text(hjust = 0.5))
 
 ggsave(OUT_TRACY_PNG, gTW)

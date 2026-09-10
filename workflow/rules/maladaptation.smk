@@ -191,6 +191,77 @@ rule gradient_forest_random:
             random {output} {params.dbmem_arg} {params.dbmem_sel_arg} > {log} 2>&1
         """
 
+# Gradient Forest - site-allele-frequency model (imputation-sensitivity control)
+rule gradient_forest_frequency:
+    """Refit the adaptive SNP set on site allele frequencies from OBSERVED calls only.
+
+    The ONLY difference from gradient_forest_adaptive is the genotype matrix: this takes
+    W['lfmm_full_climate'] (non-imputed, missing = LEA's sentinel 9) instead of the imputed
+    one, and gradient_forest_model.R aggregates it to one row per site using
+    mean(x[x != 9]) / 2 -- so no genotype is ever invented. The plumbing already exists:
+    subset_lfmm_climate (processing.smk) is generic over its `variant` wildcard and already
+    accepts 'lfmm_full'; it simply had no consumer until now.
+
+    Site frequencies are the canonical GF response unit (Fitzpatrick & Keller 2015,
+    Ecol Lett 18:1-16, doi:10.1111/ele.12376), so this is the textbook parameterisation run
+    as a control on the imputed one -- not an exotic variant. Individual-level fitting is
+    NOT wrong (Lind & Lotterhos 2025, Am Nat 207(3), doi:10.1086/739098, find genotype-based
+    models can beat frequency-based ones off strict clines); the point of running both is
+    that agreement between them is evidence the imputation did not decide the answer."""
+    input:
+        lfmm    = W['lfmm_full_climate'],
+        sigsnps = lambda wc: snp_set_file(wc.run_label),
+        vcfsnp  = W['vcfsnp_full'],
+        removed = W['removed_full'],
+        samples = W['metadata_climate_valid'],
+        climate = O['climate_site'],
+        dbmem          = lambda wc: O['climate_dbmem_vectors'] if wc.spatial_tag == 'spatial' else [],
+        dbmem_selected = lambda wc: O['climate_vp_selected']   if wc.spatial_tag == 'spatial' else []
+    output: mala_model('gradient_forest', '{run_label}', '{spatial_tag}', 'frequency')
+    params:
+        predictors    = PREDICTORS_SELECTED,
+        ntree         = NTREE,
+        cor_threshold = COR_THRESHOLD,
+        pcnm          = lambda wc: 'with' if wc.spatial_tag == 'spatial' else 'without',
+        dbmem_arg     = lambda wc, input: input.dbmem          if wc.spatial_tag == 'spatial' else 'NULL',
+        dbmem_sel_arg = lambda wc, input: input.dbmem_selected if wc.spatial_tag == 'spatial' else 'NULL',
+        min_calls     = GF_FREQ_MIN_CALLS
+    log: f"{LOGDIR}maladaptation/gradient_forest_frequency_{{run_label}}_{{spatial_tag}}.log"
+    shell:
+        """
+        Rscript /pipeline/scripts/gradient_forest_model.R \
+            {input.lfmm} {input.sigsnps} {input.vcfsnp} {input.removed} \
+            {input.samples} {input.climate} {params.predictors} \
+            {params.ntree} {params.cor_threshold} {params.pcnm} \
+            adaptive {output} {params.dbmem_arg} {params.dbmem_sel_arg} \
+            site_frequency {params.min_calls} > {log} 2>&1
+        """
+
+# Imputation-sensitivity check — compares the two fits above.
+rule gf_sensitivity_check:
+    """Compare the imputed individual-level GF with the observed-only site-frequency GF.
+
+    Writes a long key/value TSV (same shape as geometric_offset_diagnostics.tsv) carrying a
+    status of pass / warning / fail / not_run, which the Shiny maladaptation tab renders as a
+    traffic-light badge. This is a TABLE, not a plot, so it is never gated on
+    Maladaptation.emit_plots -- the status is the deliverable."""
+    input:
+        imputed      = mala_model('gradient_forest', '{run_label}', '{spatial_tag}', 'adaptive'),
+        frequency    = mala_model('gradient_forest', '{run_label}', '{spatial_tag}', 'frequency'),
+        clim_present = O['climate_site'],
+        clim_future  = climate_future_site(DEFAULT_SCENARIO)
+    output: mala_sensitivity('gradient_forest', '{run_label}', '{spatial_tag}')
+    params:
+        predictors = PREDICTORS_SELECTED,
+        samples    = W['metadata_climate_valid']
+    log: f"{LOGDIR}maladaptation/gf_sensitivity_check_{{run_label}}_{{spatial_tag}}.log"
+    shell:
+        """
+        Rscript /pipeline/scripts/gf_sensitivity_check.R \
+            {input.imputed} {input.frequency} {input.clim_present} {input.clim_future} \
+            {params.predictors} {params.samples} {output} > {log} 2>&1
+        """
+
 # Genetic offset calculation — all scenarios in one job.
 # Multi-output by design: the model load and the present-climate prediction are
 # scenario-invariant and dominate runtime on small SNP panels, so one job projects

@@ -31,7 +31,7 @@ Implementation order is strict:
 
 ## Project Overview
 
-ADAPTOGENE is a Dockerized, Snakemake-based bioinformatics pipeline for population genomics performing VCF preprocessing, population structure analysis (PCA, sNMF), GWAS/GEA (EMMAX, LFMM), and maladaptation assessment (Gradient Forest).
+CLINE-GO is a Dockerized, Snakemake-based bioinformatics pipeline for population genomics performing VCF preprocessing, population structure analysis (PCA, sNMF), GWAS/GEA (EMMAX, LFMM), and maladaptation assessment (Gradient Forest).
 
 ## Pipeline Philosophy
 
@@ -39,7 +39,7 @@ ADAPTOGENE is a Dockerized, Snakemake-based bioinformatics pipeline for populati
 
 Biological data is messy. Different tools and file formats introduce inconsistencies (chr1 vs 1 vs 1H, silent format changes, mismatched identifiers).
 
-**ADAPTOGENE's approach**:
+**CLINE-GO's approach**:
 1. **Normalize early, normalize consistently** - Standardize at the earliest step
 2. **Enforce consistency across all outputs** - All outputs maintain same standards
 3. **Fail loudly, not silently** - Error early rather than propagate bad data
@@ -62,22 +62,22 @@ Biological data is messy. Different tools and file formats introduce inconsisten
 
    **Exception**: an empty-state placeholder that IS the entire plot content when there's no data to show (e.g. "Not enough samples for relatedness MDS") is fine to keep on-plot — it's not commentary layered on top of real data, matching the `plot_placeholder()` convention used elsewhere in the app.
 
-9. **Use the shared theme for new plots** — `scripts/R/utils/theme_adaptogene.R` (`source()` it, same pattern as `scripts/R/utils/manhattan_utils.R`) defines the pipeline's plot look, rolled out to `plot_qc_processing.R` first and intended to extend to the rest of `scripts/*.R` over time. Reuse it rather than inventing per-script themes/palettes:
-   - `theme_adaptogene()` — "Publication Classic": `theme_classic()` base (axis lines, no gridlines), no `base_family` (Docker ships no fonts; setting one silently falls back to default sans while implying a match that isn't there).
-   - Semantic colors (from `wesanderson::wes_palette("Rushmore1")`'s last 3 entries, user preference) — always use these constants, never raw hex, so meaning stays consistent everywhere: `ADAPT_RETAINED` (green `#0B775E`, also aliased as `ADAPT_NEUTRAL` for plain/no-flag data points — no grey dots by request), `ADAPT_REMOVED` (red `#F2300F`, flagged/dropped/discarded), `ADAPT_THRESHOLD` (dark plum `#35274A`, cutoff/reference lines).
-   - `ADAPT_CATEGORICAL` — Okabe-Ito colorblind-safe palette + `scale_color_adaptogene()`/`scale_fill_adaptogene()`, for multi-level categorical grouping (traits, methods, etc.) — converges the palette already duplicated across `manhattan_utils.R`/`fct_manhattan.R`/`mod_gea.R`.
+9. **Use the shared theme for new plots** — `scripts/R/utils/theme_clinego.R` (`source()` it, same pattern as `scripts/R/utils/manhattan_utils.R`) defines the pipeline's plot look, rolled out to `plot_qc_processing.R` first and intended to extend to the rest of `scripts/*.R` over time. Reuse it rather than inventing per-script themes/palettes:
+   - `theme_clinego()` — "Publication Classic": `theme_classic()` base (axis lines, no gridlines), no `base_family` (Docker ships no fonts; setting one silently falls back to default sans while implying a match that isn't there).
+   - Semantic colors (from `wesanderson::wes_palette("Rushmore1")`'s last 3 entries, user preference) — always use these constants, never raw hex, so meaning stays consistent everywhere: `CLINEGO_RETAINED` (green `#0B775E`, also aliased as `CLINEGO_NEUTRAL` for plain/no-flag data points — no grey dots by request), `CLINEGO_REMOVED` (red `#F2300F`, flagged/dropped/discarded), `CLINEGO_THRESHOLD` (dark plum `#35274A`, cutoff/reference lines).
+   - `CLINEGO_CATEGORICAL` — Okabe-Ito colorblind-safe palette + `scale_color_clinego()`/`scale_fill_clinego()`, for multi-level categorical grouping (traits, methods, etc.) — converges the palette already duplicated across `manhattan_utils.R`/`fct_manhattan.R`/`mod_gea.R`.
 
 ## Build and Run Commands
 
 ### Build Docker Image
 ```bash
-docker build -t adaptogene .
+docker build -t cline-go .
 ```
 Rebuild required after any Dockerfile or R package version change.
 
 ### Run Pipeline (SIMDATA — main testing dataset)
 ```bash
-docker run --user $(id -u):$(id -g) --rm --memory=20g -v $PWD:/pipeline adaptogene:latest \
+docker run --user $(id -u):$(id -g) --rm --memory=20g -v $PWD:/pipeline cline-go:latest \
   snakemake -c4 -s Snakefile --config mode=<MODE> --configfile config_SIMDATA.yaml --scheduler greedy
 ```
 
@@ -85,18 +85,18 @@ docker run --user $(id -u):$(id -g) --rm --memory=20g -v $PWD:/pipeline adaptoge
 No default config file for this anymore (see Test Datasets below) — create a
 `config_<PROJECT>.yaml` naming the project after its actual VCF before running:
 ```bash
-docker run --user $(id -u):$(id -g) --rm --memory=20g -v $PWD:/pipeline adaptogene:latest \
+docker run --user $(id -u):$(id -g) --rm --memory=20g -v $PWD:/pipeline cline-go:latest \
   snakemake -c4 -s Snakefile --config mode=<MODE> --configfile config_<PROJECT>.yaml --scheduler greedy
 ```
 
 ### Interactive Docker Entry
 ```bash
-docker run -w /pipeline --user $(id -u):$(id -g) -it -v $PWD:/pipeline adaptogene bash
+docker run -w /pipeline --user $(id -u):$(id -g) -it -v $PWD:/pipeline cline-go bash
 ```
 
 ### Dry Run (check what would execute)
 ```bash
-docker run --user $(id -u):$(id -g) --rm -v $PWD:/pipeline adaptogene:latest \
+docker run --user $(id -u):$(id -g) --rm -v $PWD:/pipeline cline-go:latest \
   snakemake -n -s Snakefile --config mode=<MODE> --configfile config_SIMDATA.yaml --scheduler greedy
 ```
 
@@ -246,7 +246,7 @@ Real-data projects (e.g. a specific WGS/GBS dataset) are **additional, on-demand
 1. `Rscript scripts/generate_simdata.R data/` — writes **only** `data/SIMDATA.vcf` and `data/SIMDATA.gff3`
 2. **Write `data/SIMDATA_metadata.tsv` by hand** — the generator does not produce it. Columns must be exactly `site sample latitude longitude height flowering_time disease_score` (both injector scripts below hardcode those trait names), sample names `NEG01-10`/`TAV01-10`/`GAL01-10`, and coordinates **identical within a site** (Negev 30.854/34.7826, TelAviv 32.0837/34.7817, Galilee 33.0128/35.4985) — `add_pregea_sites.R:74` asserts exactly 3 distinct `(site, lat, lon)` triples and dies otherwise
 3. `Rscript scripts/add_related_samples.R` **then** `Rscript scripts/add_pregea_sites.R` — that order matters: the second excludes `_DUP` samples from its IDW anchor set
-4. Write `config_SIMDATA.yaml` from `scripts/adaptogene.app/inst/config_default.yaml`; `sNMF.k_best: 3` is ground truth (3 simulated ancestral populations), not a cross-entropy guess
+4. Write `config_SIMDATA.yaml` from `scripts/clinego.app/inst/config_default.yaml`; `sNMF.k_best: 3` is ground truth (3 simulated ancestral populations), not a cross-entropy guess
 5. WorldClim: `data/wc2.1_30s/` is a cached 11 GB global extract — as long as it is present, `mode=structure` does no download
 
 **Testing workflow**:
@@ -287,11 +287,14 @@ here is QEMU emulation, and some things simply do not work. **Verified 2026-08-2
 
 | What | Symptom on mac-studio | Where it does work |
 |---|---|---|
-| `emmax-kin-intel64` / `emmax-intel64` | **Hangs forever** after `Identified N individuals` / `nex = 0`. No crash, no exit — a `docker run` sits there until killed. | Linux (x86) |
-| `mode=pregea` (end to end) | Dies at `pregea_kinship_pruned`, which is upstream of everything else. Sub-targets that avoid the EMMAX branch DO run — e.g. `snakemake … <file>` for `PreGEA/tables/rda/rda_predictor_collinearity.tsv`. | Linux |
-| `mode=gwas`, `mode=gea` with EMMAX in `association.configs` | Same hang. GAPIT/LFMM/RDA methods are unaffected. | Linux |
+| `emmax-kin-intel64` / `emmax-intel64` | Used to **hang forever** after `Identified N individuals` / `nex = 0` — no crash, no exit, `docker run` sat there until killed. Every call site now goes through `scripts/emmax_run.sh`, which refuses to launch on an emulated x86-64 host and **fails in under a second** with the reason. Override for experiments: `-e ADAPTOGENE_ALLOW_EMULATED_EMMAX=1` (pins Intel OpenMP/MKL to one thread; may still hang). | Linux (x86) |
+| `mode=pregea` (end to end) | Fails at `pregea_kinship_pruned` (the EMMAX preflight, immediately — no longer a hang), which is upstream of `pregea_emmax_ladder` → `pregea_recommend`. The LFMM ladder, the RDA setup and the screeplot have no EMMAX dependency, so sub-targets that avoid that branch DO run — e.g. `snakemake … <file>` for `PreGEA/tables/rda/rda_predictor_collinearity.tsv`. **Still never verified end to end on any machine.** | Linux |
+| `mode=gwas`, `mode=gea` with EMMAX in `association.configs` | Same preflight failure (was: same hang). GAPIT/LFMM/RDA methods are unaffected. | Linux |
 | `docker build` | Random `gcc: internal compiler error: Segmentation fault … cc1` under QEMU, a different package each time. Retry — layers that compiled are cached, so each attempt resumes. ~11+ min. | native x86 |
-| `-c4` on a heavy mode | OOM-kills the container (exit 137) inside the 16 GiB VM. Use `-c2 --memory<=10g`. A kill also leaves a Snakemake lock → `snakemake --unlock` (see Known Quirks). | bigger box |
+| `-c4` on a heavy mode | OOM-kills the container (exit 137) inside the 16 GiB VM. Use `--workflow-profile workflow/profiles/lowmem` (cores 2 + a `mem_mb` budget that bounds concurrency; no rule declares `resources:` otherwise, so `-cN` is the only dial and it ignores memory entirely). A kill also leaves a Snakemake lock → `snakemake --unlock` (see Known Quirks). | bigger box |
+
+**Always pass `--name` to `docker run` on this machine.** `--rm` removes a container that *exits*; killing the docker **client** (Ctrl-C, a timeout) leaves the **container** running, still holding the `{PROJECT}_results/` lock. Three orphans once fought over one results directory before anyone noticed. With `--name adaptogene-run` the orphan is one `docker stop adaptogene-run` away; without it, `docker ps` and guesswork.
+
 
 Per-architecture EMMAX binaries do **not** fix this: architecture is a property of the
 image, so inside an amd64 container `uname -m` is always `x86_64` and the arm64 binary
@@ -466,20 +469,20 @@ To add a new output: add to the appropriate dict/function, add to `get_targets()
 - `scattermore` is used via `association.scattermore_threshold` (default 30,000) to downsample non-sig SNPs in Manhattan plots
 - `ld_prune` sed pattern uses `0_0_` while `filter_vcf` and `subset_vcf_pheno` use `0_` — inconsistent but confirmed working; likely because LD pruning goes through an extra plink step that doubles the prefix. Investigate only if errors arise.
 
-## Shiny App — golem Package (`scripts/adaptogene.app/`)
+## Shiny App — golem Package (`scripts/clinego.app/`)
 
 Interactive results viewer built as a **golem R package** using bslib (Bootstrap 5). The legacy `scripts/app.R` is preserved as reference but is not in active use.
 
 ### Dev Mode (no Docker rebuild)
 
 ```bash
-docker run --user $(id -u):$(id -g) --rm -e USER=pipeline -p 3838:3838 -v $PWD:/pipeline adaptogene:latest \
-  Rscript /pipeline/scripts/adaptogene.app/dev.R
+docker run --user $(id -u):$(id -g) --rm -e USER=pipeline -p 3838:3838 -v $PWD:/pipeline cline-go:latest \
+  Rscript /pipeline/scripts/clinego.app/dev.R
 ```
 
 `dev.R` sources all `R/*.R` files from the mounted volume at startup. Docker rebuild only needed when adding new R package dependencies to DESCRIPTION.
 
-**Always restart the container after any R file change.** Shiny autoreload does not work reliably when files are modified from outside the container (inotify events from the host volume mount are not forwarded). Use `docker stop $(docker ps -q --filter ancestor=adaptogene:latest) && docker run ...` — the restart takes ~10s and is the only reliable way to pick up changes.
+**Always restart the container after any R file change.** Shiny autoreload does not work reliably when files are modified from outside the container (inotify events from the host volume mount are not forwarded). Use `docker stop $(docker ps -q --filter ancestor=cline-go:latest) && docker run ...` — the restart takes ~10s and is the only reliable way to pick up changes.
 
 **Input persistence in `renderUI` (UI rule):** When user-editable inputs live inside `renderUI`, they reset to their default value on every re-render. **Never silently discard a user's chosen parameter value.** For any input the user can modify that lives inside a `renderUI`:
 - Store the user's value in a `reactiveVal` (captured with `observeEvent(..., ignoreInit = TRUE)`)
@@ -584,13 +587,13 @@ When pipeline modules produce optional outputs (pop_stats piemaps, zoom maps, ha
 
 ### Running the App
 ```bash
-docker run --user $(id -u):$(id -g) --rm -e USER=pipeline -p 3838:3838 -v $PWD:/pipeline adaptogene:latest \
-  R -e "adaptogene.app::run_app(options = list(host = '0.0.0.0', port = 3838))"
+docker run --user $(id -u):$(id -g) --rm -e USER=pipeline -p 3838:3838 -v $PWD:/pipeline cline-go:latest \
+  R -e "clinego.app::run_app(options = list(host = '0.0.0.0', port = 3838))"
 ```
 
 ### Key Config Files
-- `scripts/adaptogene.app/inst/golem-config.yml` — sets `pipeline_path: /pipeline`
-- `scripts/adaptogene.app/DESCRIPTION` — package metadata + Imports
+- `scripts/clinego.app/inst/golem-config.yml` — sets `pipeline_path: /pipeline`
+- `scripts/clinego.app/DESCRIPTION` — package metadata + Imports
 
 ### Legacy App
 - `scripts/app.R` — shinydashboard monolith (3,466 lines). Preserved for reference. Uses OLD flat path structure and `.qs` files — do NOT use for new development.
@@ -605,14 +608,14 @@ Validate exon/promoter SNP counting in `find_genes_around_regions.R` (uses Genom
 
 ## Active Obsidian Project
 - Project: ADAPTOGENE
-- File: ~/Orthidian/projects/ADAPTOGENE.md
+- File: ~/Orthidian/projects/ADAPTOGENE/ADAPTOGENE.md
 
 ## Permission Guidelines
 
 ### Allowed (no approval needed)
 - `docker build` or `docker run` commands
 - Reading any project files
-- Writing/editing: `Snakefile`, `scripts/*.R`, `scripts/*.py`, `scripts/adaptogene.app/R/*.R`, `config*.yaml`, `CLAUDE.md`, `Dockerfile`
+- Writing/editing: `Snakefile`, `scripts/*.R`, `scripts/*.py`, `scripts/clinego.app/R/*.R`, `config*.yaml`, `CLAUDE.md`, `Dockerfile`
 - Writing/editing test data: `data/SIMDATA*`
 - Removing individual output files (prefer `-R`/`--forcerun`)
 
@@ -624,4 +627,4 @@ Validate exon/promoter SNP counting in `find_genes_around_regions.R` (uses Genom
 
 ## graphify — DISABLED for this project
 
-Do not use graphify (`graphify-out/`, `graphify query/path/explain/update`) in ADAPTOGENE. Use normal Grep/Glob/Explore instead, even for architecture/cross-module questions. `graphify-out/` may still exist on disk — ignore it, do not read `GRAPH_REPORT.md` or `wiki/index.md`, do not run `graphify update` after edits.
+Do not use graphify (`graphify-out/`, `graphify query/path/explain/update`) in CLINE-GO. Use normal Grep/Glob/Explore instead, even for architecture/cross-module questions. `graphify-out/` may still exist on disk — ignore it, do not read `GRAPH_REPORT.md` or `wiki/index.md`, do not run `graphify update` after edits.
