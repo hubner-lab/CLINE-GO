@@ -322,6 +322,40 @@ load_geometric_offset_diagnostics <- function(project, suffix) {
     }, error = function(e) list())
 }
 
+#' Load the design-adequacy table (mode=climate) as a named list of value + flag.
+#'
+#' Returns list() when mode=climate has not been run. Values stay CHARACTER (the
+#' table mixes integers, rounded reals and the literal "inf"); callers that need
+#' a number convert the one metric they use, so a new non-numeric row can never
+#' break an unrelated reader.
+#'
+#' Shape: list(<metric> = list(value = "...", flag = "FAIL"|"WARN"|"", note = "..."))
+#' @noRd
+load_design_adequacy <- function(project) {
+    p <- climate_design_path(project)
+    if (!file_ok(p)) return(list())
+    tryCatch({
+        dt <- data.table::fread(p, sep = "\t", header = TRUE, colClasses = "character")
+        if (!all(c("metric", "value", "flag") %in% names(dt))) return(list())
+        stats::setNames(
+            lapply(seq_len(nrow(dt)), function(i) list(
+                value = dt$value[i],
+                flag  = dt$flag[i],
+                note  = if ("note" %in% names(dt)) dt$note[i] else ""
+            )),
+            dt$metric
+        )
+    }, error = function(e) list())
+}
+
+#' One numeric metric out of load_design_adequacy(), or NA when absent/non-numeric.
+#' @noRd
+design_metric <- function(design, metric) {
+    entry <- design[[metric]]
+    if (is.null(entry)) return(NA_real_)
+    suppressWarnings(as.numeric(entry$value))
+}
+
 #' Load RDA candidates side table (Mahalanobis/p/q/loadings/assigned predictor).
 #' @noRd
 load_rda_candidates <- function(project, module = MOD_GEA) {

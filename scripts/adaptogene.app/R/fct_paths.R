@@ -369,6 +369,16 @@ climate_invariant_path <- function(project) {
     mod_path(project, MOD_CLIMATE, "tables", "present", "climate_invariant_predictors.tsv")
 }
 
+#' Design-adequacy table path (mode=climate)
+#'
+#' What the SAMPLING DESIGN can support: environmental d.f. (n_sites - 1),
+#' site-level residual d.f., site balance, and the conditioning of the
+#' site-level predictor block. Produced by scripts/design_adequacy.py.
+#' @noRd
+climate_design_path <- function(project) {
+    mod_path(project, MOD_CLIMATE, "tables", "present", "design_adequacy.tsv")
+}
+
 #' Phenotype missing summary path (GWAS mode)
 #' @noRd
 pheno_missing_summary_path <- function(project) {

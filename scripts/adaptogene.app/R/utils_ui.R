@@ -273,3 +273,80 @@ card_header_with_download <- function(ns, title, dl_id_svg = NULL, dl_id_png = N
         if (!is.null(dl_btn)) htmltools::span(class = "d-flex gap-2", dl_btn)
     )
 }
+
+#' Design-adequacy hover badge: what the sampling design can support.
+#'
+#' Reads the named list from load_design_adequacy() and renders the same
+#' green/amber/red badge convention as relatedness_note() — the flag count is a
+#' genuine status signal, not fixed reference info, so it is coloured rather than
+#' neutral. Returns NULL when mode=climate has not run or nothing is flagged.
+#'
+#' design_body() is split out so the copy can be exercised without a Shiny
+#' session; design_badge() is the thing modules call.
+#'
+#' @param d named list from load_design_adequacy()
+#' @noRd
+# Body shared by both badges: the numbers, then what they mean for varpart.
+design_body <- function(d) {
+    n_sites  <- design_metric(d, "n_sites")
+    n_pred   <- design_metric(d, "n_predictors")
+    resid_df <- design_metric(d, "site_level_residual_df")
+    env_df   <- design_metric(d, "environmental_df")
+    ratio    <- design_metric(d, "samples_per_environmental_point")
+    eff_dim  <- design_metric(d, "effective_dimensionality")
+
+    htmltools::tagList(
+        htmltools::p(
+            htmltools::strong("Your climate varies between sites, not between samples."),
+            " ", n_sites, " sites carry ", env_df,
+            " environmental degrees of freedom, however many samples sit behind them",
+            if (!is.na(ratio)) paste0(" (", ratio, " per site)") else "", "."
+        ),
+        if (!is.na(resid_df) && resid_df <= 0) htmltools::p(
+            htmltools::strong("The predictor block saturates that design: "),
+            n_pred, " predictors over ", n_sites, " sites leaves ",
+            resid_df, " residual d.f. at site level. A site-level model fits it ",
+            "exactly, so the climate/geography split and every adjusted R\u00b2 below ",
+            "are not interpretable \u2014 and are not comparable with another project\u2019s."
+        ) else if (!is.na(resid_df) && resid_df < 3) htmltools::p(
+            htmltools::strong("Little room left: "), n_pred, " predictors over ",
+            n_sites, " sites leaves only ", resid_df,
+            " residual d.f. at site level. Treat the split as indicative."
+        ),
+        if (!is.na(resid_df) && resid_df <= 0) htmltools::p(
+            htmltools::strong("Nothing upstream fixes this for you. "),
+            "Variance partitioning uses ", htmltools::code("Climate.predictors"),
+            " verbatim \u2014 there is no collinearity screen and no VIF gate in it. ",
+            "The |r| pre-screen shown on the correlation heatmap belongs to the PreGEA ",
+            "RDA rungs and is never applied here. Cut ",
+            htmltools::code("Climate.predictors"), " to fewer than ", n_sites,
+            " and re-run ", htmltools::code("mode=climate"), "."
+        ),
+        if (!is.na(eff_dim) && !is.na(n_pred) && eff_dim < max(2, n_pred / 3)) htmltools::p(
+            class = "mb-0 text-muted small",
+            "Effective dimensionality is ", eff_dim, " of ", n_pred,
+            " nominal predictors \u2014 the design resolves far fewer axes than you named."
+        ),
+        htmltools::p(class = "mb-0 text-muted small",
+            "Full table: ", htmltools::code("climate/tables/present/design_adequacy.tsv"),
+            ". Warn-only \u2014 these are judgement calls about the study, not code errors.")
+    )
+}
+
+design_badge <- function(d) {
+    if (length(d) == 0) return(NULL)
+    n_fail <- design_metric(d, "n_flags_fail")
+    n_warn <- design_metric(d, "n_flags_warn")
+    if ((is.na(n_fail) || n_fail == 0) && (is.na(n_warn) || n_warn == 0)) return(NULL)
+    failing <- !is.na(n_fail) && n_fail > 0
+    label <- if (failing) {
+        paste0("design: ", n_fail, " FAIL")
+    } else {
+        paste0("design: ", n_warn, if (n_warn == 1) " warning" else " warnings")
+    }
+    htmltools::div(
+        class = "d-flex justify-content-end mb-2",
+        filter_note(label, design_body(d),
+                    class = if (failing) "bg-danger text-white" else "bg-warning text-dark")
+    )
+}
