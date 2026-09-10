@@ -95,6 +95,40 @@ mod_climate_server <- function(id, project_data) {
             })
         })
 
+        # ── Design adequacy ──────────────────────────────────────────────────
+        # design_adequacy.tsv (mode=climate) says what the SAMPLING DESIGN can
+        # support, before anything is fitted. Two surfaces, deliberately:
+        #
+        #   1. a tab-level badge in Predictors — the design is a property of the
+        #      whole tab, not of one plot;
+        #   2. a badge inside Variance Partitioning — because varpart is the
+        #      analysis the design silently invalidates. pregea_varpart.R builds
+        #      X_clim from Climate.predictors VERBATIM: there is no collinearity
+        #      screen and no VIF gate anywhere in it. The only |r| pre-screen in
+        #      the codebase lives in pregea_rda_setup.R, applies to the PreGEA
+        #      RDA rungs only, and is explicitly informational here (see the
+        #      collinearity badge on the heatmap above). So when the predictor
+        #      block saturates the site-level design, nothing upstream removes
+        #      anything — the split is simply not interpretable, and this badge
+        #      is the only place that says so.
+        design_adequacy <- shiny::reactive({
+            pd <- project_data()
+            shiny::req(pd$name)
+            load_design_adequacy(pd$name)
+        })
+
+        output$design_adequacy_warning <- shiny::renderUI(design_badge(design_adequacy()))
+
+        # Only shown in the varpart card when the design actually bites it —
+        # a green design does not need a second badge in two places.
+        output$design_varpart_warning <- shiny::renderUI({
+            d <- design_adequacy()
+            if (length(d) == 0) return(NULL)
+            resid_df <- design_metric(d, "site_level_residual_df")
+            if (is.na(resid_df) || resid_df >= 3) return(NULL)
+            design_badge(d)
+        })
+
         # ── Variance partitioning ────────────────────────────────────────────
         # Headline number for the section: the Venn plot below deliberately
         # does NOT draw "Unexplained" (standard Venn convention — it's
@@ -275,11 +309,13 @@ mod_climate_ui <- function(id) {
                 class = "lab-hero-col",
 
                 shiny::uiOutput(ns("climate_invariant_warning")),
+                shiny::uiOutput(ns("design_adequacy_warning")),
                 lab_hero(mod_image_card_ui(ns("climate_heatmap"))),
 
                 htmltools::div(
                     class = "lab-varpart-badges",
                     shiny::uiOutput(ns("variance_explained_badge")),
+                    shiny::uiOutput(ns("design_varpart_warning")),
                     shiny::uiOutput(ns("dbmem_skip_warning")),
                     shiny::uiOutput(ns("confounding_badge"))
                 ),

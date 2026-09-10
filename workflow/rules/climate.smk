@@ -32,6 +32,37 @@ rule check_climate_variance:
             {input.site} {output} {params.columns} > {log} 2>&1
         """
 
+rule design_adequacy:
+    """What the SAMPLING DESIGN can support, computed before any GEA/offset fit.
+
+    Reports the environmental degrees of freedom (n_sites - 1, NOT n_samples - 1),
+    per-site balance, and the conditioning of the site-level predictor block
+    (numerical rank, participation-ratio effective dimensionality, condition
+    number, PC1 share). These bound varpart, RDA's constrained rank and every
+    Mahalanobis-type genomic offset.
+
+    The d.f./balance/pseudoreplication half is computed nowhere else. Rank and
+    condition number ARE already reported downstream — geometric_offset.R writes
+    env_cov_rank_numeric / env_cov_condition_number post-hoc, and
+    pregea_rda_setup.R screens site-level max|r| per rung — but only after a fit,
+    only when those optional modes run, and on the COVARIANCE matrix. This rule
+    reports them in mode=climate, before anything is fitted, on the CORRELATION
+    matrix; see scripts/design_adequacy.py for why the two do not agree.
+
+    Warn-only by design — every flag here is a judgement call about the study,
+    not a code error, so it is recorded and surfaced rather than used to abort."""
+    input:
+        meta    = O['metadata'],
+        climate = O['climate_site'],
+    output: O['climate_design']
+    params: predictors = ",".join(get_predictors_list())
+    log:    f"{LOGDIR}climate/design_adequacy.log"
+    shell:
+        """
+        python3 /pipeline/scripts/design_adequacy.py \
+            {input.meta} {input.climate} {params.predictors} {output} > {log} 2>&1
+        """
+
 rule density_plot:
     """Generate combined density plot for all climate predictors (all BIO columns)."""
     input:  climate = O['climate_site']
