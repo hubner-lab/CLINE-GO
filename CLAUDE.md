@@ -622,7 +622,15 @@ marker comment at the app-install block in `Dockerfile`).
 
 ### Unit Testing
 
-Two testthat roots. **Both must be green before a merge.**
+Two testthat roots. **Both must be green before a merge.** One command runs them:
+
+```bash
+./tests/run_all.sh                                # the merge gate
+./tests/run_all.sh --invariants SIMDATA_results   # + validate a results tree
+```
+
+It runs every suite to completion (never stops at the first failure), prints one line per
+suite and exits non-zero if any failed. The two suites individually:
 
 ```bash
 # Tier 1 — scripts/R/lib + scripts/R/utils (the shared science). ~20 s.
@@ -634,8 +642,34 @@ docker run --rm --user $(id -u):$(id -g) -e USER=pipeline -v $PWD:/pipeline \
   cline-go:latest Rscript -e 'setwd("/pipeline/scripts/clinego.app/tests"); source("testthat.R")'
 ```
 
-Baseline as of 2026-09-10: `tests/` = 370 passing / 10 skipped, app = 69 passing.
-`run_tests.R` exits non-zero on any failure, so it is CI-able as-is.
+Baseline as of 2026-09-10: `tests/` = **473 passing / 10 skipped**, app = **213 passing /
+1 skipped**. `run_tests.R` exits non-zero on any failure, so it is CI-able as-is.
+
+**`--invariants` is opt-in and is EXPECTED to be red**, which is why it is not part of the
+default gate. `scripts/check_invariants.R` validates a `{PROJECT}_results/` tree against
+`scripts/R/lib/invariants.R` — checks that must hold on ANY dataset (region/SNP consistency,
+p-values in [0,1], chromosome names never re-acquiring a `chr` prefix, sample accounting that
+closes, and cross-module referential integrity). On `SIMDATA_results` it reports 41 violations,
+**every one of them a defect already filed in `docs/pipeline_improvement_requests.md`**:
+
+| count | check | filed as |
+|---|---|---|
+| 14 | `overlap_traits_includes_own_trait` | `sig_snps.R:152` |
+| 14 | `overlap_snps_names_unknown_snp` | `sig_snps.R:159` |
+| 10 | `duplicate_column_names` | `genes_per_region_collapsed.tsv` |
+| 1 | `pairwise_table_references_unknown_trait` | stale GEAxGWAS after a `mode=gea` re-run |
+| 1 | `multiple_threshold_variants_on_disk` | RDA sig table orphaned by a threshold change |
+| 1 | `climate_predictor_count_disagrees` | `write_summary.R:362` |
+
+A run that comes back **clean is itself a failure signal** — those six are confirmed present.
+Any check name outside that table is new and must be triaged: a real defect gets filed, a
+checker misreading a schema gets fixed. Never tune a check down to make the output green.
+
+The checkers are pure (data.tables in, a violations data.table out) and unit-tested against
+hand-built fixtures in `tests/testthat/test-invariants.R` — each one paired: a clean fixture
+that must return zero violations and a broken fixture that must return exactly the expected
+violation. Those tests are **not** quarantined and must never be skipped; they assert that new
+code fires, not that a defect exists.
 
 `tests/` is a **non-package** root: it uses `test_dir()` plus
 `tests/testthat/helper-libs.R`, which attaches the packages the libs assume (they never
@@ -647,13 +681,28 @@ image pins 3.2.3.
 
 `tests/testthat/test-known-bugs.R` holds correct-behaviour assertions for defects that are
 known and deliberately unfixed, each behind a `skip()` naming where it is filed. Fixing one
-means deleting a `skip()` line. Never weaken a test there to match current output.
+means deleting a `skip()` line. Never weaken a test there to match current output. The app
+suite now uses the same convention — `test-fct_threshold_rules.R` carries one `skip()`ped
+correct-behaviour assertion for the qvalue-not-in-Imports defect.
 
-Still missing: **`pytest` for `scripts/*.py`** (`design_adequacy.py`, `gff2topr.py`,
-`snakemake_progress_handler.py` — no Python test infrastructure exists at all), golden-file
-regression on SIMDATA outputs, and Shiny/pipeline equivalence checks. See the
-"Regression tests for scientific outputs" objective in the ADAPTOGENE pipeline dossier for
-the full tier plan.
+Still missing: **Python tests for `scripts/*.py`** (`design_adequacy.py`, `gff2topr.py`,
+`snakemake_progress_handler.py` — no Python test infrastructure exists at all; note the image
+has python3.12 + numpy + stdlib `unittest` but **no pytest**, so `unittest` needs no Dockerfile
+change), golden-file regression on SIMDATA outputs, and Shiny/pipeline equivalence checks.
+
+**On golden files specifically**: they are blocked, not merely undone. Three committed SIMDATA
+outputs are known-wrong and would be frozen as "expected" (`overlap_traits`/`overlap_snps`,
+exon/promoter counts), and `find_significant_snps_per_trait()`'s diagnostics are
+**core-count-dependent** — 2 rows at `cpu=1`, 0 at `cpu>=2` (`sig_snps.R:44`) — so that output
+cannot be a golden at all. Fix or explicitly quarantine those first.
+
+**On Shiny/pipeline equivalence**: the surface is larger than it looks. `zzz.R:39-42` shares
+only `regions.R` and `pval_threshold.R` with the pipeline; gene finding (`fct_regions.R:67` vs
+`genes_in_regions.R`), combining (`fct_combine.R` vs `combine_sigsnps.R`) and region distance
+are **reimplemented** in the app, and nothing asserts the two agree.
+
+See the "Regression tests for scientific outputs" objective in the ADAPTOGENE pipeline dossier
+for the full tier plan.
 
 ### Exon/Promoter SNP Validation — validated 2026-09-10, and it is WRONG
 `.count_snps_in_features()` (`scripts/R/lib/genes_in_regions.R:174`) builds its SNP id from
