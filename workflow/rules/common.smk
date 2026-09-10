@@ -989,6 +989,7 @@ O['climate_site_scaled']  = _ph('climate_site_scaled')
 O['climate_all']          = _ph('climate_all')
 O['climate_na_excluded']  = _ph('climate_na_excluded')
 O['climate_invariant']    = _ph('climate_invariant')
+O['climate_design']       = _ph('climate_design')
 O['tajima']               = _ph('tajima')
 O['pi_div']               = _ph('pi_div')
 O['ibd_raw']              = _ph('ibd_raw')
@@ -1114,6 +1115,7 @@ def add_kbest_paths():
     O['climate_all'] = f"{MOD_CLIMATE}tables/present/climate_present_all.tsv"
     O['climate_na_excluded'] = f"{MOD_CLIMATE}tables/present/climate_na_excluded.tsv"
     O['climate_invariant'] = f"{MOD_CLIMATE}tables/present/climate_invariant_predictors.tsv"
+    O['climate_design'] = f"{MOD_CLIMATE}tables/present/design_adequacy.tsv"
     # Tables - structure_k/population stats
     O['tajima'] = f"{MOD_STRUCT}tables/pop_stats/tajima_d_by_pop.tsv"
     O['pi_div'] = f"{MOD_STRUCT}tables/pop_stats/pi_diversity_by_pop.tsv"
@@ -2066,7 +2068,8 @@ def get_targets(mode):
             raise ValueError("Climate.predictors must be set for climate mode")
         check_numeric(K_BEST, 'K_BEST')
         targets = [
-            O['climate_invariant'], DENSITY_PLOT_COMBINED, O['corr_heatmap'],
+            O['climate_invariant'], O['climate_design'],
+            DENSITY_PLOT_COMBINED, O['corr_heatmap'],
             O['climate_dbmem_vectors'], O['climate_dbmem_diag'], O['climate_dbmem_png'],
             O['climate_vp_selection'], O['climate_vp_selected'],
             O['climate_vp_table'], O['climate_vp_confound'], O['climate_vp_px'],
