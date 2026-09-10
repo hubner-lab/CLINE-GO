@@ -53,3 +53,24 @@ test_that("input_to_config_value writes whole numbers as integers", {
     expect_identical(input_to_config_value(2.5, "numeric"), 2.5)
     expect_null(input_to_config_value("", "numeric"))
 })
+
+test_that("find_k_range breaks a config tie by mtime, not alphabetically", {
+    # Both spellings of one k_end match the same config numerically: a pre-fix run
+    # left cross_entropy_K2-7.0.png, the next run writes cross_entropy_K2-7.png
+    # beside it. Alphabetically "K2-7.0.png" < "K2-7.png", so taking the first hit
+    # would show the stale plot and call the fresh one superseded.
+    tmp <- withr::local_tempdir()
+    d <- file.path(tmp, "SIMDATA_results", MOD_PRESTRUCT, "plots")
+    dir.create(d, recursive = TRUE)
+    for (f in c("cross_entropy_K2-6.png", "cross_entropy_K2-7.0.png")) {
+        file.create(file.path(d, f))
+        Sys.setFileTime(file.path(d, f), Sys.time() - 3600)
+    }
+    file.create(file.path(d, "cross_entropy_K2-7.png"))
+    withr::local_options(clinego.pipeline_path = tmp)
+
+    r <- find_k_range("SIMDATA", list(sNMF = list(k_start = 2, k_end = 7.0)))
+    expect_equal(basename(r$path), "cross_entropy_K2-7.png")
+    expect_setequal(r$stale, c("cross_entropy_K2-6.png", "cross_entropy_K2-7.0.png"))
+    expect_equal(c(r$k_start, r$k_end), c(2L, 7L))
+})

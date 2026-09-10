@@ -157,6 +157,18 @@ find_k_range <- function(project, config = NULL) {
     if (length(cfg_start) == 1 && length(cfg_end) == 1 &&
         !is.na(cfg_start) && !is.na(cfg_end)) {
         hit <- which(k_start_v == cfg_start & k_end_v == cfg_end)
+        # More than one file can match the SAME config numerically, because the
+        # two spellings of one k_end both parse to it: a run made before
+        # input_to_config_value()/_as_int() started forcing integers left
+        # cross_entropy_K2-7.0.png, and the next run writes K2-7.png beside it.
+        # hit[1] would take list.files()' alphabetical order, and "K2-7.0.png"
+        # sorts before "K2-7.png" ('0' < 'p') — i.e. it would show the stale plot
+        # and label the fresh one superseded, the exact inversion this function
+        # exists to prevent. Break the tie the same way the no-config branch does.
+        if (length(hit) > 1) {
+            mt <- file.mtime(files[hit])
+            hit <- if (all(is.na(mt))) hit else hit[which.max(mt)]
+        }
         if (length(hit) > 0) pick <- hit[1]
     }
     if (is.na(pick)) {
