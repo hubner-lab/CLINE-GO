@@ -1,7 +1,17 @@
 # On-the-fly region computation for interactive Shiny exploration.
 # Sources the shared lib so Shiny uses the same clustering logic as the pipeline.
 
-source("/pipeline/scripts/R/lib/regions.R")
+# Guarded exactly like fct_data_loading.R's source() of pval_threshold.R, and for
+# the same reason: top-level code in R/ runs during R CMD INSTALL's lazy-load
+# step, where the /pipeline bind mount does not exist. Unguarded, this line threw
+# "cannot open file ... regions.R", R reported "lazy loading failed" and deleted
+# the half-installed package, and remotes::install_local() downgraded that to a
+# warning — so `docker build` exited 0 while shipping an image with no
+# clinego.app in it. dev.R source()s this file at runtime, where /pipeline is
+# mounted, which is why dev mode never noticed.
+if (file.exists("/pipeline/scripts/R/lib/regions.R")) {
+    source("/pipeline/scripts/R/lib/regions.R")
+}
 
 #' Compute all regions from sig SNPs using single-linkage clustering
 #'
