@@ -64,7 +64,7 @@ $DK ps --format '{{.Names}}\t{{.Image}}'        # note whose containers are alre
 cp benchmarks/mvp_seeds.tsv benchmarks/mvp_seeds.tsv.pre_${MVP_COHORT}
 ```
 
-**Never** `docker stop $(docker ps -q --filter ancestor=adaptogene:latest)` — that matches every
+**Never** `docker stop $(docker ps -q --filter ancestor=cline-go:latest)` — that matches every
 container sharing the image, including other users'. Always `--name` your containers and stop
 them individually.
 
@@ -76,7 +76,7 @@ them individually.
 $DK run --rm --name mvp-selseeds-${MVP_COHORT} --user "$UIDGID" -e USER=adaptogene \
   -e OPENBLAS_NUM_THREADS=2 --cpus=2 --memory=8g \
   -e MVP_BLOCK -e MVP_COHORT -e MVP_COHORT_TAG -e MVP_BLOCK_ARM \
-  -v "$PWD":/pipeline adaptogene:latest \
+  -v "$PWD":/pipeline cline-go:latest \
   Rscript /pipeline/benchmarks/mvp_select_seeds.R
 ```
 
@@ -124,7 +124,7 @@ benchmarks/convert_mvp_all.sh 20 "$SEEDS" 2>&1 | tee "logs_convert_${MVP_COHORT}
 
 ```bash
 $DK run --rm --name mvp-cfg-${MVP_COHORT} --user "$UIDGID" -e USER=adaptogene \
-  -e OPENBLAS_NUM_THREADS=2 --cpus=2 --memory=8g -v "$PWD":/pipeline adaptogene:latest \
+  -e OPENBLAS_NUM_THREADS=2 --cpus=2 --memory=8g -v "$PWD":/pipeline cline-go:latest \
   Rscript /pipeline/benchmarks/mvp_write_configs.R --seeds="$SEEDS"
 ```
 
@@ -138,7 +138,7 @@ only the detection arm, which this corpus does not extend.
 
 ```bash
 $DK run --rm --name mvp-swcfg-${MVP_COHORT} --user "$UIDGID" -e USER=adaptogene \
-  -e OPENBLAS_NUM_THREADS=2 --cpus=2 --memory=8g -v "$PWD":/pipeline adaptogene:latest \
+  -e OPENBLAS_NUM_THREADS=2 --cpus=2 --memory=8g -v "$PWD":/pipeline cline-go:latest \
   Rscript /pipeline/benchmarks/mvp_write_sweep_configs.R \
     --seeds="$SEEDS" --cells=1 --manifest-out="$CELLS_TSV"
 ```
@@ -176,7 +176,7 @@ part is the Gradient Forest fit, which is excluded at step 8 instead.
 
 ```bash
 $DK run --rm --name mvp-snpsets-${MVP_COHORT} --user "$UIDGID" -e USER=adaptogene \
-  -e OPENBLAS_NUM_THREADS=4 --cpus=8 --memory=64g -v "$PWD":/pipeline adaptogene:latest \
+  -e OPENBLAS_NUM_THREADS=4 --cpus=8 --memory=64g -v "$PWD":/pipeline cline-go:latest \
   Rscript /pipeline/benchmarks/mvp_build_snp_sets.R --seeds="$SEEDS"
 ```
 
@@ -203,12 +203,12 @@ Order matters: `mvp_garden_fitness.R` writes `gardens_{seed}.tsv`, which
 
 ```bash
 $DK run --rm --name mvp-fitness-${MVP_COHORT} --user "$UIDGID" -e USER=adaptogene \
-  -e OPENBLAS_NUM_THREADS=4 --cpus=16 --memory=96g -v "$PWD":/pipeline adaptogene:latest \
+  -e OPENBLAS_NUM_THREADS=4 --cpus=16 --memory=96g -v "$PWD":/pipeline cline-go:latest \
   Rscript /pipeline/benchmarks/mvp_garden_fitness.R --seeds="$SEEDS" --outdir=/pipeline/$OFFSET_DIR
 
 for s in ${SEEDS//,/ }; do
   $DK run --rm --name mvp-genv-$s --user "$UIDGID" -e USER=adaptogene \
-    -e OPENBLAS_NUM_THREADS=2 --cpus=2 --memory=8g -v "$PWD":/pipeline adaptogene:latest \
+    -e OPENBLAS_NUM_THREADS=2 --cpus=2 --memory=8g -v "$PWD":/pipeline cline-go:latest \
     Rscript /pipeline/benchmarks/mvp_write_garden_env.R --seed=$s \
       --gardens=/pipeline/$OFFSET_DIR/gardens_${s}.tsv
 done
@@ -232,7 +232,7 @@ interpretable ("beats a size-matched random draw").
 
 ```bash
 $DK run --rm --name mvp-gcfg-${MVP_COHORT} --user "$UIDGID" -e USER=adaptogene \
-  -e OPENBLAS_NUM_THREADS=2 --cpus=2 --memory=8g -v "$PWD":/pipeline adaptogene:latest \
+  -e OPENBLAS_NUM_THREADS=2 --cpus=2 --memory=8g -v "$PWD":/pipeline cline-go:latest \
   Rscript /pipeline/benchmarks/mvp_write_sweep_config.R --seeds="$SEEDS" \
     --sets=truth,union,best,intersect3,rand_best1,solo_lfmm,solo_rda,solo_emmax
 ```
@@ -268,7 +268,7 @@ Empty output = complete. Seeds with dropped panels from step 6 will be short by
 
 ```bash
 $DK run --rm --name mvp-score-${MVP_COHORT} --user "$UIDGID" -e USER=adaptogene \
-  -e OPENBLAS_NUM_THREADS=8 --cpus=16 --memory=96g -v "$PWD":/pipeline adaptogene:latest \
+  -e OPENBLAS_NUM_THREADS=8 --cpus=16 --memory=96g -v "$PWD":/pipeline cline-go:latest \
   Rscript /pipeline/benchmarks/eval_offset_lind.R --seeds="$SEEDS" --outdir=/pipeline/$OFFSET_DIR
 ```
 
@@ -283,7 +283,7 @@ Sign convention is Lind & Lotterhos': a good model gives a **negative** tau. Fli
 
 ```bash
 $DK run --rm --name mvp-tables-${MVP_COHORT} --user "$UIDGID" -e USER=adaptogene \
-  -e OPENBLAS_NUM_THREADS=4 --cpus=8 --memory=64g -v "$PWD":/pipeline adaptogene:latest \
+  -e OPENBLAS_NUM_THREADS=4 --cpus=8 --memory=64g -v "$PWD":/pipeline cline-go:latest \
   Rscript /pipeline/benchmarks/mvp_panel_tables.R \
     --outdir=/pipeline/$OFFSET_DIR --check=/pipeline/benchmarks/mvp_eval/offset11
 ```
@@ -351,7 +351,7 @@ Snakemake's own DAG is the resume mechanism — re-running step 5 or step 9 with
 `$SEEDS` picks up where it stopped. If a container was killed, clear the lock first:
 
 ```bash
-$DK run --rm --user "$UIDGID" -e USER=adaptogene -v "$PWD":/pipeline adaptogene:latest \
+$DK run --rm --user "$UIDGID" -e USER=adaptogene -v "$PWD":/pipeline cline-go:latest \
   snakemake -s Snakefile --unlock --config mode=gea --configfile config_MVP<seed>_c1.yaml
 ```
 

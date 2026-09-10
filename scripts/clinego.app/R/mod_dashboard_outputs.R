@@ -32,12 +32,12 @@ mod_prestructure_dashboard_outputs <- function(id, project_data) {
                 if (nrow(row) == 0) default else as.character(row$value[1])
             }
 
-            # NOT find_k_range(): it parses whichever cross_entropy_K*.png sorts
-            # first, and a stale K2-6 file sitting beside the current K2-7.0 one
-            # makes it report the WRONG range (logged in
-            # docs/pipeline_improvement_requests.md). The K* directories on disk
-            # are the K values actually computed, so derive from those and fall
-            # back to the summary table, which is authoritative.
+            # NOT find_k_range(): that reads the range off a cross_entropy_K*.png
+            # FILENAME. It no longer picks the wrong file — it resolves by config,
+            # then mtime — but a filename still only describes the run that wrote
+            # it. The K* directories on disk are the K values actually computed,
+            # which is what this box claims to show, with the summary table as the
+            # authoritative fallback.
             ks <- find_k_values(pd$name)
             k_range_txt <- if (length(ks) > 0) {
                 paste0(min(ks), " – ", max(ks))

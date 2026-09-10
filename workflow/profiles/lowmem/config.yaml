@@ -2,7 +2,7 @@
 #
 # Usage:
 #   docker run --user $(id -u):$(id -g) --rm --memory=10g --name adaptogene-run \
-#     -v $PWD:/pipeline adaptogene:latest \
+#     -v $PWD:/pipeline cline-go:latest \
 #     snakemake -s Snakefile --workflow-profile workflow/profiles/lowmem \
 #     --config mode=<MODE> --configfile config_SIMDATA.yaml
 #

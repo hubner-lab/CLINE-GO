@@ -31,7 +31,7 @@ test_that("find_k_range resolves by config, then mtime — never alphabetically"
     file.create(file.path(d, "cross_entropy_K2-6.png"))
     Sys.setFileTime(file.path(d, "cross_entropy_K2-6.png"), Sys.time() - 3600)
     file.create(file.path(d, "cross_entropy_K2-7.0.png"))
-    withr::local_options(adaptogene.pipeline_path = tmp)
+    withr::local_options(clinego.pipeline_path = tmp)
 
     cur <- find_k_range("SIMDATA", list(sNMF = list(k_start = 2, k_end = 7)))
     expect_equal(basename(cur$path), "cross_entropy_K2-7.0.png")
