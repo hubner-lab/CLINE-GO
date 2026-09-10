@@ -268,6 +268,25 @@ RUN git clone --depth 1 https://github.com/r-forge/gradientforest.git /tmp/gf &&
 # is exactly what caught both silent upgrades during development.
 RUN Rscript -e "remotes::install_version('vegan', version = '2.6-8', upgrade = 'never')"
 
+# Test-only dependencies for scripts/clinego.app/tests/.
+#
+# tests/testthat.R is the standard runner -- library(clinego.app) + test_check() --
+# so the suite runs against the INSTALLED package, in this image, against the same
+# 64 packages production uses. Running it on the host instead would mean
+# replicating that whole stack to execute five files, and would test a different
+# environment than the one that ships.
+#
+# Both are Suggests, and install_local() above runs with dependencies = FALSE, so
+# neither arrives on its own: testthat was absent outright and withr was present
+# only as somebody else's transitive dependency, asserted by nothing. Without them
+# `testthat::test_dir(...)` silently does nothing, which is how the suite went
+# unrun long enough for upstream to add cases nobody could execute.
+#
+# Placed here, immediately before the verification RUN, so adding a test dep
+# rebuilds two cheap layers rather than the ~22 that follow the app install.
+RUN Rscript -e "remotes::install_version('testthat', version = '3.2.3', upgrade = 'never')" \
+ && Rscript -e "remotes::install_version('withr', version = '3.0.2', upgrade = 'never')"
+
 # Verify EVERY package the pipeline actually loads.
 #
 # The per-line requireNamespace() guards above catch a BiocManager::install()
@@ -316,6 +335,8 @@ RUN Rscript -e " \
     stopifnot(requireNamespace('gradientForest', quietly = TRUE)); \
     stopifnot(requireNamespace('crosshap', quietly = TRUE)); \
     stopifnot(requireNamespace('GAPIT', quietly = TRUE)); \
+    stopifnot(requireNamespace('testthat', quietly = TRUE)); \
+    stopifnot(requireNamespace('withr', quietly = TRUE)); \
     library(robust); \
     x <- matrix(rnorm(300), ncol = 3); \
     stopifnot(length(covRob(x, distance = TRUE, na.action = na.omit, estim = 'pairwiseGK')\$dist) == 100); \
