@@ -262,11 +262,19 @@ RUN Rscript -e "remotes::install_version('vegan', version = '2.6-8', upgrade = '
 # (comments stripped, base+recommended and test-only deps excluded).
 # Regenerate it the same way when adding a script; a package used by a script
 # and absent here is exactly the hole this check exists to close.
+#
+# clinego.app is in the list even though it is not a dependency but the thing
+# this Dockerfile builds. It belongs here because the failure it catches already
+# happened: the COPY + install_local pair above produced a cached 0 B layer, so
+# the image shipped for weeks with no app package while this very RUN reported
+# every package present. `run_app()` was dead; only the bind-mounted dev.R path
+# worked, which is why nobody noticed. Asserting the package the build installs
+# is the cheapest way to keep a poisoned cache entry from passing as a build.
 RUN Rscript -e " \
     required <- c( \
         'AnnotationDbi', 'DT', 'GAPIT', 'GO.db', 'LEA', 'SpatialPack', \
         'VennDiagram', 'WGCNA', 'adegenet', 'adespatial', 'base64enc', \
-        'bsicons', 'bslib', 'cachem', 'clusterProfiler', 'config', \
+        'bsicons', 'bslib', 'cachem', 'clinego.app', 'clusterProfiler', 'config', \
         'cowplot', 'crosshap', 'data.table', 'digest', 'dplyr', \
         'enrichplot', 'forcats', 'geodata', 'geosphere', 'ggcorrplot', \
         'ggdist', 'ggnewscale', 'ggplot2', 'ggpubr', 'ggrepel', \
