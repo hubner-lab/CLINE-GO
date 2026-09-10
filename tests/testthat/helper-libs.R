@@ -35,7 +35,8 @@ for (.f in c("utils/pval_threshold.R",
              "lib/sig_snps.R",
              "lib/combine_sigsnps.R",
              "lib/genes_in_regions.R",
-             "lib/rdadapt.R")) {
+             "lib/rdadapt.R",
+             "lib/invariants.R")) {
     source(file.path(.clinego_R, .f))
 }
 rm(.f)
