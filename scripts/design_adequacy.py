@@ -42,6 +42,10 @@ What is and is NOT new here (be precise, the pipeline already reports some of it
     figure is authoritative — that is the matrix LEA actually inverts. This table
     is the DESIGN statement: whether the predictor block could ever have been
     well-conditioned at this number of sites, regardless of method.
+    Measured on the same data (SIMDATA/MACTEST, 3 predictors, 9 sites, both
+    reporting rank 3): this script gives condition_number 7.7, geometric_offset.R
+    gives env_cov_condition_number 10.16. Expect a gap of that order; a large
+    disagreement means one of them changed, not that one is wrong.
 
 Reads outputs the pipeline already produces; writes one tidy TSV.
 
