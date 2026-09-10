@@ -43,7 +43,7 @@ if GWAS_CONFIGS and PHENO_MISSING != 'DROP':
         params: prefix = f"{WORK_FILT}phenotypes/emmax/{VCF_BASE}"
         log: f"{LOGDIR}gwas/kinship_pheno.log"
         shell:
-            "/pipeline/scripts/emmax-kin-intel64 -v -d 10 -x {params.prefix} > {log} 2>&1"
+            "/pipeline/scripts/emmax_run.sh /pipeline/scripts/emmax-kin-intel64 -v -d 10 -x {params.prefix} > {log} 2>&1"
 
     # ==========================================================================
     # GWAS Path A — per-factor caching (symmetric with GEA Phase 2)
@@ -201,7 +201,7 @@ if GWAS_CONFIGS and PHENO_MISSING == 'DROP':
         params: prefix = f"{WORK_FILT}phenotypes/{{pheno_trait}}/emmax/{VCF_BASE}"
         log: f"{LOGDIR}gwas/kinship_pheno_trait_{{pheno_trait}}.log"
         shell:
-            "/pipeline/scripts/emmax-kin-intel64 -v -d 10 -x {params.prefix} > {log} 2>&1"
+            "/pipeline/scripts/emmax_run.sh /pipeline/scripts/emmax-kin-intel64 -v -d 10 -x {params.prefix} > {log} 2>&1"
 
     # Non-GAPIT phenotype Path B: per-trait rule + combine rule, one pair per method.
     # Shell strings are inlined per engine to avoid deferred-evaluation closure capture.

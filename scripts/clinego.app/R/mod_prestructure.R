@@ -36,7 +36,7 @@ mod_prestructure_server <- function(id, project_data) {
         # ── K-independent images ───────────────────────────────────────────────
         shiny::observe({
             pd <- project_data()
-            kr <- find_k_range(pd$name)
+            kr <- find_k_range(pd$name, pd$config)
             k_best <- pd$k_best
 
             n_samples <- {
@@ -64,7 +64,21 @@ mod_prestructure_server <- function(id, project_data) {
                 title   = shiny::reactive("Cross-Entropy"),
                 dl_name = shiny::reactive("cross_entropy"),
                 note    = shiny::reactive({
-                    if (is.null(k_best) || is.na(k_best)) return(NULL)
+                    # Changing sNMF.k_start/k_end leaves the previous run's PNG in
+                    # the same directory. find_k_range() now picks the one matching
+                    # the config, but say the others are there — otherwise the folder
+                    # silently holds two curves for one .snmfProject. Built BEFORE the
+                    # k_best guard: a project with sNMF.k_best unset is exactly the one
+                    # where the user is about to read k_best off this curve.
+                    stale_txt <- if (length(kr$stale) > 0) paste0(
+                        " Superseded cross-entropy plot",
+                        if (length(kr$stale) == 1) "" else "s", " also present (",
+                        paste(kr$stale, collapse = ", "),
+                        ") — from an earlier K range, not this one.") else ""
+                    if (is.null(k_best) || is.na(k_best)) {
+                        if (!nzchar(stale_txt)) return(NULL)
+                        return(help_note("cross_entropy", results = trimws(stale_txt)))
+                    }
                     range_txt <- if (!is.na(kr$k_start) && !is.na(kr$k_end))
                         paste0(" Tested K ", kr$k_start, "–", kr$k_end, ".") else ""
                     # config_k_best() is NA when sNMF.k_best is unset — resolve_k_best()
@@ -78,6 +92,7 @@ mod_prestructure_server <- function(id, project_data) {
                               k_best, "), not the lowest cross-entropy value.", range_txt,
                               " Read the curve above and set sNMF.k_best to the K where it flattens.")
                     }
+                    results_txt <- paste0(results_txt, stale_txt)
                     help_note("cross_entropy", results = results_txt, label = paste0("K=", k_best))
                 })
             )

@@ -59,7 +59,7 @@ long_stats <- rbindlist(lapply(stats_paths, fread, sep = "\t", header = TRUE,
                                colClasses = "character"))
 # Numeric metrics widened to columns; hist_shape/hist_spike0 stay as text.
 ladder_wide <- dcast(long_stats, engine + rung_param + rung_value + trait ~ metric, value.var = "value")
-num_cols <- intersect(c("n_tests", "lambda_gc", "hits_bonf", "hits_qval",
+num_cols <- intersect(c("n_tests", "lambda_gc", "lambda_gc_applied", "hits_bonf", "hits_qval",
                         "hist_flatness_ks", "frac_p_gt_half"), names(ladder_wide))
 ladder_wide[, (num_cols) := lapply(.SD, as.numeric), .SDcols = num_cols]
 ladder_wide[, rung_value_num := suppressWarnings(as.numeric(rung_value))]

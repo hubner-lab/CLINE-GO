@@ -99,14 +99,12 @@ results <- lapply(trait_cols, function(trait) {
 
     # Run EMMAX
     out_prefix <- file.path(work_dir, paste0('EMMAX_OUT_', trait))
-    cmd <- paste(EMMAX_BIN, '-v -d 10',
-                 '-t', TPED_PREFIX,
-                 '-p', phen_file,
-                 '-k', KINSHIP_FILE,
-                 '-c', covar_file,
-                 '-o', out_prefix)
-    message(paste0("INFO: Running: ", cmd))
-    system(cmd)
+    run_emmax(paste('-v -d 10',
+                    '-t', TPED_PREFIX,
+                    '-p', phen_file,
+                    '-k', KINSHIP_FILE,
+                    '-c', covar_file,
+                    '-o', out_prefix))
 
     # Parse .ps output
     ps_file <- paste0(out_prefix, '.ps')

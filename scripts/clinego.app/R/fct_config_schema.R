@@ -561,7 +561,17 @@ input_to_config_value <- function(raw_value, type) {
     switch(type,
         "numeric" = {
             n <- suppressWarnings(as.numeric(raw_value))
-            if (is.na(n) || length(n) == 0) NULL else n
+            if (length(n) == 0 || is.na(n)) return(NULL)
+            # Write whole numbers as YAML integers, not doubles. yaml::write_yaml()
+            # renders an R double as "7.0", and common.smk interpolates several of
+            # these straight into output PATHS (cross_entropy_K{k_start}-{k_end}.png,
+            # _work/.../ld{r2}_win{window}_step{step}/), so a value the user never
+            # changed the meaning of forks a second file/directory and leaves the
+            # first behind as an undated duplicate. Integer-vs-double is invisible to
+            # every consumer here (config_values_equal() compares numerically), so
+            # the safe spelling is the one that also round-trips through a filename.
+            if (is.finite(n) && n == round(n) && abs(n) <= .Machine$integer.max)
+                as.integer(n) else n
         },
         "checkbox" = {
             isTRUE(raw_value)

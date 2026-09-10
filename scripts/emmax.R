@@ -78,17 +78,17 @@ FUN_emmax <- function(VCF, trait, covariates, OUT, TPED_PREFIX, KINSHIP_FILE) {
             write.table(COVAR, sep = '\t', col.names = F, row.names = F, quote = F)
 
         # Run EMMAX
-        system(paste(EMMAX_BIN, '-v -d 10 -t', TPED_PREFIX,
-                     '-p', PHEN,
-                     '-k', KINSHIP_FILE,
-                     '-c', COVAR,
-                     '-o', EMMAXOUT))
+        run_emmax(paste('-v -d 10 -t', TPED_PREFIX,
+                        '-p', PHEN,
+                        '-k', KINSHIP_FILE,
+                        '-c', COVAR,
+                        '-o', EMMAXOUT))
     } else {
         message('RUN emmax without PCA correction')
-        system(paste(EMMAX_BIN, '-v -d 10 -t', TPED_PREFIX,
-                     '-p', PHEN,
-                     '-k', KINSHIP_FILE,
-                     '-o', EMMAXOUT))
+        run_emmax(paste('-v -d 10 -t', TPED_PREFIX,
+                        '-p', PHEN,
+                        '-k', KINSHIP_FILE,
+                        '-o', EMMAXOUT))
     }
 
     EMMAXOUT.ps <- paste0(EMMAXOUT, '.ps')

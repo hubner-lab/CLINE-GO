@@ -117,20 +117,61 @@ find_k_values <- function(project) {
 }
 
 #' Find K_start and K_end from cross_entropy plot filenames
+#'
+#' Changing sNMF.k_start/k_end leaves the previous run's PNG in the same
+#' directory: two curves for one .snmfProject, with nothing in the filenames
+#' saying which belongs to the current run. Resolution order is therefore the
+#' file matching the project's CURRENT sNMF config, then the most recently
+#' written file -- never alphabetical, which used to surface the stale plot AND
+#' caption it with the stale range (`K2-6` sorts before `K2-7.0`).
+#'
+#' `stale` returns the basenames that were not picked, so the caller can say the
+#' directory holds a superseded plot rather than pretending it is clean.
+#'
+#' @param project project name
+#' @param config parsed project config (optional; enables the config match)
 #' @noRd
-find_k_range <- function(project) {
+find_k_range <- function(project, config = NULL) {
     struct_plots <- mod_path(project, MOD_PRESTRUCT, "plots")
     files <- list.files(struct_plots, pattern = "^cross_entropy_K.*\\.png$",
                         full.names = TRUE)
-    if (length(files) == 0) return(list(k_start = NA, k_end = NA, path = NULL))
-    # Match floats or integers: K2-10 or K2.0-10.0
-    m <- regmatches(basename(files[1]),
-                    regexpr("K([0-9.]+)-([0-9.]+)", basename(files[1])))
-    if (length(m) == 0) return(list(k_start = NA, k_end = NA, path = files[1]))
-    parts <- strsplit(gsub("^K", "", m), "-")[[1]]
-    list(k_start = as.integer(as.numeric(parts[1])),
-         k_end   = as.integer(as.numeric(parts[2])),
-         path    = files[1])
+    if (length(files) == 0)
+        return(list(k_start = NA, k_end = NA, path = NULL, stale = character(0)))
+
+    # Anchored capture groups, not a bare "[0-9.]+" scan: the greedy character
+    # class swallowed the extension's dot too ("K2-7.0.png" -> "7.0." -> NA), so
+    # a float-spelled filename parsed to an EMPTY range even when picked. Floats
+    # are still accepted because pre-fix runs left such files on disk.
+    parsed <- lapply(basename(files), function(bn) {
+        m <- regmatches(bn, regexec(
+            "^cross_entropy_K([0-9]+(?:\\.[0-9]+)?)-([0-9]+(?:\\.[0-9]+)?)\\.png$", bn))[[1]]
+        if (length(m) != 3) return(c(NA_real_, NA_real_))
+        suppressWarnings(as.numeric(m[2:3]))
+    })
+    k_start_v <- vapply(parsed, `[`, numeric(1), 1)
+    k_end_v   <- vapply(parsed, `[`, numeric(1), 2)
+
+    pick <- NA_integer_
+    cfg_start <- suppressWarnings(as.numeric(config_get(config, "sNMF", "k_start")))
+    cfg_end   <- suppressWarnings(as.numeric(config_get(config, "sNMF", "k_end")))
+    if (length(cfg_start) == 1 && length(cfg_end) == 1 &&
+        !is.na(cfg_start) && !is.na(cfg_end)) {
+        hit <- which(k_start_v == cfg_start & k_end_v == cfg_end)
+        if (length(hit) > 0) pick <- hit[1]
+    }
+    if (is.na(pick)) {
+        mt <- file.mtime(files)
+        pick <- if (all(is.na(mt))) 1L else which.max(mt)
+    }
+
+    stale <- basename(files[-pick])
+    if (is.na(k_start_v[pick]) || is.na(k_end_v[pick]))
+        return(list(k_start = NA, k_end = NA, path = files[pick], stale = stale))
+
+    list(k_start = as.integer(k_start_v[pick]),
+         k_end   = as.integer(k_end_v[pick]),
+         path    = files[pick],
+         stale   = stale)
 }
 
 #' Find all association methods available for a module

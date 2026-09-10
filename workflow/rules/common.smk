@@ -77,8 +77,25 @@ VCF_BASE = get_vcf_basename(VCF_RAW)
 MAF = config['Filter']['maf']; check_float(MAF, 'filter.maf')
 MISS = config['Filter']['snp_miss']; check_float(MISS, 'filter.snp_miss')
 SAMPLE_MISS = _cfg('Filter', 'sample_miss', 0.5); check_float(SAMPLE_MISS, 'filter.sample_miss')
-MIN_DEPTH    = _cfg('Filter', 'min_depth', None)
-MAX_DEPTH    = _cfg('Filter', 'max_depth', None)
+# Counts are parsed as int, never left as whatever spelling the YAML used.
+# The Shiny sidebar round-trips every numeric field through R's as.numeric(), so
+# yaml::write_yaml() used to store counts as doubles ("k_end: 7.0", "window: 100.0").
+# Several of these are interpolated straight into output PATHS below (FILT_TAG,
+# LD_TAG, cross_entropy_K{K_START}-{K_END}.png), so the same parameter value spelled
+# two ways produced two different files/directories -- e.g. cross_entropy_K2-7.0.png
+# beside cross_entropy_K2-6.png, with nothing on disk saying which is current, and a
+# whole second _work/ tree for a run with identical parameters. Casting here (rather
+# than at each interpolation site) means a future path tag cannot forget to do it.
+# Genuinely fractional values (MAF, MISS, LD_R2, HET_OUTLIER_SD, PI_HAT) stay float:
+# Python's float repr is shortest-round-trip, so those never had the problem.
+def _as_int(value, name):
+    """Cast a semantically-integer config value to int, preserving None."""
+    if value is None: return None
+    try: return int(value)
+    except (TypeError, ValueError): raise ValueError(f"{name} must be an integer, got: {value}")
+
+MIN_DEPTH    = _as_int(_cfg('Filter', 'min_depth', None), 'filter.min_depth')
+MAX_DEPTH    = _as_int(_cfg('Filter', 'max_depth', None), 'filter.max_depth')
 HET_OUTLIER_SD = _cfg('Filter', 'het_outlier_sd', None)
 PI_HAT = _cfg('Filter', 'relatedness', None); check_float(PI_HAT, 'filter.relatedness', allow_null=True)
 # relatedness_action gates removal separately from the threshold: 'keep' (default) only
@@ -105,15 +122,15 @@ except Exception:
     HAS_FORMAT_DP = False
 
 # LD parameters
-LD_WIN = config['LD']['window']; check_numeric(LD_WIN, 'ld.window')
-LD_STEP = config['LD']['step']; check_numeric(LD_STEP, 'ld.step')
+LD_WIN = _as_int(config['LD']['window'], 'ld.window')
+LD_STEP = _as_int(config['LD']['step'], 'ld.step')
 LD_R2 = config['LD']['r2']; check_float(LD_R2, 'ld.r2')
 
 # SNMF parameters
-K_START = config['sNMF']['k_start']; check_numeric(K_START, 'snmf.k_start')
-K_END = config['sNMF']['k_end']; check_numeric(K_END, 'snmf.k_end')
+K_START = _as_int(config['sNMF']['k_start'], 'snmf.k_start')
+K_END = _as_int(config['sNMF']['k_end'], 'snmf.k_end')
 PLOIDY = 2  # diploid only
-REPEAT = config['sNMF']['repeats']; check_numeric(REPEAT, 'snmf.repeats')
+REPEAT = _as_int(config['sNMF']['repeats'], 'snmf.repeats')
 K_BEST = int(_cfg('sNMF', 'k_best', None)) if _cfg('sNMF', 'k_best', None) is not None else None
 SNMF_PROJECT_MODE = 'new'  # LEA project mode: 'new' for fresh runs, 'continue' to resume
 

@@ -287,11 +287,14 @@ here is QEMU emulation, and some things simply do not work. **Verified 2026-08-2
 
 | What | Symptom on mac-studio | Where it does work |
 |---|---|---|
-| `emmax-kin-intel64` / `emmax-intel64` | **Hangs forever** after `Identified N individuals` / `nex = 0`. No crash, no exit — a `docker run` sits there until killed. | Linux (x86) |
-| `mode=pregea` (end to end) | Dies at `pregea_kinship_pruned`, which is upstream of everything else. Sub-targets that avoid the EMMAX branch DO run — e.g. `snakemake … <file>` for `PreGEA/tables/rda/rda_predictor_collinearity.tsv`. | Linux |
-| `mode=gwas`, `mode=gea` with EMMAX in `association.configs` | Same hang. GAPIT/LFMM/RDA methods are unaffected. | Linux |
+| `emmax-kin-intel64` / `emmax-intel64` | Used to **hang forever** after `Identified N individuals` / `nex = 0` — no crash, no exit, `docker run` sat there until killed. Every call site now goes through `scripts/emmax_run.sh`, which refuses to launch on an emulated x86-64 host and **fails in under a second** with the reason. Override for experiments: `-e ADAPTOGENE_ALLOW_EMULATED_EMMAX=1` (pins Intel OpenMP/MKL to one thread; may still hang). | Linux (x86) |
+| `mode=pregea` (end to end) | Fails at `pregea_kinship_pruned` (the EMMAX preflight, immediately — no longer a hang), which is upstream of `pregea_emmax_ladder` → `pregea_recommend`. The LFMM ladder, the RDA setup and the screeplot have no EMMAX dependency, so sub-targets that avoid that branch DO run — e.g. `snakemake … <file>` for `PreGEA/tables/rda/rda_predictor_collinearity.tsv`. **Still never verified end to end on any machine.** | Linux |
+| `mode=gwas`, `mode=gea` with EMMAX in `association.configs` | Same preflight failure (was: same hang). GAPIT/LFMM/RDA methods are unaffected. | Linux |
 | `docker build` | Random `gcc: internal compiler error: Segmentation fault … cc1` under QEMU, a different package each time. Retry — layers that compiled are cached, so each attempt resumes. ~11+ min. | native x86 |
-| `-c4` on a heavy mode | OOM-kills the container (exit 137) inside the 16 GiB VM. Use `-c2 --memory<=10g`. A kill also leaves a Snakemake lock → `snakemake --unlock` (see Known Quirks). | bigger box |
+| `-c4` on a heavy mode | OOM-kills the container (exit 137) inside the 16 GiB VM. Use `--workflow-profile workflow/profiles/lowmem` (cores 2 + a `mem_mb` budget that bounds concurrency; no rule declares `resources:` otherwise, so `-cN` is the only dial and it ignores memory entirely). A kill also leaves a Snakemake lock → `snakemake --unlock` (see Known Quirks). | bigger box |
+
+**Always pass `--name` to `docker run` on this machine.** `--rm` removes a container that *exits*; killing the docker **client** (Ctrl-C, a timeout) leaves the **container** running, still holding the `{PROJECT}_results/` lock. Three orphans once fought over one results directory before anyone noticed. With `--name adaptogene-run` the orphan is one `docker stop adaptogene-run` away; without it, `docker ps` and guesswork.
+
 
 Per-architecture EMMAX binaries do **not** fix this: architecture is a property of the
 image, so inside an amd64 container `uname -m` is always `x86_64` and the arm64 binary

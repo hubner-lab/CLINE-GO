@@ -21,3 +21,35 @@ test_that("find_k_values returns sorted integers", {
     ks <- find_k_values("SIMDATA")
     expect_equal(ks, c(2L, 3L, 5L))
 })
+
+test_that("find_k_range resolves by config, then mtime — never alphabetically", {
+    tmp <- withr::local_tempdir()
+    d <- file.path(tmp, "SIMDATA_results", MOD_PRESTRUCT, "plots")
+    dir.create(d, recursive = TRUE)
+    # K2-6 sorts first but is the stale one; K2-7.0 is the float spelling the
+    # Shiny config writer used to produce.
+    file.create(file.path(d, "cross_entropy_K2-6.png"))
+    Sys.setFileTime(file.path(d, "cross_entropy_K2-6.png"), Sys.time() - 3600)
+    file.create(file.path(d, "cross_entropy_K2-7.0.png"))
+    withr::local_options(adaptogene.pipeline_path = tmp)
+
+    cur <- find_k_range("SIMDATA", list(sNMF = list(k_start = 2, k_end = 7)))
+    expect_equal(basename(cur$path), "cross_entropy_K2-7.0.png")
+    expect_equal(c(cur$k_start, cur$k_end), c(2L, 7L))  # greedy regex used to give NA
+    expect_equal(cur$stale, "cross_entropy_K2-6.png")
+
+    back <- find_k_range("SIMDATA", list(sNMF = list(k_start = 2, k_end = 6)))
+    expect_equal(basename(back$path), "cross_entropy_K2-6.png")
+    expect_equal(back$stale, "cross_entropy_K2-7.0.png")
+
+    none <- find_k_range("SIMDATA", NULL)  # falls back to newest mtime
+    expect_equal(basename(none$path), "cross_entropy_K2-7.0.png")
+})
+
+test_that("input_to_config_value writes whole numbers as integers", {
+    expect_identical(input_to_config_value(7, "numeric"), 7L)
+    expect_identical(input_to_config_value("100", "numeric"), 100L)
+    expect_identical(input_to_config_value(0.05, "numeric"), 0.05)
+    expect_identical(input_to_config_value(2.5, "numeric"), 2.5)
+    expect_null(input_to_config_value("", "numeric"))
+})

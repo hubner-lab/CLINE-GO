@@ -1,0 +1,48 @@
+# Snakemake profile: low-memory hosts (16 GiB VM class, e.g. colima on a laptop)
+#
+# Usage:
+#   docker run --user $(id -u):$(id -g) --rm --memory=10g --name adaptogene-run \
+#     -v $PWD:/pipeline adaptogene:latest \
+#     snakemake -s Snakefile --workflow-profile workflow/profiles/lowmem \
+#     --config mode=<MODE> --configfile config_SIMDATA.yaml
+#
+# WHY THIS EXISTS
+# ---------------
+# No rule in workflow/rules/*.smk declares `resources:`, so Snakemake has no
+# memory model for this workflow at all: `-c4` means "run up to 4 jobs at once"
+# with no regard for what those jobs cost, and on a 16 GiB VM `mode=pregea`
+# OOM-kills the container (exit 137). The kill then leaves a stale Snakemake
+# lock on {PROJECT}_results/, which needs `snakemake --unlock` before the next
+# attempt.
+#
+# `default-resources` attaches a nominal per-job memory cost to EVERY rule
+# without editing any rule, and the `resources` ceiling below turns that into a
+# real concurrency bound: mem_mb 10000 / 5000 per job = at most 2 concurrent
+# jobs, whatever `cores` says. That is the dial the OOM actually needs — the
+# problem was never the core count.
+#
+# CALIBRATION: 5000 MB/job and a 10000 MB ceiling are sized for the observed
+# 16 GiB / 10 GB-container case, NOT measured per rule. The one rule with a
+# measured model is Gradient Forest (peak_GB ~= 24 + 0.00196 * panel SNPs), so
+# `set-resources` below carries that number explicitly; everything else uses
+# the flat default. Raise `resources.mem_mb` to your container's --memory on a
+# bigger host, or add more `set-resources` entries as rules get measured.
+
+cores: 2
+
+default-resources:
+  - mem_mb=5000
+
+resources:
+  - mem_mb=10000
+
+set-resources:
+  # Measured: peak RSS ~= 24 GB + 0.00196 GB per panel SNP (per-seed GF fit).
+  # Well above a 16 GiB VM — listed so it is scheduled alone and so the number
+  # is written down where the next person looks.
+  - gradient_forest_adaptive:mem_mb=30000
+  - gradient_forest_random:mem_mb=30000
+
+scheduler: greedy
+rerun-incomplete: True
+printshellcmds: True

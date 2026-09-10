@@ -247,8 +247,40 @@ RUN git clone --depth 1 https://github.com/r-forge/gradientforest.git /tmp/gf &&
 # is exactly what caught both silent upgrades during development.
 RUN Rscript -e "remotes::install_version('vegan', version = '2.6-8', upgrade = 'never')"
 
-# Verify critical package versions
+# Verify EVERY package the pipeline actually loads.
+#
+# The per-line requireNamespace() guards above catch a BiocManager::install()
+# that warned instead of failing, but only on the lines that remember to carry
+# one, and this final RUN used to check six hand-picked packages, none of them
+# Bioconductor. Two things slip through that: a BiocManager line added later
+# without a guard, and a package that arrives only as a transitive dependency
+# of a pinned package and stops arriving when that package's DESCRIPTION
+# changes (ggdist reaches this image solely as an Imports of crosshap 1.4.0 --
+# present today, asserted by nothing before this check).
+#
+# The list below is the set of packages that scripts/**/*.R library() or ::
+# (comments stripped, base+recommended and test-only deps excluded).
+# Regenerate it the same way when adding a script; a package used by a script
+# and absent here is exactly the hole this check exists to close.
 RUN Rscript -e " \
+    required <- c( \
+        'AnnotationDbi', 'DT', 'GAPIT', 'GO.db', 'LEA', 'SpatialPack', \
+        'VennDiagram', 'WGCNA', 'adegenet', 'adespatial', 'base64enc', \
+        'bsicons', 'bslib', 'cachem', 'clusterProfiler', 'config', \
+        'cowplot', 'crosshap', 'data.table', 'digest', 'dplyr', \
+        'enrichplot', 'forcats', 'geodata', 'geosphere', 'ggcorrplot', \
+        'ggdist', 'ggnewscale', 'ggplot2', 'ggpubr', 'ggrepel', \
+        'ggspatial', 'golem', 'gradientForest', 'htmltools', \
+        'htmlwidgets', 'jsonlite', 'magrittr', 'plotly', 'poppr', \
+        'processx', 'purrr', 'qs', 'qs2', 'qvalue', \
+        'robust', 'sass', 'scales', 'scattermore', 'scatterpie', \
+        'shiny', 'shinyFiles', 'shinyjs', 'stringr', 'svglite', \
+        'terra', 'tibble', 'tidyr', 'topr', 'vcfR', 'vegan', 'viridis', \
+        'yaml' \
+    ); \
+    missing <- required[!vapply(required, requireNamespace, logical(1), quietly = TRUE)]; \
+    if (length(missing)) stop('MISSING R packages in image: ', paste(missing, collapse = ', ')); \
+    cat('All', length(required), 'required packages present.\n'); \
     stopifnot(packageVersion('topr') >= '2.0.0'); \
     stopifnot(packageVersion('ggplot2') >= '3.5.0'); \
     stopifnot(packageVersion('ggrepel') >= '0.9.0'); \
