@@ -4,7 +4,11 @@ test_that("chr_midpoints computes correctly", {
         chr_lengths = list("1" = 15000, "2" = 17000, "3" = 18000)
     )
     mids <- chr_midpoints(coords)
-    expect_equal(mids, c(7500, 23500, 41000))
+    # unlist() on the named chr_offsets/chr_lengths lists carries the chromosome
+    # names through, so the result is named. Callers that need the labels take
+    # them separately (fct_manhattan.R:295), but the names are part of the
+    # returned value and the assertion should say so.
+    expect_equal(mids, c("1" = 7500, "2" = 23500, "3" = 41000))
 })
 
 test_that("add_cum_pos adds cumulative positions", {

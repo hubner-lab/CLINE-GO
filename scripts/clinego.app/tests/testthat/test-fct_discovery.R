@@ -10,13 +10,15 @@ test_that("find_projects finds _results directories", {
 
 test_that("find_k_values returns sorted integers", {
     tmp <- withr::local_tempdir()
-    dir.create(file.path(tmp, "SIMDATA_results", "structure", "plots", "K2"),
-               recursive = TRUE)
-    dir.create(file.path(tmp, "SIMDATA_results", "structure", "plots", "K3"),
-               recursive = TRUE)
-    dir.create(file.path(tmp, "SIMDATA_results", "structure", "plots", "K5"),
-               recursive = TRUE)
-    # Override pipeline path
+    # Build the tree through MOD_PRESTRUCT rather than a literal. This test used
+    # to hardcode "structure/plots/K*", which stopped being where find_k_values()
+    # looks when the module directories were reorganised (PreStructure/plots/K*),
+    # so it silently asserted against an empty directory. The find_k_range tests
+    # below already use the constant, which is why they were unaffected.
+    for (k in c("K2", "K3", "K5")) {
+        dir.create(file.path(tmp, "SIMDATA_results", MOD_PRESTRUCT, "plots", k),
+                   recursive = TRUE)
+    }
     withr::local_options(clinego.pipeline_path = tmp)
     ks <- find_k_values("SIMDATA")
     expect_equal(ks, c(2L, 3L, 5L))

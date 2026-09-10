@@ -6,7 +6,10 @@ test_that("config_get returns default when key missing", {
 })
 
 test_that("config_k_best extracts k_best", {
-    cfg <- list(snmf = list(k_best = 5L))
+    # Group key is "sNMF" (config_k_best reads config_get(config, "sNMF", ...)),
+    # matching config_SIMDATA.yaml and inst/config_default.yaml. Lowercase "snmf"
+    # is not a config shape the app ever sees.
+    cfg <- list(sNMF = list(k_best = 5L))
     expect_equal(config_k_best(cfg), 5L)
 })
 
