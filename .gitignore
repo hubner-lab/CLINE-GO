@@ -173,3 +173,6 @@ selected_figures_*/
 
 # editor-style numbered backups of analysis scripts
 *.R.v[0-9]*
+
+# testthat failure dump, written on every failing run
+testthat-problems.rds
