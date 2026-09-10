@@ -220,3 +220,125 @@ test_that("compute_method_sigsnps_cached with no overrides arg matches pre-rewor
 
     expect_equal(out_default, out_explicit)
 })
+
+# ── compute_method_thresholds() — branches the additive-overrides tests above
+#    never reach: qval, top, the non-ok NA path, registry pinning applied
+#    THROUGH this function rather than one level down at effective_rule_for(),
+#    and the return type.
+
+test_that("compute_method_thresholds resolves the 'top' rule to the Nth smallest p", {
+    skip_if_not(exists("compute_pval_threshold", mode = "function"),
+                "compute_pval_threshold not sourced (pval_threshold.R not on path)")
+
+    pv <- list(EMMAX = data.table::data.table(
+        SNPID = paste0("s", 1:20), chr = "1", pos = 1:20,
+        bio_1 = (1:20) / 100
+    ))
+    out <- compute_method_thresholds(pv, "top", 5)
+    # The cutoff is INCLUSIVE and is itself the 5th smallest p (pval_threshold.R:42-48).
+    expect_equal(out[["bio_1::EMMAX"]], 0.05)
+    expect_equal(sum(pv$EMMAX$bio_1 <= out[["bio_1::EMMAX"]]), 5L)
+})
+
+test_that("compute_method_thresholds returns NA for a cell whose rule cannot resolve", {
+    skip_if_not(exists("compute_pval_threshold", mode = "function"),
+                "compute_pval_threshold not sourced (pval_threshold.R not on path)")
+
+    # qval refuses below 10 tests (status "too_few_tests"); the cell must come
+    # back as NA_real_ rather than being dropped from the result
+    # (fct_data_loading.R:1058).
+    pv <- list(EMMAX = data.table::data.table(
+        SNPID = paste0("s", 1:5), chr = "1", pos = 1:5,
+        bio_1 = c(0.001, 0.01, 0.2, 0.4, 0.8)
+    ))
+    out <- suppressMessages(compute_method_thresholds(pv, "qval", 0.1))
+
+    expect_true("bio_1::EMMAX" %in% names(out))
+    expect_true(is.na(out[["bio_1::EMMAX"]]))
+})
+
+test_that("compute_method_thresholds resolves the 'qval' rule when there are enough tests", {
+    # KNOWN BUG, quarantined the same way tests/testthat/test-known-bugs.R does
+    # it: this is the CORRECT behaviour, deliberately not made to pass.
+    # qvalue is not in the app's DESCRIPTION Imports and dev.R does not attach
+    # it either, so the bare qvalue() call inside max_pvalue_fdr()
+    # (scripts/R/utils/pval_threshold.R) cannot resolve from the package
+    # namespace. compute_method_thresholds() catches the resulting
+    # "could not find function \"qvalue\"" at fct_data_loading.R:1053-1056 and
+    # returns NA_real_, so every qval cell silently comes back empty even
+    # though "FDR (qval)" is offered in the UI (fct_combine.R:874).
+    # Filed 2026-09-10 in docs/pipeline_improvement_requests.md.
+    # Verified below the skip: max_pvalue_fdr() gives 9.78e-07 on this fixture
+    # when qvalue IS attached. Fixing means deleting this skip() line.
+    skip("known bug: qvalue absent from clinego.app Imports — filed 2026-09-10")
+
+    skip_if_not(exists("compute_pval_threshold", mode = "function"),
+                "compute_pval_threshold not sourced (pval_threshold.R not on path)")
+
+    set.seed(42)
+    pv <- list(EMMAX = data.table::data.table(
+        SNPID = paste0("s", 1:200), chr = "1", pos = 1:200,
+        bio_1 = c(runif(20, 0, 1e-6), runif(180, 0.1, 1))
+    ))
+    out <- suppressMessages(compute_method_thresholds(pv, "qval", 0.1))
+
+    thr <- out[["bio_1::EMMAX"]]
+    expect_false(is.na(thr))
+    expect_true(thr >= 0 && thr <= 1)
+})
+
+test_that("compute_method_thresholds applies registry_defaults to a non-univariate method", {
+    skip_if_not(exists("compute_pval_threshold", mode = "function"),
+                "compute_pval_threshold not sourced (pval_threshold.R not on path)")
+
+    pv <- list(
+        EMMAX = data.table::data.table(SNPID = paste0("s", 1:20), chr = "1", pos = 1:20,
+                                       bio_1 = runif(20, 0, 1)),
+        RDA   = data.table::data.table(SNPID = paste0("s", 1:20), chr = "1", pos = 1:20,
+                                       climate_multivariate = runif(20, 0, 1))
+    )
+    out <- compute_method_thresholds(
+        pv, "bonf", 0.05,
+        registry_defaults = list(RDA = list(adjust = "bonf", threshold = 0.01,
+                                            family = "multivariate_rank")))
+
+    expect_equal(out[["bio_1::EMMAX"]], 0.05 / 20)              # master rule
+    expect_equal(out[["climate_multivariate::RDA"]], 0.01 / 20) # registry pin
+})
+
+test_that("compute_method_thresholds lets a cell override beat the registry pin", {
+    skip_if_not(exists("compute_pval_threshold", mode = "function"),
+                "compute_pval_threshold not sourced (pval_threshold.R not on path)")
+
+    pv <- list(RDA = data.table::data.table(SNPID = paste0("s", 1:20), chr = "1", pos = 1:20,
+                                            climate_multivariate = runif(20, 0, 1)))
+    out <- compute_method_thresholds(
+        pv, "bonf", 0.05,
+        overrides         = list("climate_multivariate::RDA" = list(type = "bonf", value = 0.5)),
+        registry_defaults = list(RDA = list(adjust = "bonf", threshold = 0.01,
+                                            family = "multivariate_rank")))
+
+    expect_equal(out[["climate_multivariate::RDA"]], 0.5 / 20)
+})
+
+test_that("compute_method_thresholds returns a LIST, not a named numeric vector", {
+    # The roxygen at fct_data_loading.R:1036 said "named numeric vector" while
+    # the code builds and returns a list (:1040, :1042, :1061). Every existing
+    # test indexes with [[ ]], which works either way, so nothing pinned it.
+    # Doc corrected; behaviour pinned here.
+    pv <- list(EMMAX = data.table::data.table(SNPID = paste0("s", 1:20), chr = "1", pos = 1:20,
+                                              bio_1 = runif(20, 0, 1)))
+    expect_type(compute_method_thresholds(pv, "bonf", 0.05), "list")
+    expect_type(compute_method_thresholds(list(), "bonf", 0.05), "list")
+    expect_length(compute_method_thresholds(list(), "bonf", 0.05), 0L)
+})
+
+test_that("compute_method_thresholds excludes the fixed non-trait columns", {
+    pv <- list(WZA = data.table::data.table(
+        SNPID = paste0("s", 1:20), chr = "1", pos = 1:20,
+        n_snps = 5L, mean_maf = 0.3,
+        bio_1 = runif(20, 0, 1)
+    ))
+    out <- compute_method_thresholds(pv, "bonf", 0.05)
+    expect_equal(names(out), "bio_1::WZA")
+})

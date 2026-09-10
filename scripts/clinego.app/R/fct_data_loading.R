@@ -1033,7 +1033,8 @@ compute_method_sigsnps_cached <- function(pvalues_list, type, value,
 #' @param registry_defaults Named list: method -> list(adjust=,threshold=,family=).
 #'   Pins non-univariate methods (RDA) to their registry rule unless a cell
 #'   override exists. Default list() = no method is pinned.
-#' @return Named numeric vector "trait::method" -> threshold (NA if unavailable)
+#' @return Named LIST "trait::method" -> threshold (NA_real_ if the rule could not
+#'   resolve for that cell). A list, not a numeric vector — callers index with [[ ]].
 #' @noRd
 compute_method_thresholds <- function(pvalues_list, type, value, overrides = list(),
                                       registry_defaults = list()) {
