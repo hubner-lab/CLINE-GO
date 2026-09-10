@@ -11,7 +11,7 @@ ROOT <- Sys.getenv("PIPELINE_ROOT", "/pipeline")
 EVAL <- file.path(ROOT, "benchmarks/mvp_eval")
 OFF  <- Sys.getenv("OFFSET_DIR", "offset11")
 OUT  <- Sys.getenv("FIG_OUT", file.path(EVAL, "figures_main"))
-source(file.path(ROOT, "scripts/R/utils/theme_adaptogene.R"))
+source(file.path(ROOT, "scripts/R/utils/theme_clinego.R"))
 
 MINOU <- c(teal="#00798c", red="#d1495b", amber="#edae49", sage="#66a182",
            navy="#2e4057", grey="#8d96a3")
@@ -70,10 +70,10 @@ pB <- ggplot(MB, aes(as.integer(label), accuracy, colour=method_label,
                        expand=expansion(add=c(PADB, 0.12))) +
     scale_colour_manual(values=METH_COL, guide="none") +
     labs(tag="B", x=NULL, y="Accuracy") +
-    theme_adaptogene() +
+    theme_clinego() +
     theme(plot.tag=element_text(face="bold",size=13), panel.border=element_blank(),
           axis.text.x=element_text(angle=25,hjust=1,size=8))
-adapt_save_both(file.path(OUT,"B_try_method_comparison"), pB, w=8.6, h=5.0)
+clinego_save_both(file.path(OUT,"B_try_method_comparison"), pB, w=8.6, h=5.0)
 
 # ---- C: GFoffset only, points + whiskers, dashed references ---------------
 G <- S[method_label=="GFoffset"]
@@ -93,11 +93,11 @@ mk <- function(dt, tag, faceted) {
         geom_errorbar(aes(ymin=q25, ymax=q75), width=0.18, linewidth=0.5) +
         geom_point(size=3) +
         geom_text(aes(y=q75, label=sprintf("%.3f", accuracy)), hjust=-0.3,
-                  size=2.9, colour=ADAPT_COL$fg) +
+                  size=2.9, colour=CLINEGO_COL$fg) +
         coord_flip(ylim=c(min(dt$q25)-0.02, max(dt$q75)+0.05)) +
         scale_colour_manual(values=RULE_COL, guide="none") +
         labs(tag=tag, x=NULL, y="Accuracy") +
-        theme_adaptogene() +
+        theme_clinego() +
         theme(plot.tag=element_text(face="bold",size=13), panel.border=element_blank(),
               axis.text.y=element_text(size=8.5))
     if (faceted) p <- p + facet_grid(grp ~ ., scales="free_y", space="free_y", switch="y") +
@@ -106,8 +106,8 @@ mk <- function(dt, tag, faceted) {
               panel.spacing.y=unit(0.5,"lines"))
     p
 }
-adapt_save_both(file.path(OUT,"C_try_whisker_grouped"), mk(MC,"C",TRUE),  w=7.8, h=5.0)
-adapt_save_both(file.path(OUT,"C_try_whisker_flat"),
+clinego_save_both(file.path(OUT,"C_try_whisker_grouped"), mk(MC,"C",TRUE),  w=7.8, h=5.0)
+clinego_save_both(file.path(OUT,"C_try_whisker_flat"),
                 mk(MC[order(accuracy)][, label:=factor(as.character(label),
                     levels=as.character(label))],"C",FALSE), w=7.6, h=4.2)
 message("  OK trial panels"); print(MC[order(-accuracy), .(label, accuracy=round(accuracy,4),

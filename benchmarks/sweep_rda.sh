@@ -16,7 +16,7 @@
 #   benchmarks/sweep_rda.sh [PROJECT] [COND_PCS_CSV] [JOBS]
 # Defaults: LARUSON1K, 0..10, 3 concurrent
 #
-# Run inside the adaptogene container with /pipeline mounted.
+# Run inside the cline-go container with /pipeline mounted.
 # =============================================================================
 set -euo pipefail
 

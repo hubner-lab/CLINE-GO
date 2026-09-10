@@ -20,7 +20,7 @@ suppressPackageStartupMessages({library(data.table); library(ggplot2)
 ROOT <- Sys.getenv("PIPELINE_ROOT","/pipeline"); EVAL <- file.path(ROOT,"benchmarks/mvp_eval")
 OFF <- Sys.getenv("OFFSET_DIR","offset11"); METHOD <- Sys.getenv("METHOD","GFoffset")
 OUT <- Sys.getenv("FIG_OUT", file.path(EVAL,"figures_main"))
-source(file.path(ROOT,"scripts/R/utils/theme_adaptogene.R"))
+source(file.path(ROOT,"scripts/R/utils/theme_clinego.R"))
 
 MINOU <- c(teal="#00798c", red="#d1495b", amber="#edae49", sage="#66a182",
            navy="#2e4057", grey="#8d96a3")
@@ -50,7 +50,7 @@ CEIL <- S[label=="causal loci", .(ceil=median(accuracy)), by=arch]
 GRID <- CJ(label=factor(ORD, levels=ORD), arch=factor(levels(S$arch), levels=levels(S$arch)))
 CEIL <- merge(GRID, CEIL, by="arch")
 
-base <- function(p,tag) p + theme_adaptogene() +
+base <- function(p,tag) p + theme_clinego() +
     theme(plot.tag=element_text(face="bold",size=13), panel.border=element_blank(),
           strip.text=element_text(size=8), legend.position="none",
           axis.text.x=element_text(size=7.5)) + labs(tag=tag)
@@ -60,11 +60,11 @@ p1 <- base(ggplot(S, aes(arch, accuracy)) +
     geom_hline(data=CEIL, aes(yintercept=ceil), linetype="22",
                colour=REF_GOOD, linewidth=0.45) +
     geom_boxplot(aes(fill=label), outlier.shape=NA, alpha=0.55, linewidth=0.3, width=0.62) +
-    geom_jitter(width=0.14, size=0.5, alpha=0.4, colour=ADAPT_COL$fg) +
+    geom_jitter(width=0.14, size=0.5, alpha=0.4, colour=CLINEGO_COL$fg) +
     facet_wrap(~ label, nrow=2) +
     scale_fill_manual(values=RULE_COL) +
     labs(x=NULL, y="Accuracy"), "C")
-adapt_save_both(file.path(OUT,"G1_dist_box_points"), p1, w=10.5, h=5.6)
+clinego_save_both(file.path(OUT,"G1_dist_box_points"), p1, w=10.5, h=5.6)
 
 # ---- G2: ggdist half-eye ----------------------------------------------------
 p2 <- base(ggplot(S, aes(arch, accuracy, fill=label)) +
@@ -75,7 +75,7 @@ p2 <- base(ggplot(S, aes(arch, accuracy, fill=label)) +
     facet_wrap(~ label, nrow=2) +
     scale_fill_manual(values=RULE_COL) +
     labs(x=NULL, y="Accuracy"), "C")
-adapt_save_both(file.path(OUT,"G2_dist_halfeye"), p2, w=10.5, h=5.6)
+clinego_save_both(file.path(OUT,"G2_dist_halfeye"), p2, w=10.5, h=5.6)
 
 # ---- G3: transposed -- architecture as facet, rules on y -------------------
 CE3 <- S[label=="causal loci", .(ceil=median(accuracy)), by=arch]
@@ -83,13 +83,13 @@ p3 <- base(ggplot(S, aes(accuracy, label, fill=label)) +
     geom_vline(data=CE3, aes(xintercept=ceil), linetype="22",
                colour=REF_GOOD, linewidth=0.45) +
     geom_boxplot(outlier.shape=NA, alpha=0.55, linewidth=0.3, width=0.6) +
-    geom_jitter(height=0.14, size=0.45, alpha=0.35, colour=ADAPT_COL$fg) +
+    geom_jitter(height=0.14, size=0.45, alpha=0.35, colour=CLINEGO_COL$fg) +
     facet_wrap(~ arch, nrow=1) +
     scale_y_discrete(limits=rev(ORD)) +
     scale_fill_manual(values=RULE_COL) +
     labs(x="Accuracy", y=NULL), "C") +
     theme(axis.text.y=element_text(size=8))
-adapt_save_both(file.path(OUT,"G3_dist_transposed"), p3, w=11, h=4.6)
+clinego_save_both(file.path(OUT,"G3_dist_transposed"), p3, w=11, h=4.6)
 
 # ---- G4: sina ---------------------------------------------------------------
 p4 <- base(ggplot(S, aes(arch, accuracy, colour=label)) +
@@ -97,9 +97,9 @@ p4 <- base(ggplot(S, aes(arch, accuracy, colour=label)) +
                colour=REF_GOOD, linewidth=0.45) +
     geom_sina(size=0.8, alpha=0.55, maxwidth=0.7) +
     stat_summary(fun=median, geom="crossbar", width=0.5, linewidth=0.3,
-                 colour=ADAPT_COL$fg) +
+                 colour=CLINEGO_COL$fg) +
     facet_wrap(~ label, nrow=2) +
     scale_colour_manual(values=RULE_COL) +
     labs(x=NULL, y="Accuracy"), "C")
-adapt_save_both(file.path(OUT,"G4_dist_sina"), p4, w=10.5, h=5.6)
+clinego_save_both(file.path(OUT,"G4_dist_sina"), p4, w=10.5, h=5.6)
 message("  OK G1-G4")

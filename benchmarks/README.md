@@ -1,4 +1,4 @@
-# ADAPTOGENE Benchmark Datasets
+# CLINE-GO Benchmark Datasets
 
 Two published datasets for validating the pipeline against known ground-truth loci.
 
@@ -46,7 +46,7 @@ bash benchmarks/prepare_arabidopsis.sh --force
 
 ```bash
 # Arabidopsis: full pipeline (GEA + GWAS + maladaptation)
-docker run --user $(id -u):$(id -g) --rm --memory=20g -v $PWD:/pipeline adaptogene:latest \
+docker run --user $(id -u):$(id -g) --rm --memory=20g -v $PWD:/pipeline cline-go:latest \
   snakemake -c10 -s Snakefile --config mode=processing --configfile config_arabidopsis.yaml --scheduler greedy
 
 # Populus: GEA + maladaptation

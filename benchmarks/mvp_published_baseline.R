@@ -1,6 +1,6 @@
 #!/usr/bin/env Rscript
 # mvp_published_baseline.R -- extract Lotterhos 2023's OWN published detection metrics for the
-# 14 benchmark seeds into one lookup table, so comparing a future ADAPTOGENE run against the
+# 14 benchmark seeds into one lookup table, so comparing a future CLINE-GO run against the
 # original study is a join, not a re-derivation.
 #
 # Source: data/mvp/selection/summary_20220428_20220726.csv (BCO-DMO doi:10.26008/1912/bco-dmo.889769.1),

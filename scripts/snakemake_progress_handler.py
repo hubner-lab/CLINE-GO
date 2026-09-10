@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Snakemake log handler script for ADAPTOGENE pipeline progress tracking.
+Snakemake log handler script for CLINE-GO pipeline progress tracking.
 
 Used via: snakemake --log-handler-script scripts/snakemake_progress_handler.py
 

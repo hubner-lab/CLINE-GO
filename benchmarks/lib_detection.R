@@ -270,7 +270,7 @@ auc_pr_from_rank <- function(ranked_keys, truth, n_testable) {
 }
 
 # ------------------------------------------------------------------- plotting
-# scale_color_adaptogene() wraps ADAPT_CATEGORICAL, the Okabe-Ito colourblind-safe palette,
+# scale_color_clinego() wraps CLINEGO_CATEGORICAL, the Okabe-Ito colourblind-safe palette,
 # which has exactly EIGHT entries. Journal 06 plots up to 13 series (11 methods plus two
 # combine pseudo-methods), and ggplot2 aborts rather than recycling:
 #   "Insufficient values in manual scale. 11 needed but only 8 provided."
@@ -282,11 +282,11 @@ auc_pr_from_rank <- function(ranked_keys, truth, n_testable) {
 # Caller passes the number of levels rather than the data, so it works the same for a factor,
 # a character column, or a dcast'd wide frame.
 scale_colour_n <- function(n) {
-    if (n <= length(ADAPT_CATEGORICAL)) scale_color_adaptogene()
+    if (n <= length(CLINEGO_CATEGORICAL)) scale_color_clinego()
     else ggplot2::scale_colour_hue(h = c(0, 330), c = 90, l = 60)
 }
 scale_fill_n <- function(n) {
-    if (n <= length(ADAPT_CATEGORICAL)) scale_fill_adaptogene()
+    if (n <= length(CLINEGO_CATEGORICAL)) scale_fill_clinego()
     else ggplot2::scale_fill_hue(h = c(0, 330), c = 90, l = 60)
 }
 

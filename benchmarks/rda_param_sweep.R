@@ -1,5 +1,5 @@
 #!/usr/bin/env Rscript
-# rda_param_sweep.R -- isolate the three parameters that separate ADAPTOGENE's RDA GEA scan
+# rda_param_sweep.R -- isolate the three parameters that separate CLINE-GO's RDA GEA scan
 # from the one Lotterhos 2023 ran on the same seeds:
 #
 #   1. scale=        vegan::rda response scaling. Ours TRUE (correlation-based); BOTH
@@ -122,7 +122,7 @@ CELLS <- list(
   list(id = "C_scale_only",         scale = TRUE,  cond = 2, pmax = FALSE,
        note = "B + our scale=TRUE — isolates the scaling effect"),
   list(id = "D_ours_current",       scale = TRUE,  cond = 5, pmax = TRUE,
-       note = "current ADAPTOGENE default (5 PCs + pmax)"),
+       note = "current CLINE-GO default (5 PCs + pmax)"),
   list(id = "E_ours_no_pmax",       scale = TRUE,  cond = 5, pmax = FALSE,
        note = "D without the intersection rule — isolates pmax"),
   list(id = "F_scaleFALSE_5pc",     scale = FALSE, cond = 5, pmax = FALSE,

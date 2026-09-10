@@ -297,7 +297,7 @@ rule pregea_rda_setup:
     drawn as cumulative adjusted R2 per step with the full-model ceiling (A17).
 
     scripts/pregea_rda_setup.R — REUSES scripts/R/lib/rdadapt.R (extracted
-    from rda.R), emmax_core.R::load_pca_covariates(), theme_adaptogene.R.
+    from rda.R), emmax_core.R::load_pca_covariates(), theme_clinego.R.
     Diagnostics only (Rule 5) — does not call find_sig_snps.R or touch any
     GEA output.
 

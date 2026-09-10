@@ -27,7 +27,7 @@ EVAL <- file.path(ROOT, "benchmarks/mvp_eval")
 OFF  <- Sys.getenv("OFFSET_DIR", "offset11")
 OUT  <- Sys.getenv("FIG_OUT", file.path(EVAL, "method_figure"))
 dir.create(OUT, recursive = TRUE, showWarnings = FALSE)
-source(file.path(ROOT, "scripts/R/utils/theme_adaptogene.R"))
+source(file.path(ROOT, "scripts/R/utils/theme_clinego.R"))
 
 MINOU <- c(teal = "#00798c", red = "#d1495b", amber = "#edae49",
            sage = "#66a182", navy = "#2e4057", grey = "#8d96a3")
@@ -45,9 +45,9 @@ ARCH_LABELS <- c("oligogenic", "moderately polygenic", "highly polygenic")
 
 rd <- function(...) { f <- file.path(...); if (!file.exists(f)) stop("MISSING: ", f); fread(f) }
 save_fig <- function(p, stem, w, h) {
-    adapt_save_both(file.path(OUT, stem), p, w = w, h = h); message("  OK ", stem)
+    clinego_save_both(file.path(OUT, stem), p, w = w, h = h); message("  OK ", stem)
 }
-base_t <- function(p, tag) p + theme_adaptogene() +
+base_t <- function(p, tag) p + theme_clinego() +
     theme(plot.tag = element_text(face = "bold", size = 13),
           strip.text = element_text(size = 8.5), legend.position = "bottom") +
     labs(tag = tag)
@@ -78,9 +78,9 @@ YLAB <- "prediction accuracy (-Kendall's tau)"
 # ---------------- V1: grouped bars -----------------------------------------
 p1 <- base_t(ggplot(MED, aes(method, accuracy, fill = method)) +
     geom_col(width = 0.72) +
-    geom_linerange(aes(ymin = q25, ymax = q75), linewidth = 0.4, colour = ADAPT_COL$fg) +
+    geom_linerange(aes(ymin = q25, ymax = q75), linewidth = 0.4, colour = CLINEGO_COL$fg) +
     geom_text(aes(label = sprintf("%.3f", accuracy)), vjust = -0.6, size = 2.7,
-              colour = ADAPT_COL$fg) +
+              colour = CLINEGO_COL$fg) +
     facet_wrap(~ arch_lab, nrow = 1) +
     scale_fill_manual(values = METH_COL, guide = "none") +
     scale_y_continuous(expand = expansion(mult = c(0, 0.10))) +

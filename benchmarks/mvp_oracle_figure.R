@@ -31,7 +31,7 @@ EVAL <- file.path(ROOT, "benchmarks/mvp_eval")
 OFF  <- Sys.getenv("OFFSET_DIR", "offset11")
 OUT  <- Sys.getenv("FIG_OUT", file.path(EVAL, "figures_oracle"))
 dir.create(OUT, recursive = TRUE, showWarnings = FALSE)
-source(file.path(ROOT, "scripts/R/utils/theme_adaptogene.R"))
+source(file.path(ROOT, "scripts/R/utils/theme_clinego.R"))
 
 # ---- palette --------------------------------------------------------------
 # Same semantics as figures_main so a reader who has seen one figure can read the
@@ -65,10 +65,10 @@ PANEL_ORDER <- c("2/3 methods", "3/3 methods", "1/3 methods", "RDA", "EMMAX",
 
 rd <- function(...) { f <- file.path(...); if (!file.exists(f)) stop("MISSING: ", f); fread(f) }
 save_fig <- function(p, stem, w, h) {
-    adapt_save_both(file.path(OUT, stem), p, w = w, h = h)
+    clinego_save_both(file.path(OUT, stem), p, w = w, h = h)
     message(sprintf("  OK %s", stem))
 }
-base_t <- function(p, tag) p + theme_adaptogene() +
+base_t <- function(p, tag) p + theme_clinego() +
     theme(plot.tag = element_text(face = "bold", size = 13),
           strip.text = element_text(size = 8.5), legend.position = "bottom") +
     labs(tag = tag)
@@ -120,7 +120,7 @@ arch_facet <- setNames(sprintf("%s\n(~%d causal loci)", nc$arch_lab, nc$nc), nc$
 pA <- base_t(ggplot(a_long, aes(label, markers, fill = class)) +
     geom_col(width = 0.7) +
     geom_text(data = a_src, aes(label, total, label = as.integer(usable)),
-              inherit.aes = FALSE, hjust = -0.25, size = 2.7, colour = ADAPT_COL$fg) +
+              inherit.aes = FALSE, hjust = -0.25, size = 2.7, colour = CLINEGO_COL$fg) +
     coord_flip() +
     facet_wrap(~ arch_lab, nrow = 1, labeller = labeller(arch_lab = arch_facet)) +
     scale_fill_manual(values = CLASS_COL, name = NULL) +
@@ -152,7 +152,7 @@ pB1 <- base_t(zero_line(ggplot(b_dt, aes(label, median_delta, fill = arch_lab)) 
     geom_col(position = position_dodge(width = 0.78), width = 0.72) +
     geom_linerange(aes(ymin = q25, ymax = q75),
                    position = position_dodge(width = 0.78), linewidth = 0.35,
-                   colour = ADAPT_COL$fg)) +
+                   colour = CLINEGO_COL$fg)) +
     scale_fill_manual(values = setNames(c(green3[1], MINOU[["teal"]], MINOU[["navy"]]),
                                         ARCH_LABELS), name = NULL) +
     labs(x = NULL, y = "accuracy relative to the causal loci"), "B") +
@@ -177,7 +177,7 @@ pC <- base_t(ggplot(w_dt, aes(label, worst_delta, fill = label)) +
     geom_col(width = 0.72) +
     geom_hline(yintercept = 0, colour = ORACLE_COL, linewidth = 0.7) +
     geom_text(aes(label = worst_arch, y = pmin(worst_delta, 0) - 0.004),
-              hjust = 1, size = 2.5, colour = ADAPT_COL$muted) +
+              hjust = 1, size = 2.5, colour = CLINEGO_COL$muted) +
     coord_flip() +
     scale_fill_manual(values = PANEL_COL, guide = "none") +
     scale_y_continuous(expand = expansion(mult = c(0.34, 0.08))) +
@@ -229,7 +229,7 @@ pC2 <- base_t(ggplot(h_dt, aes(arch_lab, label, fill = below_pct)) +
         values  = c(0, 0.25, 0.5, 0.75, 1), limits = c(0, 100),
         breaks = c(0, 25, 50, 75, 100), labels = c("0", "25", "50", "75", "100"),
         name = LEG) +
-    scale_colour_manual(values = c(`TRUE` = "white", `FALSE` = ADAPT_COL$fg)) +
+    scale_colour_manual(values = c(`TRUE` = "white", `FALSE` = CLINEGO_COL$fg)) +
     scale_x_discrete(position = "top", expand = c(0, 0)) +
     scale_y_discrete(expand = c(0, 0)) +
     labs(x = NULL, y = NULL), "C") +
@@ -294,7 +294,7 @@ pC4 <- base_t(ggplot(BM, aes(method_label, label, fill = below_pct)) +
         colours = c("#14614a", MINOU[["sage"]], "grey92", MINOU[["red"]], "#8f2438"),
         values  = c(0, 0.25, 0.5, 0.75, 1), limits = c(0, 100),
         breaks = c(0, 25, 50, 75, 100), name = LEG) +
-    scale_colour_manual(values = c(`TRUE` = "white", `FALSE` = ADAPT_COL$fg)) +
+    scale_colour_manual(values = c(`TRUE` = "white", `FALSE` = CLINEGO_COL$fg)) +
     scale_x_discrete(expand = c(0, 0)) + scale_y_discrete(expand = c(0, 0)) +
     labs(x = NULL, y = NULL), "C") +
     theme(axis.text.x = element_text(size = 8), axis.text.y = element_text(size = 9),
@@ -328,7 +328,7 @@ d_best[, `:=`(method_label = factor(method_label, levels = names(METHOD_COL)),
               arch_lab = factor(arch_lab, levels = ARCH_LABELS))]
 pD2 <- base_t(ggplot(d_best, aes(method_label, median_delta, fill = method_label)) +
     geom_col(width = 0.72) +
-    geom_linerange(aes(ymin = q25, ymax = q75), linewidth = 0.35, colour = ADAPT_COL$fg) +
+    geom_linerange(aes(ymin = q25, ymax = q75), linewidth = 0.35, colour = CLINEGO_COL$fg) +
     geom_hline(yintercept = 0, colour = ORACLE_COL, linewidth = 0.7) +
     facet_wrap(~ arch_lab, nrow = 1) +
     scale_fill_manual(values = METHOD_COL, guide = "none") +

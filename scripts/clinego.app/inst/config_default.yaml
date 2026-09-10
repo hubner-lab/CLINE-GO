@@ -1,5 +1,5 @@
 #=============================================================================
-# ADAPTOGENE Default Configuration
+# CLINE-GO Default Configuration
 # Copy this file to config_{project_name}.yaml and fill in your values.
 # CPU cores and ploidy are managed automatically (auto-detected / diploid).
 #=============================================================================

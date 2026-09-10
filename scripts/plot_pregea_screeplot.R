@@ -18,7 +18,7 @@ library(ggplot2)
 library(data.table)
 library(qs)
 
-source("/pipeline/scripts/R/utils/theme_adaptogene.R")
+source("/pipeline/scripts/R/utils/theme_clinego.R")
 
 args <- commandArgs(trailingOnly = TRUE)
 ################################################################################
@@ -74,19 +74,19 @@ fwrite(scree_dt, OUT_TSV, sep = "\t", quote = FALSE)
 plot_dt <- scree_dt[seq_len(min(n, max(N_PCS_MAX, max(k_range), 20) + 5))]
 g <- ggplot(plot_dt, aes(x = pc, y = var_explained)) +
     geom_col(aes(fill = above_bs)) +
-    geom_line(aes(y = broken_stick), color = ADAPT_THRESHOLD, linewidth = 0.6) +
-    geom_point(aes(y = broken_stick), color = ADAPT_THRESHOLD, size = 1.2) +
-    geom_vline(xintercept = range(k_range), linetype = "dashed", color = ADAPT_COL$secondary) +
+    geom_line(aes(y = broken_stick), color = CLINEGO_THRESHOLD, linewidth = 0.6) +
+    geom_point(aes(y = broken_stick), color = CLINEGO_THRESHOLD, size = 1.2) +
+    geom_vline(xintercept = range(k_range), linetype = "dashed", color = CLINEGO_COL$secondary) +
     geom_hline(yintercept = 0, color = "transparent") +
-    # ADAPT_NEUTRAL is an alias of ADAPT_RETAINED (both #0B775E) — using it
-    # here made above/below-broken-stick bars render identically. ADAPT_THRESHOLD
+    # CLINEGO_NEUTRAL is an alias of CLINEGO_RETAINED (both #0B775E) — using it
+    # here made above/below-broken-stick bars render identically. CLINEGO_THRESHOLD
     # (dark plum) actually distinguishes "below the null" from "above it".
-    scale_fill_manual(values = c(`TRUE` = ADAPT_RETAINED, `FALSE` = ADAPT_THRESHOLD), guide = "none") +
+    scale_fill_manual(values = c(`TRUE` = CLINEGO_RETAINED, `FALSE` = CLINEGO_THRESHOLD), guide = "none") +
     labs(x = "PC", y = "Proportion of variance explained",
         title = "LD-pruned genotype PCA screeplot",
         subtitle = sprintf("%d axis/axes above broken-stick null (n=%d total) | K_best=%s | swept K range dashed",
                            n_above_bs, n, K_BEST)) +
-    theme_adaptogene()
+    theme_clinego()
 
 ggsave(OUT_PNG, g, width = 8, height = 5, dpi = 300)
 ggsave(OUT_SVG, g, width = 8, height = 5, device = svglite::svglite, bg = "transparent")

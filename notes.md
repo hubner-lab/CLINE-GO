@@ -1,4 +1,4 @@
-# ADAPTOGENE — session notes (USE-only mode; I run the app/pipeline, do not modify code)
+# CLINE-GO — session notes (USE-only mode; I run the app/pipeline, do not modify code)
 
 ## Current state
 - [x] WBDC_final GEA mode finished correctly (51/51 steps, outputs valid, all K5).
@@ -11,4 +11,4 @@
 - [ ] VERIFY in browser: GEA/GWAS → Per-Method Details renders (no "Region:" line, no crash) on WBDC_final (K5); Combined/region detail/QQ unchanged. User tests manually.
 - [x] WBDC_final GWAS: 2 WZA Manhattan rules failed (assoc_wza_manhattan Tiller_Number/BLINK + _combined) — WZA window p=0 → -log10=Inf → scattermore crash. Diagnosed: see [BUG_wza_manhattan_scattermore_inf.md](docs/BUG_wza_manhattan_scattermore_inf.md).
 - [x] FIXED (user authorized code change). 3 files: `compute_wza.R` (pnorm lower.tail=FALSE + `pmax(p,.Machine$double.xmin)` floor → no exact-0), `manhattan_utils.R::add_scatter_layer` (drop non-finite log10p before scattermore), `plot_manhattan_combined.R` (df_background filter is.finite). Toy-validated: both plot scripts now survive p=0+NA windows (exit 0).
-- [x] WBDC_final gwas re-run DONE: `-R assoc_wza` 35/35 steps, exit 0. Both failed plots now exist; regen WZA tables have no 0/NA/neg. The underflowed window now reads true p=8.48e-18 (-log10=17.07) — `1-pnorm` was just cancellation, `lower.tail=FALSE` recovers it; floor never triggered. NOTE: snakemake needs `-e USER=adaptogene` (getpass fails on uid 1020).
+- [x] WBDC_final gwas re-run DONE: `-R assoc_wza` 35/35 steps, exit 0. Both failed plots now exist; regen WZA tables have no 0/NA/neg. The underflowed window now reads true p=8.48e-18 (-log10=17.07) — `1-pnorm` was just cancellation, `lower.tail=FALSE` recovers it; floor never triggered. NOTE: snakemake needs `-e USER=cline-go` (getpass fails on uid 1020).

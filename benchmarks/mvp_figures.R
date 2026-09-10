@@ -1,6 +1,6 @@
 #!/usr/bin/env Rscript
 # =============================================================================
-# mvp_figures.R -- publication-ready figures and tables for the ADAPTOGENE
+# mvp_figures.R -- publication-ready figures and tables for the CLINE-GO
 # genetic-offset benchmark.
 #
 # TWO ARGUMENTS, KEPT SEPARATE ON PURPOSE:
@@ -32,7 +32,7 @@ suppressPackageStartupMessages({
 })
 
 PIPELINE_ROOT <- Sys.getenv("PIPELINE_ROOT", "/pipeline")
-source(file.path(PIPELINE_ROOT, "scripts/R/utils/theme_adaptogene.R"))
+source(file.path(PIPELINE_ROOT, "scripts/R/utils/theme_clinego.R"))
 
 args <- commandArgs(trailingOnly = TRUE)
 kv <- function(k, d) {
@@ -79,12 +79,12 @@ tot_new <- f1[variant %like% "scenario", sum(seconds)]
 
 p1 <- ggplot(f1, aes(variant, seconds / 3600, fill = rule)) +
     geom_col(width = 0.6) +
-    scale_fill_manual(values = c(ADAPT_CATEGORICAL[1:4], ADAPT_NEUTRAL)) +
+    scale_fill_manual(values = c(CLINEGO_CATEGORICAL[1:4], CLINEGO_NEUTRAL)) +
     labs(title = "Compute per replicate for one garden sweep",
          subtitle = sprintf("%.1f h -> %.1f h  (%.1fx less compute), 42 gardens x 7 panels x 4 methods",
                             tot_old / 3600, tot_new / 3600, tot_old / tot_new),
          x = NULL, y = "CPU-hours per replicate", fill = NULL) +
-    theme_adaptogene() +
+    theme_clinego() +
     guides(fill = guide_legend(nrow = 2))
 save_fig(p1, "fig1_compute_per_seed", f1)
 
@@ -113,13 +113,13 @@ f2[, stat := factor(stat, levels = c("total (7 panels)", "slowest job (neutral_a
 p2 <- ggplot(f2, aes(stat, seconds, fill = phase)) +
     geom_col(position = position_dodge(0.7), width = 0.65) +
     geom_text(aes(label = paste0(seconds, " s")), position = position_dodge(0.7),
-              vjust = -0.35, size = 3, colour = ADAPT_COL$fg) +
-    scale_fill_manual(values = c(ADAPT_REMOVED, ADAPT_RETAINED)) +
+              vjust = -0.35, size = 3, colour = CLINEGO_COL$fg) +
+    scale_fill_manual(values = c(CLINEGO_REMOVED, CLINEGO_RETAINED)) +
     scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +
     labs(title = "Gradient Forest projection: 42 separate predict() calls vs one",
          subtitle = "Outputs byte-identical before and after; each scenario is only 100 raster cells, so this was call overhead",
          x = NULL, y = "seconds", fill = NULL) +
-    theme_adaptogene()
+    theme_clinego()
 save_fig(p2, "fig2_gf_batched_predict", f2)
 
 # ---- Fig 3: orchestration shape ---------------------------------------------
@@ -143,13 +143,13 @@ f3[, variant := factor(variant, levels = c("old driver", "scenario pipeline"))]
 p3 <- ggplot(f3, aes(quantity, pmax(count, 0.5), fill = variant)) +
     geom_col(position = position_dodge(0.7), width = 0.65) +
     geom_text(aes(label = count), position = position_dodge(0.7), vjust = -0.35,
-              size = 3, colour = ADAPT_COL$fg) +
-    scale_fill_manual(values = c(ADAPT_REMOVED, ADAPT_RETAINED)) +
+              size = 3, colour = CLINEGO_COL$fg) +
+    scale_fill_manual(values = c(CLINEGO_REMOVED, CLINEGO_RETAINED)) +
     scale_y_log10(expand = expansion(mult = c(0, 0.2))) +
     labs(title = "Orchestration per replicate",
          subtitle = "log scale; clone lanes plotted at 0.5 where the true value is 0",
          x = NULL, y = "count per replicate (log10)", fill = NULL) +
-    theme_adaptogene()
+    theme_clinego()
 save_fig(p3, "fig3_orchestration", f3)
 
 message("== B. scientific result ==")
@@ -175,11 +175,11 @@ if (!is.null(gp) && nrow(gp)) {
     p4 <- ggplot(f4, aes(reorder(marker_set, median_tau), median_tau, fill = method_label)) +
         geom_col(position = position_dodge(0.8), width = 0.72) +
         coord_flip() +
-        scale_fill_manual(values = ADAPT_CATEGORICAL[1:4]) +
+        scale_fill_manual(values = CLINEGO_CATEGORICAL[1:4]) +
         labs(title = "Offset accuracy by marker panel and method",
              subtitle = "Kendall's tau vs common-garden fitness; more negative = better prediction",
              x = NULL, y = expression(median~Kendall*"'"*s~tau), fill = NULL) +
-        theme_adaptogene()
+        theme_clinego()
     save_fig(p4, "fig4_tau_by_panel_method", f4, w = 9, h = 5.5)
 
     # ---- Fig 5: the architecture claim --------------------------------------
@@ -202,11 +202,11 @@ if (!is.null(gp) && nrow(gp)) {
             geom_col(position = position_dodge(0.8), width = 0.72) +
             facet_wrap(~ arch_level, ncol = 1) +
             coord_flip() +
-            scale_fill_manual(values = ADAPT_CATEGORICAL[1:4]) +
+            scale_fill_manual(values = CLINEGO_CATEGORICAL[1:4]) +
             labs(title = "Marker curation pays off only for some architectures",
                  subtitle = "SS-Mtn replicates only; more negative = better",
                  x = NULL, y = expression(median~Kendall*"'"*s~tau), fill = NULL) +
-            theme_adaptogene()
+            theme_clinego()
         save_fig(p5, "fig5_tau_by_architecture", f5, w = 9, h = 9)
     }
 }
@@ -224,13 +224,13 @@ if (!is.null(tl) && nrow(tl)) {
         f6 <- melt(tl, id.vars = intersect(c("seed", "method_label", ycol), names(tl)),
                    measure.vars = xcands, variable.name = "property", value.name = "x")
         p6 <- ggplot(f6, aes(x, get(ycol))) +
-            geom_point(colour = ADAPT_NEUTRAL, alpha = 0.75, size = 1.8) +
-            geom_smooth(method = "lm", se = TRUE, colour = ADAPT_THRESHOLD, linewidth = 0.6) +
+            geom_point(colour = CLINEGO_NEUTRAL, alpha = 0.75, size = 1.8) +
+            geom_smooth(method = "lm", se = TRUE, colour = CLINEGO_THRESHOLD, linewidth = 0.6) +
             facet_wrap(~ property, scales = "free_x") +
             labs(title = "Local adaptation predicts offset accuracy; F_ST does not",
                  subtitle = "one point per replicate x method; more negative tau = better",
                  x = NULL, y = expression(Kendall*"'"*s~tau)) +
-            theme_adaptogene()
+            theme_clinego()
         save_fig(p6, "fig6_tau_vs_properties", f6, w = 9, h = 4.5)
     }
 }

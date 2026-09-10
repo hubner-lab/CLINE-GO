@@ -1,4 +1,4 @@
-# Positioning ADAPTOGENE against Lotterhos 2023 — what to claim, and what not to
+# Positioning CLINE-GO against Lotterhos 2023 — what to claim, and what not to
 
 Derived from the journal-07 benchmark (`work/journal/07_mvp_gea_crossseed_portfolio.Rmd`),
 14 MVP replicates × 2 MAF arms × 5 structure-correction rungs × 11 methods.
@@ -15,7 +15,7 @@ Every number below is reproducible from `benchmarks/mvp_eval/` — the per-axis 
 Lotterhos 2023 evaluated each GEA method **alone, at one threshold**. Every method they tested
 lands at one of two unusable extremes: conservative methods recover ~8 % of causal loci, and
 liberal ones reach useful power only at 89–99 % false discovery. Nothing sits in between.
-ADAPTOGENE's contribution is the step they did not test — **combining methods with per-method
+CLINE-GO's contribution is the step they did not test — **combining methods with per-method
 thresholds** — which recovers 2.5× the causal loci at the same (zero, median) false-discovery
 rate, using a configuration fixed on an independent replicate and applied without any tuning.
 

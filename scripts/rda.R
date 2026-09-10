@@ -38,7 +38,7 @@ library(ggplot2)
 library(ggrepel)
 library(scattermore)
 
-source("/pipeline/scripts/R/utils/theme_adaptogene.R")
+source("/pipeline/scripts/R/utils/theme_clinego.R")
 source("/pipeline/scripts/R/utils/emmax_core.R")  # load_pca_covariates()
 source("/pipeline/scripts/R/utils/pval_threshold.R")  # compute_pval_threshold()
 source("/pipeline/scripts/R/lib/rdadapt.R")  # rdadapt() — shared with preGEA's RDA-setup block
@@ -727,12 +727,12 @@ eig_dt <- merge(eig_dt, axis_p_dt, by = "axis", all.x = TRUE)
 g_scree <- ggplot(eig_dt, aes(x = factor(axis), y = eigenvalue, fill = retained)) +
     geom_col() +
     geom_text(aes(label = ifelse(!is.na(p), sprintf("p=%.3g", p), "")),
-              vjust = -0.3, size = 3, color = ADAPT_COL$fg) +
-    scale_fill_manual(values = c(`TRUE` = ADAPT_RETAINED, `FALSE` = ADAPT_REMOVED), guide = "none") +
+              vjust = -0.3, size = 3, color = CLINEGO_COL$fg) +
+    scale_fill_manual(values = c(`TRUE` = CLINEGO_RETAINED, `FALSE` = CLINEGO_REMOVED), guide = "none") +
     labs(x = "Constrained axis", y = "Eigenvalue",
          title = "RDA constrained eigenvalues",
          subtitle = paste0("K=", K_sel, " (", K_selection, "), K_max=", K_max)) +
-    theme_adaptogene()
+    theme_clinego()
 ggsave(O_scree <- file.path(PLOT_DIR, paste0("rda_screeplot_K", K_BEST, ".png")), g_scree,
        width = 7, height = 5, dpi = 300)
 ggsave(sub("\\.png$", ".svg", O_scree), g_scree, width = 7, height = 5,
@@ -740,13 +740,13 @@ ggsave(sub("\\.png$", ".svg", O_scree), g_scree, width = 7, height = 5,
 
 # --- p-value histogram (binned by construction — Rule 6 compliant at any m) ---
 g_hist <- ggplot(data.table(p = rdadapt_res$p.values), aes(x = p)) +
-    geom_histogram(breaks = seq(0, 1, length.out = 101), fill = ADAPT_NEUTRAL, color = "black") +
-    geom_hline(yintercept = expected_per_bin, linetype = "dashed", color = ADAPT_THRESHOLD) +
+    geom_histogram(breaks = seq(0, 1, length.out = 101), fill = CLINEGO_NEUTRAL, color = "black") +
+    geom_hline(yintercept = expected_per_bin, linetype = "dashed", color = CLINEGO_THRESHOLD) +
     labs(x = "p-value", y = "Count",
          title = "RDA candidate p-value histogram",
          subtitle = sprintf("flatness chi-sq=%.1f (excl. first bin) — expect flat + spike at 0 (A4)",
                             flatness_chisq)) +
-    theme_adaptogene()
+    theme_clinego()
 ggsave(O_hist <- file.path(PLOT_DIR, paste0("rda_pvalue_histogram_K", K_BEST, ".png")), g_hist,
        width = 7, height = 5, dpi = 300)
 ggsave(sub("\\.png$", ".svg", O_hist), g_hist, width = 7, height = 5,
@@ -768,19 +768,19 @@ if (K_sel >= 2) {
         scale_fill_viridis_c(trans = "log10", name = "SNP density") +
         geom_segment(data = biplot_scores,
                      aes(x = 0, y = 0, xend = RDA1 * arrow_scale, yend = RDA2 * arrow_scale),
-                     inherit.aes = FALSE, color = ADAPT_THRESHOLD,
+                     inherit.aes = FALSE, color = CLINEGO_THRESHOLD,
                      arrow = arrow(length = unit(0.2, "cm"))) +
         ggrepel::geom_text_repel(data = biplot_scores,
                                  aes(x = RDA1 * arrow_scale, y = RDA2 * arrow_scale, label = predictor),
-                                 inherit.aes = FALSE, color = ADAPT_THRESHOLD, size = 3) +
+                                 inherit.aes = FALSE, color = CLINEGO_THRESHOLD, size = 3) +
         labs(x = "RDA1", y = "RDA2", title = "RDA SNP loadings biplot") +
-        theme_adaptogene()
+        theme_clinego()
     if (nrow(candidates_dt) > 0) {
         cand_plot_dt <- candidates_dt[, .(RDA1 = RDA1, RDA2 = RDA2, assigned_predictor)]
         g_biplot <- g_biplot +
             scattermore::geom_scattermore(data = cand_plot_dt, aes(x = RDA1, y = RDA2, color = assigned_predictor),
                                           inherit.aes = FALSE, pointsize = 4) +
-            scale_color_adaptogene(name = "Assigned predictor")
+            scale_color_clinego(name = "Assigned predictor")
     }
 } else {
     # Unreachable given the K>=2 hard floor above (step 9) — kept as a defensive

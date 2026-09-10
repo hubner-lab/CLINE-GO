@@ -38,7 +38,7 @@ OFF  <- Sys.getenv("OFFSET_DIR", "offset11")
 OUT  <- Sys.getenv("FIG_OUT", file.path(EVAL, "figures_main"))
 dir.create(OUT, recursive = TRUE, showWarnings = FALSE)
 
-source(file.path(ROOT, "scripts/R/utils/theme_adaptogene.R"))
+source(file.path(ROOT, "scripts/R/utils/theme_clinego.R"))
 
 # =============================================================================
 # Palette -- ltc "minou" (Theodosiou), hex read verbatim from the package source
@@ -118,7 +118,7 @@ emit <- function(dt, stem) {
     fwrite(dt, file.path(OUT, paste0(stem, ".tsv")), sep = "\t"); invisible(dt)
 }
 save_fig <- function(p, stem, w, h) {
-    adapt_save_both(file.path(OUT, stem), p, w = w, h = h)
+    clinego_save_both(file.path(OUT, stem), p, w = w, h = h)
     message(sprintf("  OK %s", stem))
 }
 
@@ -204,13 +204,13 @@ arch_facet <- setNames(sprintf("%s\n(~%d causal loci)", n_causal_arch$arch_lab,
 pA <- ggplot(a_long, aes(label, markers, fill = class)) +
     geom_col(width = 0.7) +
     geom_text(data = a_src, aes(label, total, label = as.integer(usable)),
-              inherit.aes = FALSE, hjust = -0.25, size = 2.7, colour = ADAPT_COL$fg) +
+              inherit.aes = FALSE, hjust = -0.25, size = 2.7, colour = CLINEGO_COL$fg) +
     coord_flip() +
     facet_wrap(~ arch_lab, nrow = 1, labeller = labeller(arch_lab = arch_facet)) +
     scale_fill_manual(values = CLASS_COL, name = NULL) +
     scale_y_continuous(expand = expansion(mult = c(0, 0.16))) +
     labs(tag = "A", x = NULL, y = "markers selected (median)") +
-    theme_adaptogene() +
+    theme_clinego() +
     theme(legend.position = "bottom", strip.text = element_text(size = 8.5),
           axis.text.y = element_text(size = 8),
           plot.tag = element_text(face = "bold", size = 13)) +
@@ -276,14 +276,14 @@ pC <- ggplot(c_bar, aes(label, accuracy, fill = label)) +
     geom_hline(yintercept = ref_all, linetype = "22", colour = REF_BAD,  linewidth = 0.6) +
     geom_col(width = 0.68) +
     geom_errorbar(aes(ymin = q25, ymax = q75), width = 0.2,
-                  colour = ADAPT_COL$fg, linewidth = 0.4) +
+                  colour = CLINEGO_COL$fg, linewidth = 0.4) +
     geom_text(aes(y = q75, label = sprintf("%.3f", accuracy)),
-              hjust = -0.22, size = 2.9, colour = ADAPT_COL$fg) +
+              hjust = -0.22, size = 2.9, colour = CLINEGO_COL$fg) +
     coord_flip(ylim = c(x_lo, max(c_bar$q75) + 0.055)) +
     facet_grid(grp ~ ., scales = "free_y", space = "free_y", switch = "y") +
     scale_fill_manual(values = RULE_COL, guide = "none") +
     labs(tag = "B", x = NULL, y = "Accuracy") +
-    theme_adaptogene() +
+    theme_clinego() +
     theme(plot.tag = element_text(face = "bold", size = 13),
           strip.background = element_blank(),
           strip.placement  = "outside",
@@ -338,7 +338,7 @@ pD <- ggplot(mapping = aes(as.integer(arch_lab), accuracy, group = label)) +
                                    "causal loci" = REF_GOOD, "all loci" = REF_BAD),
                         guide = "none") +
     labs(tag = "C", x = NULL, y = "Accuracy") +
-    theme_adaptogene() +
+    theme_clinego() +
     theme(plot.tag = element_text(face = "bold", size = 13),
           panel.border = element_blank(),
           axis.text.x = element_text(size = 8.5))
@@ -350,7 +350,7 @@ save_fig(pD, "C_robustness", w = 7.8, h = 5.0)
 message("\n=== composing main figure ===")
 bottom <- plot_grid(pC, pD, nrow = 1, rel_widths = c(1, 1.02))
 main   <- plot_grid(pA, bottom, ncol = 1, rel_heights = c(1, 1.05))
-adapt_save_both(file.path(OUT, "MAIN_FIGURE_simulation"), main, w = 13, h = 9.5)
+clinego_save_both(file.path(OUT, "MAIN_FIGURE_simulation"), main, w = 13, h = 9.5)
 message("  OK MAIN_FIGURE_simulation")
 
 # =============================================================================
@@ -369,14 +369,14 @@ print(s_a)
 pSa <- ggplot(s_a, aes(reorder(method_label, pct_anti), pct_anti)) +
     geom_col(aes(fill = method_label == DROP_METHOD), width = 0.62) +
     geom_text(aes(label = sprintf("%.2f%%", pct_anti)), hjust = -0.15, size = 3.2,
-              colour = ADAPT_COL$fg) +
+              colour = CLINEGO_COL$fg) +
     coord_flip(ylim = c(0, max(s_a$pct_anti) * 1.35)) +
     scale_fill_manual(values = c(`TRUE` = MINOU[["red"]], `FALSE` = MINOU[["teal"]]),
                       guide = "none") +
     labs(title = "a  Gardens where the model anti-predicts",
          subtitle = "τ > 0: offset rises where fitness rises",
          x = NULL, y = "% of gardens") +
-    theme_adaptogene()
+    theme_clinego()
 
 # (b) replicates where the offset is invariant to the marker set
 gea_keys <- PANELS[role != "reference" | acc_key == "adaptive", acc_key]
@@ -393,14 +393,14 @@ print(s_b)
 pSb <- ggplot(s_b, aes(reorder(method_label, pct_invariant), pct_invariant)) +
     geom_col(aes(fill = method_label == DROP_METHOD), width = 0.62) +
     geom_text(aes(label = sprintf("%d/%d", n_invariant, n_seeds)), hjust = -0.15,
-              size = 3.2, colour = ADAPT_COL$fg) +
+              size = 3.2, colour = CLINEGO_COL$fg) +
     coord_flip(ylim = c(0, max(s_b$pct_invariant) * 1.5 + 1)) +
     scale_fill_manual(values = c(`TRUE` = MINOU[["red"]], `FALSE` = MINOU[["teal"]]),
                       guide = "none") +
     labs(title = "b  Replicates where the offset ignores the marker set",
          subtitle = "identical accuracy across all GEA panels",
          x = NULL, y = "% of replicates") +
-    theme_adaptogene()
+    theme_clinego()
 
 # (c) accuracy on the >=2-agree panel, per architecture, all four methods
 s_c <- allm[marker_set == "gea_best"]
@@ -415,10 +415,10 @@ pSc <- ggplot(s_c, aes(arch_lab, accuracy, colour = method_label,
     scale_colour_manual(values = METHOD_COL, name = NULL) +
     labs(title = "c  Accuracy on the ≥2-agree panel",
          x = NULL, y = "accuracy  (−Kendall's τ)") +
-    theme_adaptogene()
+    theme_clinego()
 
 srda <- plot_grid(pSa, pSb, pSc, nrow = 1, rel_widths = c(1, 1, 1.15))
-adapt_save_both(file.path(OUT, "S_RDA_why_dropped"), srda, w = 15, h = 4.6)
+clinego_save_both(file.path(OUT, "S_RDA_why_dropped"), srda, w = 15, h = 4.6)
 message("  OK S_RDA_why_dropped")
 
 message("\nAll outputs in: ", OUT)

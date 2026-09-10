@@ -28,7 +28,7 @@ suppressPackageStartupMessages({
     library(svglite)
 })
 
-source("/pipeline/scripts/R/utils/theme_adaptogene.R")
+source("/pipeline/scripts/R/utils/theme_clinego.R")
 
 args <- commandArgs(trailingOnly = TRUE)
 META_FILE   <- args[1]
@@ -83,22 +83,22 @@ if (n > MAX_FACTORS) {
 
 dt <- meta[, trait_cols, with = FALSE]
 
-cell_theme <- theme_adaptogene(base_size = 9) +
+cell_theme <- theme_clinego(base_size = 9) +
     theme(plot.margin = margin(4, 4, 4, 4),
           axis.title = element_text(size = 8))
 
 panel_density <- function(tr) {
     ggplot(dt, aes(x = .data[[tr]])) +
-        geom_density(fill = ADAPT_NEUTRAL, alpha = 0.5, color = ADAPT_NEUTRAL) +
+        geom_density(fill = CLINEGO_NEUTRAL, alpha = 0.5, color = CLINEGO_NEUTRAL) +
         labs(x = tr, y = NULL) +
         cell_theme
 }
 
 panel_scatter <- function(x, y) {
     ggplot(dt, aes(x = .data[[x]], y = .data[[y]])) +
-        geom_point(color = ADAPT_NEUTRAL, alpha = 0.7, size = 1.4) +
+        geom_point(color = CLINEGO_NEUTRAL, alpha = 0.7, size = 1.4) +
         geom_smooth(method = "lm", formula = y ~ x, se = FALSE,
-                    color = ADAPT_THRESHOLD, linewidth = 0.6) +
+                    color = CLINEGO_THRESHOLD, linewidth = 0.6) +
         labs(x = x, y = y) +
         cell_theme
 }
@@ -107,7 +107,7 @@ panel_cor <- function(x, y) {
     r <- suppressWarnings(stats::cor(dt[[x]], dt[[y]], use = "pairwise.complete.obs"))
     lab <- if (is.na(r)) "NA" else sprintf("r = %.2f", r)
     size <- if (is.na(r)) 4 else 4 + 4 * abs(r)
-    col  <- if (is.na(r)) "grey50" else if (r < 0) ADAPT_REMOVED else ADAPT_RETAINED
+    col  <- if (is.na(r)) "grey50" else if (r < 0) CLINEGO_REMOVED else CLINEGO_RETAINED
     ggplot() +
         annotate("text", x = 0.5, y = 0.5, label = lab, size = size, color = col) +
         theme_void()

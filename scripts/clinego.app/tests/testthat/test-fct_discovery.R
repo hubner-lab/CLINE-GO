@@ -17,7 +17,7 @@ test_that("find_k_values returns sorted integers", {
     dir.create(file.path(tmp, "SIMDATA_results", "structure", "plots", "K5"),
                recursive = TRUE)
     # Override pipeline path
-    withr::local_options(adaptogene.pipeline_path = tmp)
+    withr::local_options(clinego.pipeline_path = tmp)
     ks <- find_k_values("SIMDATA")
     expect_equal(ks, c(2L, 3L, 5L))
 })

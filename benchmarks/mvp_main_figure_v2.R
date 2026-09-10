@@ -29,7 +29,7 @@ OFF  <- Sys.getenv("OFFSET_DIR", "offset11")
 SRC  <- Sys.getenv("STATS_DIR", file.path(EVAL, "figures_oracle"))
 OUT  <- Sys.getenv("FIG_OUT",   file.path(EVAL, "main_figure_v2"))
 dir.create(OUT, recursive = TRUE, showWarnings = FALSE)
-source(file.path(ROOT, "scripts/R/utils/theme_adaptogene.R"))
+source(file.path(ROOT, "scripts/R/utils/theme_clinego.R"))
 
 MINOU <- c(teal = "#00798c", red = "#d1495b", amber = "#edae49",
            sage = "#66a182", navy = "#2e4057", grey = "#8d96a3")
@@ -121,14 +121,14 @@ arch_facet <- setNames(sprintf("%s\n(~%d causal loci)", nc$arch_lab, nc$nc), nc$
 pA <- ggplot(a_long, aes(label, markers, fill = class)) +
     geom_col(width = 0.7) +
     geom_text(data = a_src, aes(label, total, label = as.integer(usable)),
-              inherit.aes = FALSE, hjust = -0.25, size = 2.7, colour = ADAPT_COL$fg) +
+              inherit.aes = FALSE, hjust = -0.25, size = 2.7, colour = CLINEGO_COL$fg) +
     coord_flip() +
     facet_wrap(~ arch_lab, nrow = 1, labeller = labeller(arch_lab = arch_facet)) +
     scale_fill_manual(values = CLASS_COL, name = NULL) +
     scale_y_continuous(expand = expansion(mult = c(0, 0.18))) +
     labs(tag = "A", x = "GEA marker panel",
          y = "markers selected (median per replicate)") +
-    theme_adaptogene() +
+    theme_clinego() +
     theme(plot.tag = element_text(face = "bold", size = 13),
           strip.text = element_text(size = 8.5),
           axis.text.y = element_text(size = 9),
@@ -168,10 +168,10 @@ pB <- ggplot(BM, aes(method_label, label, fill = match_pct)) +
     scale_fill_gradientn(colours = HEAT, values = c(0, 0.25, 0.5, 0.75, 1),
                          limits = c(0, 100), breaks = c(0, 25, 50, 75, 100),
                          name = LEG) +
-    scale_colour_manual(values = c(`TRUE` = "white", `FALSE` = ADAPT_COL$fg)) +
+    scale_colour_manual(values = c(`TRUE` = "white", `FALSE` = CLINEGO_COL$fg)) +
     scale_x_discrete(expand = c(0, 0)) + scale_y_discrete(expand = c(0, 0)) +
     labs(tag = "B", x = NULL, y = "GEA marker panel") +
-    theme_adaptogene() +
+    theme_clinego() +
     theme(plot.tag = element_text(face = "bold", size = 13),
           axis.text.x = element_text(size = 8, lineheight = 0.95),
           axis.text.y = element_text(size = 9),
@@ -186,10 +186,10 @@ pB <- ggplot(BM, aes(method_label, label, fill = match_pct)) +
                                   title.theme = element_text(size = 8.5, angle = 90,
                                                              hjust = 0.5)))
 
-adapt_save_both(file.path(OUT, "panelA_composition"), pA, w = 10.4, h = 3.9)
-adapt_save_both(file.path(OUT, "panelB_match_oracle"), pB, w = 10.4, h = 4.1)
+clinego_save_both(file.path(OUT, "panelA_composition"), pA, w = 10.4, h = 3.9)
+clinego_save_both(file.path(OUT, "panelB_match_oracle"), pB, w = 10.4, h = 4.1)
 
 MAIN <- cowplot::plot_grid(pA, pB, ncol = 1, rel_heights = c(1, 1.05), align = "v",
                            axis = "lr")
-adapt_save_both(file.path(OUT, "MAIN_FIGURE_simulation"), MAIN, w = 10.4, h = 8.0)
+clinego_save_both(file.path(OUT, "MAIN_FIGURE_simulation"), MAIN, w = 10.4, h = 8.0)
 message("\nWrote ", OUT)

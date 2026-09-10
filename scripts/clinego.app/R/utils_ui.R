@@ -375,9 +375,11 @@ card_header_with_download <- function(ns, title, dl_id_svg = NULL, dl_id_png = N
 
 #' The CLINE-GO wordmark.
 #'
-#' Renamed from ADAPTOGENE on 2026-08-29. Scope of that rename is the displayed
-#' label only — the package, image tag, config keys and result paths are all
-#' still `adaptogene`.
+#' Renamed from ADAPTOGENE on 2026-08-29, at first as a displayed label only.
+#' The internal layer followed on 2026-09-01: the GitHub repo, the Docker tag
+#' (`cline-go`), this package (`clinego.app`) and the theme identifiers all
+#' carry the new name now. `{PROJECT}_results/` paths never did — they are
+#' keyed off `project_name`, not the brand.
 #'
 #' 2026-09-01: the hand-built CSS wordmark (gradient "CLINE" + solid "GO" pill)
 #' was replaced by the designed raster asset at `inst/app/www/cline-go-logo.png`

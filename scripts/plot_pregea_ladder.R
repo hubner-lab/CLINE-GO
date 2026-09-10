@@ -8,7 +8,7 @@
 # geom_point — N scales with SNP count even on the LD-pruned set. Do NOT
 # copy plot_manhattan.R's geom_point QQ (an existing Rule 6 violation there).
 # Rule 8: no annotate() commentary — only data-derived geom_hline/geom_vline
-# reference lines. Rule 9: theme_adaptogene() + ADAPT_* constants throughout.
+# reference lines. Rule 9: theme_clinego() + ADAPT_* constants throughout.
 
 suppressPackageStartupMessages({
     library(data.table)
@@ -16,7 +16,7 @@ suppressPackageStartupMessages({
     library(scattermore)
 })
 
-source("/pipeline/scripts/R/utils/theme_adaptogene.R")
+source("/pipeline/scripts/R/utils/theme_clinego.R")
 source("/pipeline/scripts/R/utils/io_pvalues.R")
 
 args <- commandArgs(trailingOnly = TRUE)
@@ -91,12 +91,12 @@ pval_long[, rung_label := factor(rung_lab(rung_value_num), levels = rung_lab(sor
 # 3. p-value histogram grid — THE selection signal (C.0/C.1): read shape, not lambda
 ################################################################################
 g_hist <- ggplot(pval_long, aes(x = pvalue)) +
-    geom_histogram(breaks = seq(0, 1, length.out = 41), fill = ADAPT_NEUTRAL, color = NA) +
+    geom_histogram(breaks = seq(0, 1, length.out = 41), fill = CLINEGO_NEUTRAL, color = NA) +
     facet_grid(rung_label ~ trait) +
     labs(x = "p-value", y = "Count",
         title = paste0(ENGINE_LABEL, " candidate p-value histogram grid"),
         subtitle = "Read the SHAPE per panel: flat + spike near 0 is the target; not lambda") +
-    theme_adaptogene_grid()
+    theme_clinego_grid()
 ggsave(file.path(PLOT_DIR, paste0(ENGINE, "_pvalue_histogram_grid.png")), g_hist,
       width = 2.2 * uniqueN(pval_long$trait) + 2, height = 1.6 * uniqueN(pval_long$rung_value) + 1.5,
       dpi = 200, limitsize = FALSE)
@@ -111,12 +111,12 @@ pval_long[order(rung_value_num, trait, pvalue),
          expected := -log10(ppoints(.N)), by = .(rung_value_num, trait)]
 pval_long[, observed := -log10(pvalue)]
 g_qq <- ggplot(pval_long, aes(x = expected, y = observed)) +
-    geom_abline(slope = 1, intercept = 0, color = ADAPT_THRESHOLD, linetype = "dashed") +
-    geom_scattermore(color = ADAPT_NEUTRAL, pointsize = 3, pixels = c(600, 600)) +
+    geom_abline(slope = 1, intercept = 0, color = CLINEGO_THRESHOLD, linetype = "dashed") +
+    geom_scattermore(color = CLINEGO_NEUTRAL, pointsize = 3, pixels = c(600, 600)) +
     facet_grid(rung_label ~ trait) +
     labs(x = expression(-log[10](expected)), y = expression(-log[10](observed)),
         title = paste0(ENGINE_LABEL, " QQ grid")) +
-    theme_adaptogene_grid()
+    theme_clinego_grid()
 ggsave(file.path(PLOT_DIR, paste0(ENGINE, "_qq_grid.png")), g_qq,
       width = 2.2 * uniqueN(pval_long$trait) + 2, height = 1.6 * uniqueN(pval_long$rung_value) + 1.5,
       dpi = 200, limitsize = FALSE)
@@ -129,15 +129,15 @@ ggsave(file.path(PLOT_DIR, paste0(ENGINE, "_qq_grid.svg")), g_qq,
 ################################################################################
 pooled <- ladder_wide[trait == "__pooled__"]
 g_lambda <- ggplot(pooled, aes(x = rung_value_num, y = lambda_gc)) +
-    geom_hline(yintercept = 1, color = ADAPT_THRESHOLD, linetype = "dashed")
+    geom_hline(yintercept = 1, color = CLINEGO_THRESHOLD, linetype = "dashed")
 if (!is.na(deflation_floor)) {
-    g_lambda <- g_lambda + geom_hline(yintercept = deflation_floor, color = ADAPT_REMOVED, linetype = "dotted")
+    g_lambda <- g_lambda + geom_hline(yintercept = deflation_floor, color = CLINEGO_REMOVED, linetype = "dotted")
 }
 g_lambda <- g_lambda +
-    geom_line(color = ADAPT_NEUTRAL) + geom_point(color = ADAPT_NEUTRAL, size = 2) +
+    geom_line(color = CLINEGO_NEUTRAL) + geom_point(color = CLINEGO_NEUTRAL, size = 2) +
     labs(x = RUNG_LABEL, y = expression(lambda[GC]),
         title = paste0(ENGINE_LABEL, " genomic inflation factor vs ", RUNG_LABEL)) +
-    theme_adaptogene()
+    theme_clinego()
 ggsave(file.path(PLOT_DIR, paste0(ENGINE, "_lambda_vs_", RUNG_PARAM, ".png")), g_lambda,
       width = 7, height = 4.5, dpi = 300)
 ggsave(file.path(PLOT_DIR, paste0(ENGINE, "_lambda_vs_", RUNG_PARAM, ".svg")), g_lambda,
@@ -153,10 +153,10 @@ ggsave(file.path(PLOT_DIR, paste0(ENGINE, "_lambda_vs_", RUNG_PARAM, ".svg")), g
 # density to separate values; that is not a bug (see fct_help_notes.R).
 ################################################################################
 g_hits <- ggplot(pooled, aes(x = rung_value_num, y = hits_qval)) +
-    geom_line(color = ADAPT_NEUTRAL) + geom_point(color = ADAPT_NEUTRAL, size = 2) +
+    geom_line(color = CLINEGO_NEUTRAL) + geom_point(color = CLINEGO_NEUTRAL, size = 2) +
     labs(x = RUNG_LABEL, y = sprintf("Significant SNPs (FDR %.2g)", FDR),
         title = paste0(ENGINE_LABEL, " significant-hit count vs ", RUNG_LABEL)) +
-    theme_adaptogene()
+    theme_clinego()
 ggsave(file.path(PLOT_DIR, paste0(ENGINE, "_hits_vs_", RUNG_PARAM, ".png")), g_hits,
       width = 7, height = 4.5, dpi = 300)
 ggsave(file.path(PLOT_DIR, paste0(ENGINE, "_hits_vs_", RUNG_PARAM, ".svg")), g_hits,

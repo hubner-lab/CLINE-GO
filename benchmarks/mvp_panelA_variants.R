@@ -26,7 +26,7 @@ EVAL <- file.path(ROOT, "benchmarks/mvp_eval")
 OFF  <- Sys.getenv("OFFSET_DIR", "offset11")
 OUT  <- Sys.getenv("FIG_OUT", file.path(EVAL, "figures_main"))
 dir.create(OUT, recursive = TRUE, showWarnings = FALSE)
-source(file.path(ROOT, "scripts/R/utils/theme_adaptogene.R"))
+source(file.path(ROOT, "scripts/R/utils/theme_clinego.R"))
 
 MINOU <- c(teal = "#00798c", red = "#d1495b", amber = "#edae49",
            sage = "#66a182", navy = "#2e4057", grey = "#8d96a3")
@@ -88,10 +88,10 @@ pA2 <- ggplot(a2s, aes(rule, rate, fill = class)) +
     scale_y_log10(labels = function(x) paste0(signif(100 * x, 2), "%")) +
     scale_fill_manual(values = CLASS_COL, name = NULL) +
     labs(tag = "A2", x = NULL, y = "markers of that class recovered (log scale)") +
-    theme_adaptogene() +
+    theme_clinego() +
     theme(legend.position = "bottom", plot.tag = element_text(face = "bold", size = 13),
           strip.text = element_text(size = 8.5), axis.text.y = element_text(size = 8))
-adapt_save_both(file.path(OUT, "A2_recovery_rates"), pA2, w = 11, h = 4.4)
+clinego_save_both(file.path(OUT, "A2_recovery_rates"), pA2, w = 11, h = 4.4)
 message("  OK A2_recovery_rates")
 
 # ============================ A1 + A2 stacked ================================
@@ -110,15 +110,15 @@ fwrite(a1s, file.path(OUT, "A1_counts.tsv"), sep = "\t")
 pA1 <- ggplot(a1l, aes(rule, markers, fill = class)) +
     geom_col(width = 0.7) +
     geom_text(data = a1s, aes(rule, total, label = as.integer(usable)),
-              inherit.aes = FALSE, hjust = -0.25, size = 2.7, colour = ADAPT_COL$fg) +
+              inherit.aes = FALSE, hjust = -0.25, size = 2.7, colour = CLINEGO_COL$fg) +
     coord_flip() + facet_wrap(~ arch, nrow = 1) +
     scale_fill_manual(values = CLASS_COL, name = NULL) +
     scale_y_continuous(expand = expansion(mult = c(0, 0.16))) +
     labs(tag = "A1", x = NULL, y = "markers selected (median)") +
-    theme_adaptogene() +
+    theme_clinego() +
     theme(legend.position = "none", plot.tag = element_text(face = "bold", size = 13),
           strip.text = element_text(size = 8.5), axis.text.y = element_text(size = 8))
-adapt_save_both(file.path(OUT, "A_counts_and_rates"),
+clinego_save_both(file.path(OUT, "A_counts_and_rates"),
                 plot_grid(pA1, pA2, ncol = 1, rel_heights = c(1, 1.12)), w = 11, h = 8.6)
 message("  OK A_counts_and_rates")
 
@@ -154,16 +154,16 @@ print(dcast(mets[best == TRUE], metric ~ arch, value.var = "rule"))
 pM <- ggplot(mets, aes(rule, v, fill = rule, alpha = best)) +
     geom_col(width = 0.7) +
     geom_point(data = mets[best == TRUE], aes(y = v), shape = 8, size = 1.9,
-               colour = ADAPT_COL$fg, show.legend = FALSE, inherit.aes = TRUE) +
+               colour = CLINEGO_COL$fg, show.legend = FALSE, inherit.aes = TRUE) +
     coord_flip() +
     facet_grid(arch ~ metric, scales = "free_x") +
     scale_alpha_manual(values = c(`FALSE` = 0.42, `TRUE` = 1), guide = "none") +
     scale_fill_manual(values = RULE_COL, guide = "none") +
     labs(tag = "M", x = NULL, y = NULL) +
-    theme_adaptogene() +
+    theme_clinego() +
     theme(plot.tag = element_text(face = "bold", size = 13),
           strip.text = element_text(size = 7.5), axis.text.x = element_text(size = 6.5),
           axis.text.y = element_text(size = 7.5), panel.border = element_blank())
-adapt_save_both(file.path(OUT, "M_metric_comparison"), pM, w = 14, h = 6)
+clinego_save_both(file.path(OUT, "M_metric_comparison"), pM, w = 14, h = 6)
 message("  OK M_metric_comparison")
 message("\nwritten to ", OUT)

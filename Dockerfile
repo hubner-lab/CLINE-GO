@@ -152,9 +152,9 @@ RUN Rscript -e " \
 "
 
 # Install golem Shiny app as R package
-COPY scripts/adaptogene.app /tmp/adaptogene.app
-RUN Rscript -e "remotes::install_local('/tmp/adaptogene.app', dependencies = FALSE)" \
-  && rm -rf /tmp/adaptogene.app
+COPY scripts/clinego.app /tmp/clinego.app
+RUN Rscript -e "remotes::install_local('/tmp/clinego.app', dependencies = FALSE)" \
+  && rm -rf /tmp/clinego.app
 
 # topr - CRITICAL: version >= 2.0.0 required for custom (non-human) genome builds
 RUN Rscript -e "remotes::install_version('topr', version = '2.0.2')"

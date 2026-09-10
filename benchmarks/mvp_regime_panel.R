@@ -15,7 +15,7 @@ suppressPackageStartupMessages({library(data.table); library(ggplot2)})
 ROOT <- Sys.getenv("PIPELINE_ROOT","/pipeline"); EVAL <- file.path(ROOT,"benchmarks/mvp_eval")
 OFF <- Sys.getenv("OFFSET_DIR","offset11"); METHOD <- Sys.getenv("METHOD","GFoffset")
 OUT <- Sys.getenv("FIG_OUT", file.path(EVAL,"figures_main"))
-source(file.path(ROOT,"scripts/R/utils/theme_adaptogene.R"))
+source(file.path(ROOT,"scripts/R/utils/theme_clinego.R"))
 
 MINOU <- c(teal="#00798c", red="#d1495b", amber="#edae49", sage="#66a182",
            navy="#2e4057", grey="#8d96a3")
@@ -49,10 +49,10 @@ p <- ggplot(S, aes(accuracy, label)) +
     scale_y_discrete(limits=rev(ORD)) +
     scale_colour_manual(values=REG_COL, name="selection regime") +
     labs(tag="S", x="Accuracy", y=NULL) +
-    theme_adaptogene() +
+    theme_clinego() +
     theme(plot.tag=element_text(face="bold",size=13), panel.border=element_blank(),
           strip.text=element_text(size=8.5), legend.position="bottom",
           axis.text.y=element_text(size=8)) +
     guides(colour=guide_legend(nrow=1, override.aes=list(size=2.4, alpha=1)))
-adapt_save_both(file.path(OUT,"G3b_dist_by_regime"), p, w=11, h=4.8)
+clinego_save_both(file.path(OUT,"G3b_dist_by_regime"), p, w=11, h=4.8)
 message("  OK G3b_dist_by_regime")

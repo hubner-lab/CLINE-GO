@@ -5,7 +5,7 @@ library(dplyr)
 library(qs)
 library(scattermore)
 
-source("/pipeline/scripts/R/utils/theme_adaptogene.R")
+source("/pipeline/scripts/R/utils/theme_clinego.R")
 
 args = commandArgs(trailingOnly=TRUE)
 #################################
@@ -38,19 +38,19 @@ message(paste0('INFO: Using scattermore for rendering (', n_snps, ' SNPs)'))
 # Histogram plot
 gHist <-
   ggplot(pvalues.df, aes(x = pvalues)) +
-    geom_histogram(aes(y = after_stat(density)), color = 'black', fill = ADAPT_NEUTRAL) +
-    geom_density(alpha = 0.2, color = ADAPT_THRESHOLD, fill = ADAPT_THRESHOLD) +
-    theme_adaptogene(base_size = 16)
+    geom_histogram(aes(y = after_stat(density)), color = 'black', fill = CLINEGO_NEUTRAL) +
+    geom_density(alpha = 0.2, color = CLINEGO_THRESHOLD, fill = CLINEGO_THRESHOLD) +
+    theme_clinego(base_size = 16)
 
 # Manhattan-style plot
 gPval <- ggplot(pvalues.df, aes(x = idx, y = log10p)) +
     # pixels should match output: 12.8in x 4.8in (half height) @ 300dpi = ~3840x1440
-    geom_scattermore(color = ADAPT_NEUTRAL, pointsize = 12, pixels = c(3840, 1440),
+    geom_scattermore(color = CLINEGO_NEUTRAL, pointsize = 12, pixels = c(3840, 1440),
                      interpolate = FALSE)
 
 gPval <- gPval +
     labs(x = 'Index', y = expression(-log[10](p-value))) +
-    theme_adaptogene(base_size = 16)
+    theme_clinego(base_size = 16)
 
 # Combine plots
 gGrid <- ggarrange(gHist, gPval, nrow = 2)

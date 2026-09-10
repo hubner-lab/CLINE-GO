@@ -18,7 +18,7 @@ ROOT <- Sys.getenv("PIPELINE_ROOT", "/pipeline")
 EVAL <- file.path(ROOT, "benchmarks/mvp_eval")
 OFF  <- Sys.getenv("OFFSET_DIR", "offset11"); METHOD <- Sys.getenv("METHOD","GFoffset")
 OUT  <- Sys.getenv("FIG_OUT", file.path(EVAL,"figures_main"))
-source(file.path(ROOT,"scripts/R/utils/theme_adaptogene.R"))
+source(file.path(ROOT,"scripts/R/utils/theme_clinego.R"))
 
 MINOU <- c(teal="#00798c", red="#d1495b", amber="#edae49", sage="#66a182",
            navy="#2e4057", grey="#8d96a3")
@@ -83,11 +83,11 @@ mk <- function(tag, focus=FALSE, whisk=FALSE) {
         scale_x_continuous(breaks=1:3, labels=xlabs,
                            expand=expansion(add=c(padL,padR))) +
         labs(tag=tag, x=NULL, y="Accuracy") +
-        theme_adaptogene() +
+        theme_clinego() +
         theme(plot.tag=element_text(face="bold",size=13), panel.border=element_blank(),
               axis.text.x=element_text(size=8))
 }
-adapt_save_both(file.path(OUT,"S1_slope_plain"),    mk("C"),                    w=8.6,h=5.0)
-adapt_save_both(file.path(OUT,"S2_slope_focus"),    mk("C",focus=TRUE),         w=8.6,h=5.0)
-adapt_save_both(file.path(OUT,"S3_slope_whiskers"), mk("C",whisk=TRUE),         w=8.6,h=5.4)
+clinego_save_both(file.path(OUT,"S1_slope_plain"),    mk("C"),                    w=8.6,h=5.0)
+clinego_save_both(file.path(OUT,"S2_slope_focus"),    mk("C",focus=TRUE),         w=8.6,h=5.0)
+clinego_save_both(file.path(OUT,"S3_slope_whiskers"), mk("C",whisk=TRUE),         w=8.6,h=5.4)
 message("  OK S1-S3"); print(dcast(M, label ~ arch, value.var="accuracy"))

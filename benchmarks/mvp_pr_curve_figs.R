@@ -21,7 +21,7 @@ ROOT <- Sys.getenv("PIPELINE_ROOT", "/pipeline")
 EVAL <- file.path(ROOT, "benchmarks/mvp_eval")
 OFF  <- Sys.getenv("OFFSET_DIR", "offset11")
 OUT  <- Sys.getenv("FIG_OUT", file.path(EVAL, "figures_main"))
-source(file.path(ROOT, "scripts/R/utils/theme_adaptogene.R"))
+source(file.path(ROOT, "scripts/R/utils/theme_clinego.R"))
 
 MINOU <- c(teal="#00798c", red="#d1495b", amber="#edae49", sage="#66a182",
            navy="#2e4057", grey="#8d96a3")
@@ -57,7 +57,7 @@ go <- function(mode, sfx) {
       scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
       labs(x = "recall  (of the causal loci present, how many were found)",
            y = "precision  (of the markers returned, how many are causal)") +
-      theme_adaptogene() +
+      theme_clinego() +
       theme(plot.tag = element_text(face="bold", size=13),
             strip.text = element_text(size=8.5), panel.border = element_blank())
 
@@ -70,7 +70,7 @@ go <- function(mode, sfx) {
       facet_wrap(~ arch, nrow = 1, scales = "free") +
       scale_colour_manual(values = RULE_COL, guide = "none") +
       labs(tag = paste0("B5a", sfx)))
-  adapt_save_both(file.path(OUT, sprintf("B5a_pr_curve_faceted_%s", mode)), p_a, w = 11.5, h = 4.4)
+  clinego_save_both(file.path(OUT, sprintf("B5a_pr_curve_faceted_%s", mode)), p_a, w = 11.5, h = 4.4)
 
   # ---- B5b: one panel, one line per architecture --------------------------
   p_b <- base(ggplot(PR, aes(recall, precision, colour = arch)) +
@@ -81,7 +81,7 @@ go <- function(mode, sfx) {
       scale_colour_manual(values = ARCH_COL, name = NULL) +
       labs(tag = paste0("B5b", sfx))) +
       theme(legend.position = "bottom")
-  adapt_save_both(file.path(OUT, sprintf("B5b_pr_curve_single_%s", mode)), p_b, w = 7.6, h = 5.6)
+  clinego_save_both(file.path(OUT, sprintf("B5b_pr_curve_single_%s", mode)), p_b, w = 7.6, h = 5.6)
 
   # ---- B5c: per-replicate spread behind the median curve ------------------
   p_c <- base(ggplot() +
@@ -94,7 +94,7 @@ go <- function(mode, sfx) {
       facet_wrap(~ arch, nrow = 1, scales = "free") +
       scale_colour_manual(values = RULE_COL, guide = "none") +
       labs(tag = paste0("B5c", sfx)))
-  adapt_save_both(file.path(OUT, sprintf("B5c_pr_curve_spread_%s", mode)), p_c, w = 11.5, h = 4.4)
+  clinego_save_both(file.path(OUT, sprintf("B5c_pr_curve_spread_%s", mode)), p_c, w = 11.5, h = 4.4)
 
   message(sprintf("  OK B5a/b/c (%s)", mode)); print(PR)
 }

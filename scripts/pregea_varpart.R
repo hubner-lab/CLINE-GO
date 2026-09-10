@@ -43,7 +43,7 @@ suppressPackageStartupMessages({
                           # doesn't.
 })
 
-source("/pipeline/scripts/R/utils/theme_adaptogene.R")
+source("/pipeline/scripts/R/utils/theme_clinego.R")
 source("/pipeline/scripts/R/utils/emmax_core.R")   # load_pca_covariates()
 
 args <- commandArgs(trailingOnly = TRUE)
@@ -433,17 +433,17 @@ message("INFO: Wrote variance partition (", nrow(tree_dt), " rows, status=", sta
 #    negative fraction as ~0 (Peres-Neto et al. 2006)" interpretation lives in
 #    the Shiny help note, not on the plot.
 ################################################################################
-save_both <- function(name, g, w = 7, h = 5) adapt_save_both(file.path(PLOT_DIR, name), g, w, h)
-empty_plot <- adapt_empty_plot
+save_both <- function(name, g, w = 7, h = 5) clinego_save_both(file.path(PLOT_DIR, name), g, w, h)
+empty_plot <- clinego_empty_plot
 
 if (nrow(selection_dt) > 0) {
     g_path <- ggplot(selection_dt, aes(x = step, y = r2_adj_cumulative)) +
-        geom_hline(aes(yintercept = r2_adj_full_ceiling), color = ADAPT_THRESHOLD, linetype = "dashed") +
-        geom_line(color = ADAPT_NEUTRAL) + geom_point(color = ADAPT_NEUTRAL, size = 2) +
-        ggrepel::geom_text_repel(aes(label = variable), size = 3, color = ADAPT_COL$fg) +
+        geom_hline(aes(yintercept = r2_adj_full_ceiling), color = CLINEGO_THRESHOLD, linetype = "dashed") +
+        geom_line(color = CLINEGO_NEUTRAL) + geom_point(color = CLINEGO_NEUTRAL, size = 2) +
+        ggrepel::geom_text_repel(aes(label = variable), size = 3, color = CLINEGO_COL$fg) +
         labs(x = "Forward-selection step", y = "Cumulative adjusted R2",
             title = "dbMEM forward-selection path (A17)") +
-        theme_adaptogene()
+        theme_clinego()
     save_both("dbmem_selection_path", g_path)
 } else save_both("dbmem_selection_path", empty_plot("No dbMEM selection path (geography unavailable)"))
 
@@ -469,7 +469,7 @@ venn_ok <- tryCatch({
     has_struct_r <- "structure_u" %in% region_dt$region_key
     has_geo_r    <- "geo_u"       %in% region_dt$region_key
     n_sets <- sum(has_clim, has_struct_r, has_geo_r)
-    SET_COLOR <- c(Climate = ADAPT_CATEGORICAL[1], Structure = ADAPT_CATEGORICAL[2], Geography = ADAPT_CATEGORICAL[3])
+    SET_COLOR <- c(Climate = CLINEGO_CATEGORICAL[1], Structure = CLINEGO_CATEGORICAL[2], Geography = CLINEGO_CATEGORICAL[3])
     by_key <- function(k) region_dt[region_key == k]
 
     v <- if (n_sets == 3) {
@@ -478,8 +478,8 @@ venn_ok <- tryCatch({
         draw.triple.venn(area1 = 100, area2 = 100, area3 = 100, n12 = 40, n23 = 40, n13 = 40, n123 = 20,
             category = c("Climate", "Structure", "Geography"),
             fill = unname(SET_COLOR[c("Climate", "Structure", "Geography")]), col = "white", alpha = 0.45,
-            cat.col = ADAPT_COL$fg, cat.cex = 1.15, cat.fontface = "bold",
-            label.col = ADAPT_COL$fg, cex = 0.9,
+            cat.col = CLINEGO_COL$fg, cat.cex = 1.15, cat.fontface = "bold",
+            label.col = CLINEGO_COL$fg, cex = 0.9,
             direct.area = TRUE, area.vector = 1:7, ind = FALSE)
     } else if (n_sets == 2) {
         other <- if (has_struct_r) "Structure" else "Geography"
@@ -491,8 +491,8 @@ venn_ok <- tryCatch({
         v0 <- draw.pairwise.venn(area1 = 1000, area2 = 2000, cross.area = 100,
             category = c("Climate", other), euler.d = FALSE, scaled = FALSE,
             fill = unname(SET_COLOR[c("Climate", other)]), col = "white", alpha = 0.45,
-            cat.col = ADAPT_COL$fg, cat.cex = 1.15, cat.fontface = "bold",
-            label.col = ADAPT_COL$fg, cex = 0.9, ind = FALSE)
+            cat.col = CLINEGO_COL$fg, cat.cex = 1.15, cat.fontface = "bold",
+            label.col = CLINEGO_COL$fg, cex = 0.9, ind = FALSE)
         mapping <- c(`900` = region_label(by_key("climate_u")), `1900` = region_label(by_key(other_key)),
                     `100` = region_label(by_key(shared_key)))
         v0
@@ -500,15 +500,15 @@ venn_ok <- tryCatch({
         # Last resort: climate alone, no overlap geometry.
         v0 <- draw.single.venn(area = 1, category = "Climate",
             fill = unname(SET_COLOR["Climate"]), col = "white", alpha = 0.45,
-            cat.col = ADAPT_COL$fg, cat.cex = 1.15, cat.fontface = "bold",
-            label.col = ADAPT_COL$fg, cex = 0.9, ind = FALSE)
+            cat.col = CLINEGO_COL$fg, cat.cex = 1.15, cat.fontface = "bold",
+            label.col = CLINEGO_COL$fg, cex = 0.9, ind = FALSE)
         mapping <- c(`1` = region_label(by_key("climate_u")))
         v0
     }
     v <- replace_grob_labels(v, mapping)
     v <- add.title(gList = v, x = "Variance partition", pos = c(0.5, 1.05),
-                   cex = 1.3, fontface = "bold", col = ADAPT_COL$fg)
-    v <- add.title(gList = v, x = model_label, pos = c(0.5, 1.00), cex = 0.9, col = ADAPT_COL$muted)
+                   cex = 1.3, fontface = "bold", col = CLINEGO_COL$fg)
+    v <- add.title(gList = v, x = model_label, pos = c(0.5, 1.00), cex = 0.9, col = CLINEGO_COL$muted)
 
     grDevices::png(file.path(PLOT_DIR, "varpart_venn.png"), width = 7, height = 7.5, units = "in", res = 300, bg = "white")
     grid::grid.newpage(); grid::grid.draw(v); grDevices::dev.off()
@@ -524,9 +524,9 @@ if (!venn_ok) save_both("varpart_venn", empty_plot(paste0("Variance partition un
 if (nrow(px_dt) > 0) {
     g_px <- ggplot(px_dt, aes(x = reorder(variable, Px), y = Px_pct, fill = model)) +
         geom_col(position = "dodge") + coord_flip() +
-        scale_fill_adaptogene(name = NULL) +
+        scale_fill_clinego(name = NULL) +
         labs(x = NULL, y = "Px (% of available variance)", title = "Lasky Px per climate variable") +
-        theme_adaptogene()
+        theme_clinego()
     save_both("px_barplot", g_px)
 } else save_both("px_barplot", empty_plot("No Px values computed"))
 

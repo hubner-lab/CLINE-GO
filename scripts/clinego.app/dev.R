@@ -1,10 +1,10 @@
-# dev.R — Development runner for ADAPTOGENE Shiny app
+# dev.R — Development runner for CLINE-GO Shiny app
 # Sources R files from mounted volume instead of installed package.
 # Avoids Docker rebuilds: edit files and shiny.autoreload restarts the app.
 #
 # Usage:
-#   docker run --user $(id -u):$(id -g) --rm -p 3838:3838 -v $PWD:/pipeline adaptogene:latest \
-#     Rscript /pipeline/scripts/adaptogene.app/dev.R
+#   docker run --user $(id -u):$(id -g) --rm -p 3838:3838 -v $PWD:/pipeline cline-go:latest \
+#     Rscript /pipeline/scripts/clinego.app/dev.R
 
 options(shiny.autoreload = TRUE)
 
@@ -45,13 +45,13 @@ library(shinyjs)
 library(shinyFiles)
 
 # Source all app R files from mounted volume
-app_r_dir <- "/pipeline/scripts/adaptogene.app/R"
+app_r_dir <- "/pipeline/scripts/clinego.app/R"
 for (f in sort(list.files(app_r_dir, pattern = "\\.R$", full.names = TRUE))) {
     source(f, local = FALSE)
 }
 
 # Serve static assets (CSS/JS/SCSS from inst/app/www/)
-shiny::addResourcePath("www", "/pipeline/scripts/adaptogene.app/inst/app/www")
+shiny::addResourcePath("www", "/pipeline/scripts/clinego.app/inst/app/www")
 
 # Run app
 shiny::shinyApp(

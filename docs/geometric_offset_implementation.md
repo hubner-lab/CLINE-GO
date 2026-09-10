@@ -37,7 +37,7 @@ environmental change. The function also returns a `distance` field = a confounde
 ## 3. `genetic.gap()` API reference `[verified]` (LEA man page `genetic_gap.Rd`, repo `bcm-uga/LEA` branch `devel`)
 
 > Tag every signature/field below `[verify-container]` before coding: run `?genetic.gap` and
-> `str(genetic.gap(...))` on the offset_example data inside the `adaptogene:latest` container (LEA 3.22).
+> `str(genetic.gap(...))` on the offset_example data inside the `cline-go:latest` container (LEA 3.22).
 
 ### Signature
 ```r

@@ -3,7 +3,7 @@ library(dplyr)
 library(data.table)
 library(qs)
 
-source("/pipeline/scripts/R/utils/theme_adaptogene.R")
+source("/pipeline/scripts/R/utils/theme_clinego.R")
 
 args = commandArgs(trailingOnly=TRUE)
 #################################
@@ -29,10 +29,10 @@ IsrPopKs <- clusters %>%
 gStructure <-
   ggplot(data = IsrPopKs, aes(y = value, x = sample, fill = variable)) +
     geom_bar(show.legend = TRUE, stat = "identity", position = "fill") +
-    scale_fill_manual(name = "Clusters", values = adapt_cluster_palette(K)) +
+    scale_fill_manual(name = "Clusters", values = clinego_cluster_palette(K)) +
     ylab("Proportion of assignment") +
     xlab("Accessions") +
-    theme_adaptogene(base_size = 16) +
+    theme_clinego(base_size = 16) +
     theme(axis.text.x = element_blank())
 
 # Save

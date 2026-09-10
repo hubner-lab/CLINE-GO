@@ -32,7 +32,7 @@ suppressPackageStartupMessages({
 })
 
 PIPELINE_ROOT <- Sys.getenv("PIPELINE_ROOT", "/pipeline")
-source(file.path(PIPELINE_ROOT, "scripts/R/utils/theme_adaptogene.R"))
+source(file.path(PIPELINE_ROOT, "scripts/R/utils/theme_clinego.R"))
 source(file.path(PIPELINE_ROOT, "benchmarks/lib_detection.R"))
 
 args <- parse_kv_args(commandArgs(trailingOnly = TRUE))
@@ -78,7 +78,7 @@ if (file.exists(rank_f)) {
         facet_wrap(~axis) + scale_colour_n(uniqueN(L$method)) +
         labs(title = paste0("Structure-correction ladder, AUC-PR (", PROJ, ")"),
              x = "cell (n_pcs / LFMM K rung)", y = "AUC-PR", colour = NULL) +
-        theme_adaptogene()
+        theme_clinego()
     ggsave(file.path(OUTDIR, "ladder_aucpr.png"), p, width = 11, height = 5.5, dpi = 150)
     ggsave(file.path(OUTDIR, "ladder_aucpr.svg"), p, width = 11, height = 5.5)
 } else absent("ladder", rank_f)
@@ -126,12 +126,12 @@ if (length(port_fs)) {
         print(summ)
 
         p <- ggplot(CWD, aes(factor(combine_window_kb), f1_delta, fill = rule)) +
-            geom_hline(yintercept = 0, colour = ADAPT_THRESHOLD, linetype = "dashed") +
+            geom_hline(yintercept = 0, colour = CLINEGO_THRESHOLD, linetype = "dashed") +
             geom_boxplot(outlier.size = 0.6, alpha = 0.85) +
             scale_fill_n(uniqueN(CWD$rule)) +
             labs(title = paste0("F1 change from windowed cross-method agreement (", PROJ, ")"),
                  x = "combine window (kb)", y = "F1 - F1 at exact-key agreement", fill = NULL) +
-            theme_adaptogene()
+            theme_clinego()
         ggsave(file.path(OUTDIR, "combine_window_effect.png"), p, width = 9, height = 5.5, dpi = 150)
         ggsave(file.path(OUTDIR, "combine_window_effect.svg"), p, width = 9, height = 5.5)
     } else absent("combine-window comparison", "portfolio rows with a window")

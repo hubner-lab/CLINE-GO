@@ -19,7 +19,7 @@ EVAL <- file.path(ROOT, "benchmarks/mvp_eval")
 OFF  <- Sys.getenv("OFFSET_DIR", "offset11")
 OUT  <- Sys.getenv("FIG_OUT", file.path(EVAL, "figures_main"))
 METHOD <- Sys.getenv("METHOD", "LFMM2offset")
-source(file.path(ROOT, "scripts/R/utils/theme_adaptogene.R"))
+source(file.path(ROOT, "scripts/R/utils/theme_clinego.R"))
 
 MINOU <- c(teal="#00798c", red="#d1495b", amber="#edae49", sage="#66a182",
            navy="#2e4057", grey="#8d96a3")
@@ -65,20 +65,20 @@ pB <- ggplot(B, aes(label, accuracy, fill = label)) +
     geom_hline(yintercept = rq, linetype="22", colour=REF_GOOD, linewidth=0.6) +
     geom_hline(yintercept = ra, linetype="22", colour=REF_BAD,  linewidth=0.6) +
     geom_col(width=0.68) +
-    geom_errorbar(aes(ymin=q25, ymax=q75), width=0.2, colour=ADAPT_COL$fg, linewidth=0.4) +
+    geom_errorbar(aes(ymin=q25, ymax=q75), width=0.2, colour=CLINEGO_COL$fg, linewidth=0.4) +
     geom_text(aes(y=q75, label=sprintf("%.3f", accuracy)), hjust=-0.22, size=2.9,
-              colour=ADAPT_COL$fg) +
+              colour=CLINEGO_COL$fg) +
     coord_flip(ylim = c(min(B$q25)-0.03, max(B$q75)+0.055)) +
     facet_grid(grp ~ ., scales="free_y", space="free_y", switch="y") +
     scale_fill_manual(values=RULE_COL, guide="none") +
     labs(tag="B", x=NULL, y="Accuracy") +
-    theme_adaptogene() +
+    theme_clinego() +
     theme(plot.tag=element_text(face="bold", size=13), strip.background=element_blank(),
           strip.placement="outside",
           strip.text.y.left=element_text(angle=90, size=8.5, face="bold"),
           panel.border=element_blank(), panel.spacing.y=unit(0.5,"lines"),
           axis.text.y=element_text(size=8.5))
-adapt_save_both(file.path(OUT, sprintf("B_accuracy_by_panel_%s", METHOD)), pB, w=7.8, h=5.2)
+clinego_save_both(file.path(OUT, sprintf("B_accuracy_by_panel_%s", METHOD)), pB, w=7.8, h=5.2)
 
 # ---------------- C: across architecture ------------------------------------
 C <- S[, .(accuracy = median(accuracy)), by = .(label, arch)]
@@ -100,8 +100,8 @@ pC <- ggplot(mapping = aes(as.integer(arch), accuracy, group = label)) +
     scale_colour_manual(values=c(RULE_COL[OBT], "causal loci"=REF_GOOD,
                                  "all loci"=REF_BAD), guide="none") +
     labs(tag="C", x=NULL, y="Accuracy") +
-    theme_adaptogene() +
+    theme_clinego() +
     theme(plot.tag=element_text(face="bold", size=13), panel.border=element_blank(),
           axis.text.x=element_text(size=8.5))
-adapt_save_both(file.path(OUT, sprintf("C_robustness_%s", METHOD)), pC, w=7.8, h=5.0)
+clinego_save_both(file.path(OUT, sprintf("C_robustness_%s", METHOD)), pC, w=7.8, h=5.0)
 message(sprintf("  OK B/C for %s", METHOD))

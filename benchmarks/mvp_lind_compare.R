@@ -1,6 +1,6 @@
 #!/usr/bin/env Rscript
 # =============================================================================
-# mvp_lind_compare.R -- put ADAPTOGENE's garden-sweep numbers next to the published ones.
+# mvp_lind_compare.R -- put CLINE-GO's garden-sweep numbers next to the published ones.
 #
 # Every published value below is quoted from Lind & Lotterhos 2025 (Mol Ecol Resour 25(4):e14008)
 # and is hard-coded here with its source string, so the comparison table can never drift from what
@@ -62,7 +62,7 @@ p1 <- ggplot(TL[marker_set %in% c("adaptive", "all", "neutral")],
                shape = 4, size = 5, stroke = 1.4, colour = "black") +
     labs(x = "degree of local adaptation (final_LA, deposit)",
          y = "median Kendall's tau across landscape gardens",
-         title = "ADAPTOGENE offsets on the Lind & Lotterhos scale",
+         title = "CLINE-GO offsets on the Lind & Lotterhos scale",
          subtitle = "black crosses = their published anchors (-0.2 at LA 0.3, -0.6 at LA 0.5)") +
     theme_minimal(base_size = 11)
 ggsave(file.path(OUTDIR, "tau_vs_LA.png"), p1, width = 9, height = 5.5, dpi = 150)
@@ -254,7 +254,7 @@ OURS <- c(
 HEAD <- copy(PUB)[, ours := OURS]
 fwrite(HEAD, file.path(OUTDIR, "headline_vs_published.tsv"), sep = "\t")
 
-message("=== ADAPTOGENE vs Lind & Lotterhos 2025 ===")
+message("=== CLINE-GO vs Lind & Lotterhos 2025 ===")
 print(HEAD[, .(quantity, published, ours)])
 message("\n=== marker-set comparison, per method ===")
 print(MSm[, .(method_label, comparison, n_models, pct_first_wins = round(pct_first_wins, 1),

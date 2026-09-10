@@ -16,7 +16,7 @@
 set -uo pipefail
 
 DOCKER=(nix shell nixpkgs#docker-client -c docker)
-LOG="${LOG:-/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/offset09/runlogs/unstick.log}"
+LOG="${LOG:-/mnt/data/eugene/CLINE-GO/benchmarks/mvp_eval/offset09/runlogs/unstick.log}"
 INTERVAL="${INTERVAL:-120}"
 GRACE="${GRACE:-3}"          # consecutive empty checks before acting (~6 min)
 
@@ -39,7 +39,7 @@ while true; do
 
     # stop supervising once the orchestrator has finished everything
     if grep -q "OVERNIGHT RUN COMPLETE" \
-        /mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/offset09/runlogs/overnight.log 2>/dev/null; then
+        /mnt/data/eugene/CLINE-GO/benchmarks/mvp_eval/offset09/runlogs/overnight.log 2>/dev/null; then
         echo "[$(date +%H:%M:%S)] orchestrator reported completion -- supervisor exiting" >> "$LOG"
         exit 0
     fi

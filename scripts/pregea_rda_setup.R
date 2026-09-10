@@ -38,7 +38,7 @@ library(ggplot2)
 library(ggrepel)
 library(scattermore)
 
-source("/pipeline/scripts/R/utils/theme_adaptogene.R")
+source("/pipeline/scripts/R/utils/theme_clinego.R")
 source("/pipeline/scripts/R/utils/emmax_core.R")   # load_pca_covariates()
 source("/pipeline/scripts/R/lib/rdadapt.R")         # rdadapt() — shared with rda.R
 
@@ -229,15 +229,15 @@ write_model_artifacts <- function(cond_pcs, fit = NULL, axis_pvals = NULL, axis_
     if (!is.null(axis_pvals) && length(axis_pvals) > 0) {
         g_scree <- ggplot(axis_here, aes(x = factor(axis), y = axis_eig, fill = axis_p < AXIS_ALPHA)) +
             geom_col() +
-            scale_fill_manual(values = c(`TRUE` = ADAPT_RETAINED, `FALSE` = ADAPT_THRESHOLD), guide = "none") +
+            scale_fill_manual(values = c(`TRUE` = CLINEGO_RETAINED, `FALSE` = CLINEGO_THRESHOLD), guide = "none") +
             labs(x = "Constrained axis", y = "Eigenvalue",
                 title = "RDA constrained-axis screeplot",
                 subtitle = sprintf("condition_pcs=%d", cond_pcs)) +
-            theme_adaptogene()
+            theme_clinego()
     } else {
-        g_scree <- adapt_empty_plot(reason %||% "No constrained axes available")
+        g_scree <- clinego_empty_plot(reason %||% "No constrained axes available")
     }
-    adapt_save_both(file.path(p_dir, "axis_screeplot"), g_scree, w = 7, h = 5)
+    clinego_save_both(file.path(p_dir, "axis_screeplot"), g_scree, w = 7, h = 5)
 
     # Site-scores biplot — plain scatter is correct here (site/sample scores,
     # N=samples not SNPs; Rule 6 does not apply, see docs/rda_research.md C.2).
@@ -250,20 +250,20 @@ write_model_artifacts <- function(cond_pcs, fit = NULL, axis_pvals = NULL, axis_
         arrow_scale <- 0.8 * max(abs(site_scores$RDA1), abs(site_scores$RDA2)) /
             max(abs(biplot_scores$RDA1), abs(biplot_scores$RDA2), 1e-6)
         g_biplot <- ggplot(site_scores, aes(x = RDA1, y = RDA2)) +
-            geom_point(color = ADAPT_NEUTRAL, size = 2) +
+            geom_point(color = CLINEGO_NEUTRAL, size = 2) +
             geom_segment(data = biplot_scores,
                         aes(x = 0, y = 0, xend = RDA1 * arrow_scale, yend = RDA2 * arrow_scale),
-                        inherit.aes = FALSE, color = ADAPT_THRESHOLD, arrow = arrow(length = unit(0.2, "cm"))) +
+                        inherit.aes = FALSE, color = CLINEGO_THRESHOLD, arrow = arrow(length = unit(0.2, "cm"))) +
             ggrepel::geom_text_repel(data = biplot_scores,
                                      aes(x = RDA1 * arrow_scale, y = RDA2 * arrow_scale, label = predictor),
-                                     inherit.aes = FALSE, color = ADAPT_THRESHOLD, size = 3) +
+                                     inherit.aes = FALSE, color = CLINEGO_THRESHOLD, size = 3) +
             labs(x = "RDA1", y = "RDA2", title = "RDA site scores biplot",
                 subtitle = sprintf("condition_pcs=%d", cond_pcs)) +
-            theme_adaptogene()
+            theme_clinego()
     } else {
-        g_biplot <- adapt_empty_plot(reason %||% "rank<2: no biplot available")
+        g_biplot <- clinego_empty_plot(reason %||% "rank<2: no biplot available")
     }
-    adapt_save_both(file.path(p_dir, "biplot"), g_biplot, w = 7, h = 6)
+    clinego_save_both(file.path(p_dir, "biplot"), g_biplot, w = 7, h = 6)
 }
 `%||%` <- function(a, b) if (is.null(a)) b else a
 
@@ -449,34 +449,34 @@ if (nrow(ladder_dt) > 0) {
     ))
     cmp_long[, metric := factor(metric, levels = c("r2_adj", "max_vif", "n_axes_sig", "anova_full_p"))]
     g_cmp <- ggplot(cmp_long, aes(x = condition_pcs, y = value)) +
-        geom_line(color = ADAPT_NEUTRAL) + geom_point(color = ADAPT_NEUTRAL, size = 2) +
-        geom_hline(aes(yintercept = threshold), color = ADAPT_THRESHOLD, linetype = "dashed", na.rm = TRUE) +
+        geom_line(color = CLINEGO_NEUTRAL) + geom_point(color = CLINEGO_NEUTRAL, size = 2) +
+        geom_hline(aes(yintercept = threshold), color = CLINEGO_THRESHOLD, linetype = "dashed", na.rm = TRUE) +
         facet_wrap(~ metric, scales = "free_y",
                   labeller = as_labeller(c(r2_adj = "Adjusted R2", max_vif = "Max VIF",
                                           n_axes_sig = "# significant axes", anova_full_p = "Full-model p"))) +
         labs(x = "Condition() PC count", y = NULL, title = "RDA model comparison across the Condition()-PC ladder",
             subtitle = sprintf("dashed lines: vif_max=%.1f, axis_alpha=%.2g", VIF_MAX, AXIS_ALPHA)) +
-        theme_adaptogene_grid()
-    adapt_save_both(file.path(PLOT_DIR, "rda_model_comparison"), g_cmp, w = 9, h = 6)
+        theme_clinego_grid()
+    clinego_save_both(file.path(PLOT_DIR, "rda_model_comparison"), g_cmp, w = 9, h = 6)
 } else {
-    adapt_save_both(file.path(PLOT_DIR, "rda_model_comparison"),
-                    adapt_empty_plot("No condition_pcs rung fit successfully"), w = 9, h = 6)
+    clinego_save_both(file.path(PLOT_DIR, "rda_model_comparison"),
+                    clinego_empty_plot("No condition_pcs rung fit successfully"), w = 9, h = 6)
 }
 
 # -- ordiR2step path: cumulative R2adj per step + full-model ceiling ------
 if (nrow(fwd_dt) > 0) {
     g_fwd <- ggplot(fwd_dt, aes(x = step, y = r2_adj_cumulative)) +
-        geom_hline(aes(yintercept = r2_adj_full_ceiling), color = ADAPT_THRESHOLD, linetype = "dashed") +
-        geom_line(color = ADAPT_NEUTRAL) + geom_point(color = ADAPT_NEUTRAL, size = 2) +
-        ggrepel::geom_text_repel(aes(label = variable), size = 3, color = ADAPT_COL$fg) +
+        geom_hline(aes(yintercept = r2_adj_full_ceiling), color = CLINEGO_THRESHOLD, linetype = "dashed") +
+        geom_line(color = CLINEGO_NEUTRAL) + geom_point(color = CLINEGO_NEUTRAL, size = 2) +
+        ggrepel::geom_text_repel(aes(label = variable), size = 3, color = CLINEGO_COL$fg) +
         labs(x = "Forward-selection step", y = "Cumulative adjusted R2",
             title = "ordiR2step forward-selection path",
             subtitle = sprintf("Pin=%.3g | dashed = full-model ceiling (%.4f)", ORDIR2STEP_PIN, full_ceiling)) +
-        theme_adaptogene()
-    adapt_save_both(file.path(PLOT_DIR, "rda_ordir2step_path"), g_fwd, w = 7, h = 5)
+        theme_clinego()
+    clinego_save_both(file.path(PLOT_DIR, "rda_ordir2step_path"), g_fwd, w = 7, h = 5)
 } else {
-    adapt_save_both(file.path(PLOT_DIR, "rda_ordir2step_path"),
-                    adapt_empty_plot(sprintf("No variable passed Pin=%.3g (full-model R2adj=%.4f)",
+    clinego_save_both(file.path(PLOT_DIR, "rda_ordir2step_path"),
+                    clinego_empty_plot(sprintf("No variable passed Pin=%.3g (full-model R2adj=%.4f)",
                                              ORDIR2STEP_PIN, if (is.na(full_ceiling)) 0 else full_ceiling)),
                     w = 7, h = 5)
 }

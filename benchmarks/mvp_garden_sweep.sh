@@ -26,8 +26,8 @@
 # Usage:  mvp_garden_sweep.sh [SEEDS_CSV|all] [SEED_JOBS] [SNAKE_CORES] [MEM_PER_SEED]
 set -uo pipefail
 
-ROOT="${PIPELINE_ROOT:-/mnt/data/eugene/ADAPTOGENE}"
-IMAGE="${IMAGE:-adaptogene:latest}"
+ROOT="${PIPELINE_ROOT:-/mnt/data/eugene/CLINE-GO}"
+IMAGE="${IMAGE:-cline-go:latest}"
 SEEDS_ARG="${1:-all}"
 SEED_JOBS="${2:-6}"          # seeds running concurrently
 SNAKE_CORES="${3:-28}"       # DAG is 28 offset jobs wide per seed
@@ -88,7 +88,7 @@ run_seed() {
     local t0; t0=$(date +%s)
 
     "${DOCKER[@]}" run --user "$(id -u):$(id -g)" --rm --name "gsweep_${proj}" \
-        -e USER=adaptogene -e OPENBLAS_NUM_THREADS="$BLAS_THREADS" \
+        -e USER=cline-go -e OPENBLAS_NUM_THREADS="$BLAS_THREADS" \
         -e OMP_NUM_THREADS="$BLAS_THREADS" \
         --memory="$MEM_PER_SEED" \
         -w /pipeline -v "$ROOT:/pipeline" "$IMAGE" \

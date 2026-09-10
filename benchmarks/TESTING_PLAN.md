@@ -57,7 +57,7 @@ After each mode:
 Structure of the report with embedded relative links to figures:
 
 ```markdown
-# ADAPTOGENE Benchmark Report
+# CLINE-GO Benchmark Report
 
 ## Overview
 - Two datasets, N modes tested, pipeline version, date
@@ -167,7 +167,7 @@ The executor should:
 
 ### Docker command template
 ```bash
-docker run --user $(id -u):$(id -g) --rm --memory=20g -v $PWD:/pipeline adaptogene:latest \
+docker run --user $(id -u):$(id -g) --rm --memory=20g -v $PWD:/pipeline cline-go:latest \
   snakemake -c10 -s Snakefile --config mode=MODE --configfile CONFIG.yaml --scheduler greedy
 ```
 

@@ -40,7 +40,7 @@ suppressPackageStartupMessages({
 
 PIPELINE_ROOT <- Sys.getenv("PIPELINE_ROOT", "/pipeline")
 source(file.path(PIPELINE_ROOT, "scripts/R/utils/pval_threshold.R"))
-source(file.path(PIPELINE_ROOT, "scripts/R/utils/theme_adaptogene.R"))
+source(file.path(PIPELINE_ROOT, "scripts/R/utils/theme_clinego.R"))
 source(file.path(PIPELINE_ROOT, "benchmarks/lib_detection.R"))
 
 args <- parse_kv_args(commandArgs(trailingOnly = TRUE))
@@ -142,17 +142,17 @@ hm  <- long[measure == "spearman"][, `:=`(method_a = factor(method_a, ord),
 p <- ggplot(hm, aes(method_a, method_b, fill = value)) +
     geom_tile() +
     geom_text(aes(label = sprintf("%.2f", value)), size = 2.6, colour = "white") +
-    scale_fill_gradient(low = ADAPT_THRESHOLD, high = ADAPT_RETAINED, limits = c(-1, 1)) +
+    scale_fill_gradient(low = CLINEGO_THRESHOLD, high = CLINEGO_RETAINED, limits = c(-1, 1)) +
     labs(title = paste0("Method ranking redundancy, Spearman of -log10 min-p (", TAG, ")"),
          x = NULL, y = NULL, fill = "rho") +
-    theme_adaptogene() +
+    theme_clinego() +
     theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ggsave(file.path(OUTDIR, paste0(TAG, "_redundancy_heatmap.png")), p, width = 9, height = 7.5, dpi = 150)
 ggsave(file.path(OUTDIR, paste0(TAG, "_redundancy_heatmap.svg")), p, width = 9, height = 7.5)
 
 png(file.path(OUTDIR, paste0(TAG, "_redundancy_dendrogram.png")), width = 1400, height = 900, res = 150)
 plot(hc, main = paste0("Method families (1 - Spearman rho), ", TAG), xlab = "", sub = "")
-abline(h = CUT_H, col = ADAPT_REMOVED, lty = 2)
+abline(h = CUT_H, col = CLINEGO_REMOVED, lty = 2)
 dev.off()
 
 message("INFO: redundancy outputs in ", OUTDIR)

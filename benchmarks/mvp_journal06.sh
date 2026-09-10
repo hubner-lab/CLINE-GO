@@ -30,8 +30,8 @@
 # =============================================================================
 set -uo pipefail
 
-PIPELINE_ROOT="${PIPELINE_ROOT:-/mnt/data/eugene/ADAPTOGENE}"
-IMAGE="${IMAGE:-adaptogene:latest}"
+PIPELINE_ROOT="${PIPELINE_ROOT:-/mnt/data/eugene/CLINE-GO}"
+IMAGE="${IMAGE:-cline-go:latest}"
 STAGE="${1:-all}"
 SEED="${2:-1232548}"
 CELLS="${CELLS:-5}"

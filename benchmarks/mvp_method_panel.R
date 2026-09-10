@@ -26,7 +26,7 @@ ROOT <- Sys.getenv("PIPELINE_ROOT", "/pipeline")
 EVAL <- file.path(ROOT, "benchmarks/mvp_eval")
 OFF  <- Sys.getenv("OFFSET_DIR", "offset11")
 OUT  <- Sys.getenv("FIG_OUT", file.path(EVAL, "figures_main"))
-source(file.path(ROOT, "scripts/R/utils/theme_adaptogene.R"))
+source(file.path(ROOT, "scripts/R/utils/theme_clinego.R"))
 
 MINOU <- c(teal="#00798c", red="#d1495b", amber="#edae49", sage="#66a182",
            navy="#2e4057", grey="#8d96a3")
@@ -55,7 +55,7 @@ MED <- S[, .(accuracy = median(accuracy), n = .N), by = .(set, method)]
 fwrite(MED, file.path(OUT, "D_method_by_set.tsv"), sep = "\t")
 print(dcast(MED, set ~ method, value.var = "accuracy"))
 
-base_t <- function(p, tag) p + theme_adaptogene() +
+base_t <- function(p, tag) p + theme_clinego() +
     theme(plot.tag = element_text(face="bold", size=13), panel.border = element_blank(),
           legend.position = "bottom", strip.text = element_text(size=8.5)) +
     labs(tag = tag)
@@ -67,7 +67,7 @@ p1 <- base_t(ggplot(MED, aes(set, accuracy, colour = method, group = method)) +
     labs(x = NULL, y = "Accuracy") +
     guides(colour = guide_legend(nrow = 1)), "D1") +
     theme(axis.text.x = element_text(angle = 25, hjust = 1, size = 8))
-adapt_save_both(file.path(OUT, "D1_method_lines"), p1, w = 8.4, h = 4.8)
+clinego_save_both(file.path(OUT, "D1_method_lines"), p1, w = 8.4, h = 4.8)
 
 # ---------------- D2: heatmap ----------------------------------------------
 p2 <- base_t(ggplot(MED, aes(set, method, fill = accuracy)) +
@@ -79,7 +79,7 @@ p2 <- base_t(ggplot(MED, aes(set, method, fill = accuracy)) +
     labs(x = NULL, y = NULL), "D2") +
     theme(axis.text.x = element_text(angle = 25, hjust = 1, size = 8),
           legend.position = "right")
-adapt_save_both(file.path(OUT, "D2_method_heatmap"), p2, w = 9.4, h = 3.6)
+clinego_save_both(file.path(OUT, "D2_method_heatmap"), p2, w = 9.4, h = 3.6)
 
 # ---------------- D3: paired-difference forest ------------------------------
 W <- dcast(S, seed + method ~ set, value.var = "accuracy")
@@ -96,14 +96,14 @@ fo[, `:=`(other = factor(other, levels = rev(setdiff(levels(S$set), REF))),
           method = factor(method, levels = METHS))]
 fwrite(fo, file.path(OUT, "D_paired_effects.tsv"), sep = "\t")
 p3 <- base_t(ggplot(fo, aes(est, other, colour = method)) +
-    geom_vline(xintercept = 0, colour = ADAPT_COL$fg, linewidth = 0.35) +
+    geom_vline(xintercept = 0, colour = CLINEGO_COL$fg, linewidth = 0.35) +
     geom_linerange(aes(xmin = lo, xmax = hi),
                    position = position_dodge(width = 0.7), linewidth = 0.5) +
     geom_point(position = position_dodge(width = 0.7), size = 1.9) +
     scale_colour_manual(values = METH_COL, name = NULL) +
     labs(x = "accuracy gain of 2/3 methods over the set on the left", y = NULL) +
     guides(colour = guide_legend(nrow = 1)), "D3")
-adapt_save_both(file.path(OUT, "D3_method_forest"), p3, w = 8.6, h = 4.8)
+clinego_save_both(file.path(OUT, "D3_method_forest"), p3, w = 8.6, h = 4.8)
 
 # ---------------- D4: grouped bars ------------------------------------------
 p4 <- base_t(ggplot(MED, aes(set, accuracy, fill = method)) +
@@ -113,7 +113,7 @@ p4 <- base_t(ggplot(MED, aes(set, accuracy, fill = method)) +
     labs(x = NULL, y = "Accuracy") +
     guides(fill = guide_legend(nrow = 1)), "D4") +
     theme(axis.text.x = element_text(angle = 25, hjust = 1, size = 8))
-adapt_save_both(file.path(OUT, "D4_method_bars"), p4, w = 9.4, h = 4.8)
+clinego_save_both(file.path(OUT, "D4_method_bars"), p4, w = 9.4, h = 4.8)
 
 # ---------------- D5: per-replicate distributions ---------------------------
 p5 <- base_t(ggplot(S, aes(set, accuracy, fill = method)) +
@@ -122,6 +122,6 @@ p5 <- base_t(ggplot(S, aes(set, accuracy, fill = method)) +
     scale_fill_manual(values = METH_COL, guide = "none") +
     labs(x = NULL, y = "Accuracy"), "D5") +
     theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 6.5))
-adapt_save_both(file.path(OUT, "D5_method_boxplots"), p5, w = 12.5, h = 4.4)
+clinego_save_both(file.path(OUT, "D5_method_boxplots"), p5, w = 12.5, h = 4.4)
 
 message("  OK D1-D5")

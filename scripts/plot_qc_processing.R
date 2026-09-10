@@ -35,7 +35,7 @@ suppressPackageStartupMessages({
     library(dplyr)
 })
 
-source("/pipeline/scripts/R/utils/theme_adaptogene.R")
+source("/pipeline/scripts/R/utils/theme_clinego.R")
 
 args <- commandArgs(trailingOnly = TRUE)
 
@@ -119,17 +119,17 @@ p_smiss <- ggplot(smiss, aes(x = F_MISS)) +
         binwidth = 0.02, color = "white", linewidth = 0.2
     ) +
     scale_fill_manual(
-        values = c("FALSE" = ADAPT_RETAINED, "TRUE" = ADAPT_REMOVED),
+        values = c("FALSE" = CLINEGO_RETAINED, "TRUE" = CLINEGO_REMOVED),
         labels = c("FALSE" = "Retained", "TRUE" = "Removed"),
         name = NULL
     ) +
-    geom_vline(xintercept = SAMPLE_MISS_THRESH, linetype = "dashed", color = ADAPT_THRESHOLD) +
+    geom_vline(xintercept = SAMPLE_MISS_THRESH, linetype = "dashed", color = CLINEGO_THRESHOLD) +
     labs(
         title = "Per-sample missingness distribution",
         x = "Fraction missing genotypes (F_MISS)",
         y = "Number of samples"
     ) +
-    theme_adaptogene()
+    theme_clinego()
 save_plot(p_smiss, "sample_missingness_distribution.png")
 
 #=============================================================================
@@ -142,17 +142,17 @@ p_lmiss <- ggplot(lmiss, aes(x = F_MISS)) +
         binwidth = 0.01, color = "white", linewidth = 0.1
     ) +
     scale_fill_manual(
-        values = c("FALSE" = ADAPT_RETAINED, "TRUE" = ADAPT_REMOVED),
+        values = c("FALSE" = CLINEGO_RETAINED, "TRUE" = CLINEGO_REMOVED),
         labels = c("FALSE" = "Retained", "TRUE" = "Removed"),
         name = NULL
     ) +
-    geom_vline(xintercept = SNP_MISS_THRESH, linetype = "dashed", color = ADAPT_THRESHOLD) +
+    geom_vline(xintercept = SNP_MISS_THRESH, linetype = "dashed", color = CLINEGO_THRESHOLD) +
     labs(
         title = "Per-SNP missingness distribution (pre-filter)",
         x = "Fraction missing genotypes (F_MISS)",
         y = "Number of SNPs"
     ) +
-    theme_adaptogene()
+    theme_clinego()
 save_plot(p_lmiss, "snp_missingness_distribution.png")
 
 #=============================================================================
@@ -169,17 +169,17 @@ p_maf <- ggplot(maf_raw, aes(x = MAF)) +
         binwidth = 0.01, color = NA
     ) +
     scale_fill_manual(
-        values = c("FALSE" = ADAPT_RETAINED, "TRUE" = ADAPT_REMOVED),
+        values = c("FALSE" = CLINEGO_RETAINED, "TRUE" = CLINEGO_REMOVED),
         labels = c("FALSE" = "Retained", "TRUE" = "Removed"),
         name = NULL
     ) +
-    geom_vline(xintercept = MAF_THRESH, linetype = "dashed", color = ADAPT_THRESHOLD) +
+    geom_vline(xintercept = MAF_THRESH, linetype = "dashed", color = CLINEGO_THRESHOLD) +
     labs(
         title = "Minor allele frequency distribution (pre-filter)",
         x = "Minor allele frequency (MAF)",
         y = "Number of SNPs"
     ) +
-    theme_adaptogene()
+    theme_clinego()
 save_plot(p_maf, "maf_distribution.png")
 
 #=============================================================================
@@ -214,16 +214,16 @@ merged[, outlier := obs_het < het_lo | obs_het > het_hi]
 # Build plot \u2014 no site coloring (see comment above); outliers marked red.
 p_het <- ggplot(merged, aes(x = F_MISS, y = obs_het)) +
     geom_point(aes(color = outlier, shape = outlier), size = 2, alpha = 0.8) +
-    scale_color_manual(values = c("FALSE" = ADAPT_NEUTRAL, "TRUE" = ADAPT_REMOVED), guide = "none") +
+    scale_color_manual(values = c("FALSE" = CLINEGO_NEUTRAL, "TRUE" = CLINEGO_REMOVED), guide = "none") +
     scale_shape_manual(values = c("FALSE" = 16, "TRUE" = 4), guide = "none") +
-    geom_hline(yintercept = c(het_lo, het_hi), linetype = "dashed", color = ADAPT_THRESHOLD, linewidth = 0.5) +
-    geom_vline(xintercept = SAMPLE_MISS_THRESH, linetype = "dashed", color = ADAPT_THRESHOLD, linewidth = 0.5) +
+    geom_hline(yintercept = c(het_lo, het_hi), linetype = "dashed", color = CLINEGO_THRESHOLD, linewidth = 0.5) +
+    geom_vline(xintercept = SAMPLE_MISS_THRESH, linetype = "dashed", color = CLINEGO_THRESHOLD, linewidth = 0.5) +
     labs(
         title = "Heterozygosity vs missingness per sample",
         x = "Fraction missing (F_MISS)",
         y = "Observed heterozygosity"
     ) +
-    theme_adaptogene()
+    theme_clinego()
 
 # Label outliers
 outliers <- merged[outlier == TRUE]
@@ -232,7 +232,7 @@ if (nrow(outliers) > 0) {
         ggrepel::geom_text_repel(
             data = outliers,
             aes(label = sample),
-            size = 2.5, color = ADAPT_REMOVED, max.overlaps = 20
+            size = 2.5, color = CLINEGO_REMOVED, max.overlaps = 20
         )
 }
 save_plot(p_het, "het_vs_missingness.png", width = 8, height = 6)
@@ -275,7 +275,7 @@ dens_both[, CHROM := factor(CHROM, levels = chr_order)]
 p_density <- ggplot(dens_both, aes(x = pos_mb, y = stage, fill = SNP_COUNT)) +
     geom_tile(height = 0.9) +
     scale_fill_gradientn(
-        colors = c("#F0F2F5", ADAPT_RETAINED, "#0B4A42"),
+        colors = c("#F0F2F5", CLINEGO_RETAINED, "#0B4A42"),
         name = "SNPs/1Mb",
         na.value = "#F0F2F5"
     ) +
@@ -285,7 +285,7 @@ p_density <- ggplot(dens_both, aes(x = pos_mb, y = stage, fill = SNP_COUNT)) +
         x = "Position (Mb)",
         y = NULL
     ) +
-    theme_adaptogene() +
+    theme_clinego() +
     theme(
         axis.text.y = element_text(size = 8),
         legend.position = "right",
@@ -373,7 +373,7 @@ attrition_snps <- attrition[stage %in% snp_stages]
 attrition_snps[, stage := factor(stage, levels = snp_stages)]
 
 p_attrition <- ggplot(attrition_snps, aes(x = stage, y = n_snps)) +
-    geom_col(fill = ADAPT_RETAINED, width = 0.6) +
+    geom_col(fill = CLINEGO_RETAINED, width = 0.6) +
     geom_text(aes(label = paste0(n_snps, "\n(", pct_snps, "%)")),
               vjust = -0.3, size = 3) +
     scale_x_discrete(labels = function(x) stringr::str_wrap(x, width = 18)) +
@@ -383,7 +383,7 @@ p_attrition <- ggplot(attrition_snps, aes(x = stage, y = n_snps)) +
         x = NULL,
         y = "Number of SNPs"
     ) +
-    theme_adaptogene() +
+    theme_clinego() +
     theme(axis.text.x = element_text(size = 9))
 save_plot(p_attrition, "filtering_attrition.png", width = 8, height = 5)
 
@@ -405,24 +405,24 @@ if (depth_ok) {
     depth_l_hist <- depth_l[, .(count = .N), by = .(depth_bin = round(MEAN_DEPTH))]
 
     p_depth_s <- ggplot(depth_s, aes(x = MEAN_DEPTH)) +
-        geom_histogram(bins = 40, fill = ADAPT_RETAINED, color = "white", linewidth = 0.2) +
+        geom_histogram(bins = 40, fill = CLINEGO_RETAINED, color = "white", linewidth = 0.2) +
         geom_vline(xintercept = mean(depth_s$MEAN_DEPTH, na.rm = TRUE),
-                   linetype = "dashed", color = ADAPT_THRESHOLD) +
+                   linetype = "dashed", color = CLINEGO_THRESHOLD) +
         labs(
             title = "Per-sample mean depth distribution",
             x = "Mean depth per sample",
             y = "Number of samples"
         ) +
-        theme_adaptogene()
+        theme_clinego()
 
     p_depth_l <- ggplot(depth_l_hist, aes(x = depth_bin, y = count)) +
-        geom_col(fill = ADAPT_RETAINED, width = 0.8) +
+        geom_col(fill = CLINEGO_RETAINED, width = 0.8) +
         labs(
             title = "Per-SNP mean depth distribution",
             x = "Mean depth per SNP",
             y = "Number of SNPs"
         ) +
-        theme_adaptogene()
+        theme_clinego()
 
     # Combine into one figure (2 panels)
     p_depth <- cowplot::plot_grid(p_depth_s, p_depth_l, ncol = 2, labels = c("A", "B"))
@@ -472,14 +472,14 @@ if (nrow(rel_pairs) > 0) {
                 binwidth = 0.02, color = "white", linewidth = 0.1
             ) +
             scale_fill_manual(
-                values = c("FALSE" = ADAPT_RETAINED, "TRUE" = ADAPT_REMOVED),
+                values = c("FALSE" = CLINEGO_RETAINED, "TRUE" = CLINEGO_REMOVED),
                 labels = c("FALSE" = "Below threshold", "TRUE" = "Above threshold"),
                 name = NULL
             ) +
-            geom_vline(xintercept = PI_HAT_THRESH, linetype = "dashed", color = ADAPT_THRESHOLD)
+            geom_vline(xintercept = PI_HAT_THRESH, linetype = "dashed", color = CLINEGO_THRESHOLD)
     } else {
         p_rel <- ggplot(rel_pairs, aes(x = IBS)) +
-            geom_histogram(binwidth = 0.02, fill = ADAPT_RETAINED, color = "white", linewidth = 0.1)
+            geom_histogram(binwidth = 0.02, fill = CLINEGO_RETAINED, color = "white", linewidth = 0.1)
     }
 
     p_rel <- p_rel +
@@ -488,7 +488,7 @@ if (nrow(rel_pairs) > 0) {
             x = "IBS (proportion shared alleles)",
             y = "Number of sample pairs"
         ) +
-        theme_adaptogene()
+        theme_clinego()
     save_plot(p_rel, "relatedness_distribution.png")
 } else {
     message("WARNING: Relatedness pairs file is empty or missing — skipping relatedness_distribution.png (need >=2 samples for pairwise IBS).")
@@ -530,7 +530,7 @@ if (!is.null(mds_coords)) {
     p_mds <- ggplot(mds_coords, aes(x = MDS1, y = MDS2, color = discarded)) +
         geom_point(size = 2.5, alpha = 0.85) +
         scale_color_manual(
-            values = c("FALSE" = ADAPT_NEUTRAL, "TRUE" = ADAPT_REMOVED),
+            values = c("FALSE" = CLINEGO_NEUTRAL, "TRUE" = CLINEGO_REMOVED),
             labels = c("FALSE" = "Retained", "TRUE" = "Discarded (relatedness)"),
             name = NULL
         ) +
@@ -538,7 +538,7 @@ if (!is.null(mds_coords)) {
             title = "Sample relatedness MDS (IBS allele-sharing)",
             x = "MDS1", y = "MDS2"
         ) +
-        theme_adaptogene()
+        theme_clinego()
 
     discarded_pts <- mds_coords[discarded == TRUE]
     if (nrow(discarded_pts) > 0) {
@@ -546,14 +546,14 @@ if (!is.null(mds_coords)) {
         p_mds <- p_mds +
             ggrepel::geom_text_repel(
                 data = discarded_pts, aes(label = label),
-                size = 2.5, color = ADAPT_REMOVED, max.overlaps = Inf,
+                size = 2.5, color = CLINEGO_REMOVED, max.overlaps = Inf,
                 show.legend = FALSE
             )
     }
 } else {
     # Empty placeholder so the Snakemake output contract is always satisfied.
     p_mds <- ggplot() +
-        annotate("text", x = 0, y = 0, label = "Not enough samples for relatedness MDS", color = ADAPT_NEUTRAL) +
+        annotate("text", x = 0, y = 0, label = "Not enough samples for relatedness MDS", color = CLINEGO_NEUTRAL) +
         theme_void()
 }
 save_plot(p_mds, "relatedness_mds.png")

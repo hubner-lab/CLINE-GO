@@ -39,7 +39,7 @@ suppressPackageStartupMessages({
 })
 
 ROOT <- Sys.getenv("PIPELINE_ROOT", "/pipeline")
-source(file.path(ROOT, "scripts/R/utils/theme_adaptogene.R"))
+source(file.path(ROOT, "scripts/R/utils/theme_clinego.R"))
 
 A <- list()
 for (a in commandArgs(trailingOnly = TRUE)) {
@@ -103,11 +103,11 @@ if (nrow(rk)) {
     p <- ggplot(ladder[!is.na(rung)], aes(x = rung, y = auc_pr, colour = method)) +
         geom_line(linewidth = 0.6) + geom_point(size = 1.6) +
         facet_grid(axis ~ arch_level, scales = "free_x") +
-        scale_color_adaptogene() +
+        scale_color_clinego() +
         labs(title = "Structure-correction ladder: detection ranking vs rung",
              subtitle = "rung = EMMAX/RDA/BLINK PC count, or LFMM latent factors",
              x = "Rung (n_pcs / condition_pcs / LFMM K)", y = "AUC-PR", colour = "Method") +
-        theme_adaptogene()
+        theme_clinego()
     ggsave(file.path(OUTDIR, "ladder_aucpr.png"), p, width = 11, height = 7, dpi = 150)
     ggsave(file.path(OUTDIR, "ladder_aucpr.svg"), p, width = 11, height = 7)
 
@@ -169,15 +169,15 @@ fwrite(rule_detail, file.path(OUTDIR, "combine_rule_detail.tsv"), sep = "\t")
 pd <- adv[!is.na(f1_gain)]
 if (nrow(pd)) {
     p2 <- ggplot(pd, aes(x = single_f1, y = combine_f1, colour = axis, shape = config_group)) +
-        geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = ADAPT_THRESHOLD) +
+        geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = CLINEGO_THRESHOLD) +
         geom_point(size = 2.6, alpha = 0.9) +
-        scale_color_adaptogene() +
+        scale_color_clinego() +
         coord_equal(xlim = c(0, 1), ylim = c(0, 1)) +
         labs(title = "Best cross-method rule vs best single method",
              subtitle = "Above the diagonal: combining methods wins at that seed / axis / configuration",
              x = "Best single-method F1", y = "Best combine-rule F1",
              colour = "Axis", shape = "Configuration") +
-        theme_adaptogene()
+        theme_clinego()
     ggsave(file.path(OUTDIR, "multimethod_advantage.png"), p2, width = 8, height = 7, dpi = 150)
     ggsave(file.path(OUTDIR, "multimethod_advantage.svg"), p2, width = 8, height = 7)
 }

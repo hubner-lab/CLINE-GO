@@ -54,7 +54,7 @@ All current genomic offset methods share a core assumption that cannot be fully 
 
 **Pros.** Handles nonlinear environment-genotype relationships via I-splines. Naturally operates at population/site level (appropriate when individual assignment is uncertain). Mature package.
 
-**Cons.** Requires per-site (population-level) allele frequencies — **not currently produced by the ADAPTOGENE pipeline**; would need a new rule to average dosages within sites. Pairwise structure scales as O(n²) samples. Less widely benchmarked than GF for offset specifically.
+**Cons.** Requires per-site (population-level) allele frequencies — **not currently produced by the CLINE-GO pipeline**; would need a new rule to average dosages within sites. Pairwise structure scales as O(n²) samples. Less widely benchmarked than GF for offset specifically.
 
 **R package.** `gdm` (CRAN); key functions: `gdm::gdm()`, `gdm::gdm.transform()`, `gdm::predict.gdm()`.
 
@@ -68,13 +68,13 @@ All current genomic offset methods share a core assumption that cannot be fully 
 
 **Principle.** A *second* constrained ordination (RDA), independent of the GEA-scan RDA (`scripts/rda.R`) — "compute once, reuse downstream" does not apply here (B0): the two fits differ on both the SNP set (candidate-only vs. all) and the conditioning term (none vs. partial) simultaneously. The offset RDA fits `rda(candidate_SNPs ~ climate)` with **no** `Condition()` by default (B7 — canonical construction). Present and future RDA scores are projected via `method="loadings"` (`Σ_v z_v × CCA$biplot[v,i]`, B4) — **never** `predict(type="lc")`, which is broken in both of Capblancq & Forester's own shipped source files (gotcha G1). Offset = eigenvalue-weighted Euclidean distance between predicted present and future scores, weights applied to the scores *before* squaring in `dist()` (B2, B3). (Capblancq & Forester 2021, DOI: 10.1111/2041-210X.13722)
 
-Two variants exist in the literature — ADAPTOGENE implements the uncorrected form by default, with the corrected form available as a documented deviation:
+Two variants exist in the literature — CLINE-GO implements the uncorrected form by default, with the corrected form available as a documented deviation:
 - **RDA-uncorrected** (default, `condition_pcs: 0`) — canonical construction per B7: conditioning removes exactly the climate-correlated structure variance the adaptive index needs to project.
 - **RDA-corrected (partial RDA)** — `condition_pcs > 0`; a labeled deviation from the canonical method, retained as a config option because Lind et al. 2025 treat corrected/uncorrected as two distinct implementations with no declared winner overall (B.6 open disagreement #2).
 
 Lind & Lotterhos 2025 (*Mol Ecol Resour* 25(4):e14008, >4.8M simulation evaluations) find performance driven mainly by degree of local adaptation, not method choice — adaptive (candidate) marker sets give only a **minimal** advantage over whole-genome panels (median <3% gain), least prevalent under climate novelty, the exact condition where offset is applied. This directly informs the candidate-set-only design here (B5) and the general caution against over-interpreting marker-set choice.
 
-Gain et al. 2023 prove RDA offset ≡ geometric offset **when RDA includes latent (structure) predictors alongside environment**. Since ADAPTOGENE's offset RDA omits latent predictors by default (B7), the two methods are expected to differ on real data — by how much is an empirically testable, currently unquantified question (B15). The pipeline's `compare_offsets.R` / Shiny cross-model comparison tab (Spearman ρ, Jaccard top-K overlap, ExDet novelty stratification) measures this directly, with no extra code required once a method is registered.
+Gain et al. 2023 prove RDA offset ≡ geometric offset **when RDA includes latent (structure) predictors alongside environment**. Since CLINE-GO's offset RDA omits latent predictors by default (B7), the two methods are expected to differ on real data — by how much is an empirically testable, currently unquantified question (B15). The pipeline's `compare_offsets.R` / Shiny cross-model comparison tab (Spearman ρ, Jaccard top-K overlap, ExDet novelty stratification) measures this directly, with no extra code required once a method is registered.
 
 Gain et al. 2023 also found linear methods (geometric GO, RDA) achieve a better bias-variance trade-off than machine-learning methods such as GF, an explanation for cases where linear methods outperform GF at limited sample sizes. **[verified, medium — paper uses hedged language "An explanation may be..."]**
 
@@ -88,7 +88,7 @@ Gain et al. 2023 also found linear methods (geometric GO, RDA) achieve a better 
 
 **Pros.** Linear, interpretable, theoretically grounded (Gain et al. 2023 unification). Fast — a second fit on a small candidate-SNP matrix, not the full-marker-set scale problem the GEA scan has (A5/A6). Directly reuses inputs already in the pipeline. Registered as a standard batch maladaptation method — same fan-out over SNP sets as GF/GeoOff, `nospatial`-only (B7).
 
-**Cons.** Linear extrapolation assumption (B16). Candidate-set choice (B5, B6) is a documented deviation from the canonical partial∩unconstrained intersection — ADAPTOGENE uses the curated `run_label` set instead, justified by Lind et al. 2025's marker-set-barely-matters finding. Offset should be reported as a **relative site ranking only**, never an absolute magnitude (B20) — eigenvalue weighting is an implementation convention, not derived from an explicit fitness model (contrast the geometric offset's Gaussian-selection derivation). Unvalidated absent common-garden data (B21).
+**Cons.** Linear extrapolation assumption (B16). Candidate-set choice (B5, B6) is a documented deviation from the canonical partial∩unconstrained intersection — CLINE-GO uses the curated `run_label` set instead, justified by Lind et al. 2025's marker-set-barely-matters finding. Offset should be reported as a **relative site ranking only**, never an absolute magnitude (B20) — eigenvalue weighting is an implementation convention, not derived from an explicit fitness model (contrast the geometric offset's Gaussian-selection derivation). Unvalidated absent common-garden data (B21).
 
 **R package / functions.** `vegan::rda()`, `vegan::anova.cca()`; offset projection ported from Capblancq & Forester 2021's `genomic_offset.R` (`scripts/rda_offset.R`, `terra`-based).
 
@@ -107,13 +107,13 @@ Gain et al. 2023 also found linear methods (geometric GO, RDA) achieve a better 
 
 Key theoretical results from Gain et al. 2023 (MBE): geometric GO achieves r² ≈ 78% correlation with true fitness offset in forward simulations under Gaussian stabilizing selection, compared to r² ≈ 45% for squared Euclidean environmental distance. **[verified, medium]** The r² = 97% fit of the offset to a quadratic function of selection intensity provides evidence for the method's theoretical grounding. **[verified, medium]** In pearl millet common garden experiments, geometric GO achieved r² = 61% — lower than the simulation ideal but still best-performing among methods tested. **[literature]** (Gain et al. 2023)
 
-**Inputs required.** Genotype matrix (LFMM format, samples × SNPs); per-site or per-sample present climate table; future climate table. LFMM2 is run internally by `LEA::genetic.gap()`. **[literature]** All these inputs are **already produced by the ADAPTOGENE pipeline** (`W['lfmm_full']`, `O['climate_site']`, future climate tables) — this method has the cleanest data contract fit of any new candidate.
+**Inputs required.** Genotype matrix (LFMM format, samples × SNPs); per-site or per-sample present climate table; future climate table. LFMM2 is run internally by `LEA::genetic.gap()`. **[literature]** All these inputs are **already produced by the CLINE-GO pipeline** (`W['lfmm_full']`, `O['climate_site']`, future climate tables) — this method has the cleanest data contract fit of any new candidate.
 
 **Extrapolation.** Linear projection of LFMM effect sizes to future environment. Same linearity caveat as RDA offset. **[literature]**
 
 **Simulation benchmarks.** r² ≈ 78% vs. fitness under Gaussian stabilizing selection; outperforms Euclidean environmental distance. **[verified, medium]** Linear methods including geometric GO achieve better bias-variance tradeoff than GF in data-limited conditions. **[verified, medium, hedged]** (Gain et al. 2023)
 
-**Pros.** Strong theoretical grounding (unified framework with RDA). Easiest data contract for ADAPTOGENE (LFMM inputs already exist). Single R function call. Accounts for polygenic architecture through the full β matrix.
+**Pros.** Strong theoretical grounding (unified framework with RDA). Easiest data contract for CLINE-GO (LFMM inputs already exist). Single R function call. Accounts for polygenic architecture through the full β matrix.
 
 **Cons.** Assumes Gaussian stabilizing selection at equilibrium. Performance in real non-equilibrium populations with drift likely lower than simulation ideals. LFMM2 runtime scales with SNP count (can be slow at WGS density without filtering).
 
@@ -180,7 +180,7 @@ Summary of evidence from simulation studies and common garden experiments. Blank
 - **Uncertainty bounds** — display per-site offset range (min, max across methods) alongside the ensemble mean. Populations consistently high across all methods are the highest-confidence priority areas.
 - **No single method dominates** across all simulation conditions. **[literature; unverified-source confirmation]** Multi-method consensus is a more defensible basis for conservation recommendations than any single estimate.
 
-### Data contract compatibility (ADAPTOGENE pipeline)
+### Data contract compatibility (CLINE-GO pipeline)
 
 | Method | Present climate | Future climate | Genotype input | Per-site allele freq | Pipeline gap |
 |--------|----------------|---------------|----------------|---------------------|--------------|

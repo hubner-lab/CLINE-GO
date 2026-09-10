@@ -3,7 +3,7 @@
 #
 # Usage:  Rscript benchmarks/mvp_write_configs.R [--seeds=1232548,...] [--k-best=NULL]
 #
-# Every value that deviates from scripts/adaptogene.app/inst/config_default.yaml is deviating
+# Every value that deviates from scripts/clinego.app/inst/config_default.yaml is deviating
 # for a stated reason, and the reason is written into the emitted YAML as a comment -- these
 # configs are benchmark artifacts that have to be defensible in a paper.
 #
@@ -33,7 +33,7 @@ if (!is.null(A$seeds)) {
 template <- function(seed, arm, arch, fst, r2t, r2s, n_causal, k_best, k_authors) {
   p <- paste0("MVP", seed)
   sprintf('#=============================================================================
-# ADAPTOGENE config -- MVP benchmark replicate, seed %s
+# CLINE-GO config -- MVP benchmark replicate, seed %s
 #
 # Source : Lotterhos 2023, PNAS 120(12):e2220313120, doi:10.1073/pnas.2220313120
 #          Data: BCO-DMO doi:10.26008/1912/bco-dmo.889769.1

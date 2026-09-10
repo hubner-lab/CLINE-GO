@@ -23,7 +23,7 @@ ROOT <- Sys.getenv("PIPELINE_ROOT", "/pipeline")
 EVAL <- file.path(ROOT, "benchmarks/mvp_eval")
 OFF  <- Sys.getenv("OFFSET_DIR", "offset11")
 OUT  <- Sys.getenv("FIG_OUT", file.path(EVAL, "figures_main"))
-source(file.path(ROOT, "scripts/R/utils/theme_adaptogene.R"))
+source(file.path(ROOT, "scripts/R/utils/theme_clinego.R"))
 MINOU <- c(teal="#00798c", red="#d1495b", amber="#edae49", sage="#66a182",
            navy="#2e4057", grey="#8d96a3")
 
@@ -89,18 +89,18 @@ print(res[, .(predictor, target, n, rho=round(rho,3), p=signif(p,2),
 # ---- figure: every candidate screen, against every target -------------------
 res[, predictor := factor(predictor, levels = rev(PRED))]
 pE2 <- ggplot(res, aes(rho, predictor, fill = sig)) +
-    geom_vline(xintercept = 0, colour = ADAPT_COL$fg, linewidth = 0.3) +
+    geom_vline(xintercept = 0, colour = CLINEGO_COL$fg, linewidth = 0.3) +
     geom_col(width = 0.66) +
     facet_wrap(~ target, nrow = 1) +
     scale_fill_manual(values = c("survives Holm" = MINOU[["sage"]],
                                  "not significant" = MINOU[["grey"]]), name = NULL) +
     scale_x_continuous(limits = c(-0.6, 0.6), breaks = seq(-0.6, 0.6, 0.3)) +
     labs(tag = "E2", x = "Spearman ρ with the outcome", y = NULL) +
-    theme_adaptogene() +
+    theme_clinego() +
     theme(plot.tag = element_text(face="bold", size=13), legend.position = "bottom",
           strip.text = element_text(size = 8), axis.text.y = element_text(size = 8),
           panel.border = element_blank())
-adapt_save_both(file.path(OUT, "E2_what_predicts_success"), pE2, w = 11, h = 4.4)
+clinego_save_both(file.path(OUT, "E2_what_predicts_success"), pE2, w = 11, h = 4.4)
 message("  OK E2_what_predicts_success")
 
 # ---- scatter: the one that works vs the best varpart candidate --------------
@@ -118,13 +118,13 @@ pE3 <- ggplot(sc, aes(value, accuracy)) +
     geom_smooth(method = "lm", formula = y ~ x, se = FALSE,
                 colour = MINOU[["navy"]], linewidth = 0.9) +
     geom_text(data = rho, aes(x = Inf, y = -Inf, label = sprintf("ρ = %+.2f", rho)),
-              hjust = 1.15, vjust = -1.0, size = 3.3, colour = ADAPT_COL$fg) +
+              hjust = 1.15, vjust = -1.0, size = 3.3, colour = CLINEGO_COL$fg) +
     facet_wrap(~ screen, scales = "free_x") +
     labs(tag = "E3", x = NULL, y = "Accuracy") +
-    theme_adaptogene() +
+    theme_clinego() +
     theme(plot.tag = element_text(face="bold", size=13),
           strip.text = element_text(size = 8.5))
-adapt_save_both(file.path(OUT, "E3_screen_scatter"), pE3, w = 10, h = 4)
+clinego_save_both(file.path(OUT, "E3_screen_scatter"), pE3, w = 10, h = 4)
 message("  OK E3_screen_scatter")
 
 # =============================================================================
@@ -164,14 +164,14 @@ pE4 <- ggplot(e4, aes(value, recall)) +
                 colour = MINOU[["navy"]], fill = MINOU[["grey"]],
                 alpha = 0.18, linewidth = 0.85) +
     geom_text(data = r4, aes(x = Inf, y = Inf, label = sprintf("ρ = %+.2f\np = %.3f", rho, p)),
-              hjust = 1.1, vjust = 1.2, size = 2.9, colour = ADAPT_COL$fg) +
+              hjust = 1.1, vjust = 1.2, size = 2.9, colour = CLINEGO_COL$fg) +
     facet_grid(component ~ arch, scales = "free") +
     scale_y_continuous(labels = function(x) paste0(round(100*x), "%")) +
     labs(tag = "E4", x = "% of genetic variance", y = "causal loci recovered by the 2/3 rule") +
-    theme_adaptogene() +
+    theme_clinego() +
     theme(plot.tag = element_text(face="bold", size=13),
           strip.text = element_text(size = 7.5), panel.border = element_blank())
-adapt_save_both(file.path(OUT, "E4_varpart_vs_detection"), pE4, w = 10.5, h = 6)
+clinego_save_both(file.path(OUT, "E4_varpart_vs_detection"), pE4, w = 10.5, h = 6)
 message("  OK E4_varpart_vs_detection")
 
 # =============================================================================
@@ -228,10 +228,10 @@ pF <- ggplot(prq, aes(climate_var, signal_frac, colour = rule)) +
     labs(tag = "F",
          x = "climate-associated genetic variance (% of total)",
          y = "of markers returned, % causal or linked") +
-    theme_adaptogene() +
+    theme_clinego() +
     theme(plot.tag = element_text(face = "bold", size = 13),
           legend.position = "bottom", strip.text = element_text(size = 8.5),
           panel.border = element_blank()) +
     guides(colour = guide_legend(nrow = 1, override.aes = list(alpha = 1, size = 2)))
-adapt_save_both(file.path(OUT, "F_climate_vs_gea_quality"), pF, w = 11, h = 4.6)
+clinego_save_both(file.path(OUT, "F_climate_vs_gea_quality"), pF, w = 11, h = 4.6)
 message("  OK F_climate_vs_gea_quality")

@@ -4,7 +4,7 @@ library(dplyr)
 library(tibble)
 library(qs)
 
-source("/pipeline/scripts/R/utils/theme_adaptogene.R")
+source("/pipeline/scripts/R/utils/theme_clinego.R")
 
 args = commandArgs(trailingOnly=TRUE)
 #################################
@@ -32,8 +32,8 @@ gCrossEntropy <-
   dplyr::arrange(as.numeric(name)) %>%
   ggplot(aes(x = factor(paste0('K', name),
                          levels = paste0('K', K_START:K_END)), y = value)) +
-    geom_point(color = ADAPT_NEUTRAL) +
-    theme_adaptogene() +
+    geom_point(color = CLINEGO_NEUTRAL) +
+    theme_clinego() +
     labs(x = 'Number of ancestral populations',
          y = 'Cross-entropy')
 

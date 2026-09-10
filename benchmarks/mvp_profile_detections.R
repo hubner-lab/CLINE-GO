@@ -37,7 +37,7 @@ suppressPackageStartupMessages({
 
 PIPELINE_ROOT <- Sys.getenv("PIPELINE_ROOT", "/pipeline")
 source(file.path(PIPELINE_ROOT, "scripts/R/utils/pval_threshold.R"))
-source(file.path(PIPELINE_ROOT, "scripts/R/utils/theme_adaptogene.R"))
+source(file.path(PIPELINE_ROOT, "scripts/R/utils/theme_clinego.R"))
 source(file.path(PIPELINE_ROOT, "benchmarks/lib_detection.R"))
 
 args <- parse_kv_args(commandArgs(trailingOnly = TRUE))
@@ -264,7 +264,7 @@ p1 <- ggplot(maf_recall[!is.na(maf_bin)], aes(maf_bin, recall, group = method, c
     scale_y_continuous(limits = c(0, 1)) +
     labs(title = paste0("Causal-locus recall by MAF (", TAG, ")"),
          x = "MAF bin", y = "Recall (detected / causal in bin)", colour = NULL) +
-    theme_adaptogene()
+    theme_clinego()
 ggsave(file.path(OUTDIR, paste0(TAG, "_maf_recall.png")), p1, width = 9, height = 5.5, dpi = 150)
 ggsave(file.path(OUTDIR, paste0(TAG, "_maf_recall.svg")), p1, width = 9, height = 5.5)
 
@@ -284,7 +284,7 @@ if (any(is.finite(eff$effect))) {
         scale_colour_n(uniqueN(er$method)) + scale_y_continuous(limits = c(0, 1)) +
         labs(title = paste0("Causal-locus recall by effect size (", TAG, ")"),
              x = "|effect| quartile", y = "Recall", colour = NULL) +
-        theme_adaptogene()
+        theme_clinego()
     ggsave(file.path(OUTDIR, paste0(TAG, "_effect_recall.png")), p2, width = 9, height = 5.5, dpi = 150)
     ggsave(file.path(OUTDIR, paste0(TAG, "_effect_recall.svg")), p2, width = 9, height = 5.5)
 }

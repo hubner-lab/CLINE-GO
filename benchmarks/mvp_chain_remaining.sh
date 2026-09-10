@@ -20,7 +20,7 @@
 #
 # Usage:  mvp_chain_remaining.sh [SEEDS_CSV|all]
 set -uo pipefail
-ROOT="${PIPELINE_ROOT:-/mnt/data/eugene/ADAPTOGENE}"
+ROOT="${PIPELINE_ROOT:-/mnt/data/eugene/CLINE-GO}"
 cd "$ROOT"
 DOCKER=(nix shell nixpkgs#docker-client -c docker)
 GATE="$ROOT/benchmarks/mvp_eval/gate"
@@ -38,15 +38,15 @@ run_stage() {           # run_stage <suffix> <sets> <seed_jobs> <cores> <mem>
     local sfx="$1" sets="$2" jobs="$3" cores="$4" mem="$5"
     echo "=== stage $sfx : $sets ($(date -Is)) ==="
     "${DOCKER[@]}" run --user "$(id -u):$(id -g)" --rm -v "$ROOT:/pipeline" -w /pipeline \
-        -e PIPELINE_ROOT=/pipeline adaptogene:latest \
+        -e PIPELINE_ROOT=/pipeline cline-go:latest \
         Rscript /pipeline/benchmarks/mvp_write_sweep_config.R --seeds="$SEEDS_CSV" \
             --gardens_subdir=gardens --suffix="$sfx" --sets="$sets" 2>&1 | tail -1
 
     # Clear any lock left by an aborted run; a stale lock fails a seed in seconds
     # and the driver would skip it for the whole stage.
     for s in $SEEDS; do
-        "${DOCKER[@]}" run --user "$(id -u):$(id -g)" -e USER=adaptogene --rm \
-            -w /pipeline -v "$ROOT:/pipeline" adaptogene:latest \
+        "${DOCKER[@]}" run --user "$(id -u):$(id -g)" -e USER=cline-go --rm \
+            -w /pipeline -v "$ROOT:/pipeline" cline-go:latest \
             snakemake --unlock -s Snakefile --config mode=maladaptation \
             --configfile "config_MVP${s}${sfx}.yaml" >/dev/null 2>&1 &
         while (( $(jobs -rp | wc -l) >= 12 )); do sleep 1; done

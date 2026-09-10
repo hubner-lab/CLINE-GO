@@ -134,7 +134,7 @@ run_enrichment_subprocess <- function(genes_dt, region_id, trait, project_data) 
     pipeline_path <- get_pipeline_path()
 
     # Temp session directory for this region's enrichment output
-    tmp_base  <- file.path(tempdir(), "adaptogene_enrichment",
+    tmp_base  <- file.path(tempdir(), "clinego_enrichment",
                            paste0(pd$name, "_", gsub("[^a-z0-9]", "", tolower(region_id)),
                                   "_", trait))
     tmp_genes   <- file.path(tmp_base, "genes.tsv")
@@ -264,7 +264,7 @@ run_regionplot_subprocess <- function(region_row, trait, project_data, module = 
 
     pipeline_path <- get_pipeline_path()
 
-    tmp_base <- file.path(tempdir(), "adaptogene_regionplot",
+    tmp_base <- file.path(tempdir(), "clinego_regionplot",
                           paste0(pd$name, "_",
                                  gsub("[^a-z0-9]", "", tolower(custom_region)),
                                  "_", trait))
@@ -336,7 +336,7 @@ launch_enrichment_subprocess <- function(genes_dt, region_id, trait, project_dat
 
     pipeline_path <- get_pipeline_path()
     # Intermediate and temp files stay in tempdir — only final tables/plots persist
-    tmp_base   <- file.path(tempdir(), "adaptogene_enrichment",
+    tmp_base   <- file.path(tempdir(), "clinego_enrichment",
                             paste0(pd$name, "_", gsub("[^a-z0-9]", "", tolower(region_id)),
                                    "_", trait))
     tmp_genes  <- file.path(tmp_base, "genes.tsv")
@@ -743,7 +743,7 @@ launch_hap_scan_subprocess <- function(region_row, project_data, tag, params) {
     dir.create(plots_dir, recursive = TRUE, showWarnings = FALSE)
 
     # Single-row selected_regions.tsv in temp dir
-    tmp_base <- file.path(tempdir(), "adaptogene_hapscan",
+    tmp_base <- file.path(tempdir(), "clinego_hapscan",
                           paste0(pd$name, "_", tag, "_",
                                  gsub("[^a-z0-9]", "", tolower(region_row$region_id[1]))))
     dir.create(tmp_base, recursive = TRUE, showWarnings = FALSE)
@@ -903,7 +903,7 @@ launch_hap_viz_subprocess <- function(region_row, project_data, tag, params) {
     dir.create(tables_dir, recursive = TRUE, showWarnings = FALSE)
 
     # Single-row selected_regions.tsv
-    tmp_base <- file.path(tempdir(), "adaptogene_hapviz",
+    tmp_base <- file.path(tempdir(), "clinego_hapviz",
                           paste0(pd$name, "_", tag, "_",
                                  gsub("[^a-z0-9]", "", tolower(region_row$region_id[1]))))
     dir.create(tmp_base, recursive = TRUE, showWarnings = FALSE)

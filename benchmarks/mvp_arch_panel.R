@@ -25,7 +25,7 @@ EVAL <- file.path(ROOT, "benchmarks/mvp_eval")
 OFF  <- Sys.getenv("OFFSET_DIR", "offset11")
 OUT  <- Sys.getenv("FIG_OUT", file.path(EVAL, "figures_main"))
 METHOD <- Sys.getenv("METHOD", "GFoffset")
-source(file.path(ROOT, "scripts/R/utils/theme_adaptogene.R"))
+source(file.path(ROOT, "scripts/R/utils/theme_clinego.R"))
 
 MINOU <- c(teal="#00798c", red="#d1495b", amber="#edae49", sage="#66a182",
            navy="#2e4057", grey="#8d96a3")
@@ -63,7 +63,7 @@ M[, label := factor(label, levels=ordall)]
 fwrite(M, file.path(OUT,"V_arch_by_set.tsv"), sep="\t")
 print(dcast(M, label ~ arch, value.var="accuracy"))
 
-base <- function(p,tag) p + theme_adaptogene() +
+base <- function(p,tag) p + theme_clinego() +
     theme(plot.tag=element_text(face="bold",size=13), panel.border=element_blank(),
           strip.text=element_text(size=8.5), legend.position="bottom") + labs(tag=tag)
 
@@ -74,7 +74,7 @@ p1 <- base(ggplot(M, aes(accuracy, label)) +
     scale_colour_manual(values=ARCH_COL, name=NULL) +
     labs(x="Accuracy", y=NULL) +
     guides(colour=guide_legend(nrow=1)), "V1")
-adapt_save_both(file.path(OUT,"V1_arch_dotplot"), p1, w=8.2, h=4.6)
+clinego_save_both(file.path(OUT,"V1_arch_dotplot"), p1, w=8.2, h=4.6)
 
 # ---- V2: small multiples, ranked within each architecture ------------------
 M2 <- copy(M)[, lab2 := reorder(label, accuracy), by=arch]
@@ -85,7 +85,7 @@ p2 <- base(ggplot(M2, aes(accuracy, tidytext_reorder <- reorder(paste(label, arc
     scale_y_discrete(labels=function(x) sub(" (oligogenic|moderately polygenic|highly polygenic)$","",x)) +
     scale_colour_manual(values=RULE_COL, guide="none") +
     labs(x="Accuracy", y=NULL), "V2")
-adapt_save_both(file.path(OUT,"V2_arch_small_multiples"), p2, w=11.5, h=4.4)
+clinego_save_both(file.path(OUT,"V2_arch_small_multiples"), p2, w=11.5, h=4.4)
 
 # ---- V3: slopegraph --------------------------------------------------------
 lab3 <- M[arch==levels(arch)[1L]]
@@ -98,7 +98,7 @@ p3 <- base(ggplot(M, aes(as.integer(arch), accuracy, colour=label, group=label))
                        expand=expansion(add=c(PAD,0.06))) +
     scale_colour_manual(values=RULE_COL, guide="none") +
     labs(x=NULL, y="Accuracy"), "V3")
-adapt_save_both(file.path(OUT,"V3_arch_slopegraph"), p3, w=8.0, h=5.0)
+clinego_save_both(file.path(OUT,"V3_arch_slopegraph"), p3, w=8.0, h=5.0)
 
 # ---- V4: heatmap -----------------------------------------------------------
 p4 <- base(ggplot(M, aes(arch, label, fill=accuracy)) +
@@ -106,7 +106,7 @@ p4 <- base(ggplot(M, aes(arch, label, fill=accuracy)) +
     geom_text(aes(label=sprintf("%.3f",accuracy)), size=2.7, colour="white") +
     scale_fill_gradientn(colours=c(MINOU[["red"]],"grey92",MINOU[["teal"]]), name=NULL) +
     labs(x=NULL, y=NULL), "V4") + theme(legend.position="right")
-adapt_save_both(file.path(OUT,"V4_arch_heatmap"), p4, w=7.6, h=4.2)
+clinego_save_both(file.path(OUT,"V4_arch_heatmap"), p4, w=7.6, h=4.2)
 
 # ---- V5: deviation from the causal-loci reference --------------------------
 ref <- M[label=="causal loci", .(arch, r=accuracy)]
@@ -117,5 +117,5 @@ p5 <- base(ggplot(D, aes(gap, label, fill=arch)) +
     scale_fill_manual(values=ARCH_COL, name=NULL) +
     labs(x="accuracy relative to the causal loci", y=NULL) +
     guides(fill=guide_legend(nrow=1)), "V5")
-adapt_save_both(file.path(OUT,"V5_arch_deviation"), p5, w=8.2, h=4.8)
+clinego_save_both(file.path(OUT,"V5_arch_deviation"), p5, w=8.2, h=4.8)
 message("  OK V1-V5")

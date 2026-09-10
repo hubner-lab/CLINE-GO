@@ -1,4 +1,4 @@
-# ADAPTOGENE Pipeline - Refactored
+# CLINE-GO Pipeline - Refactored
 # vim: filetype=python
 import os
 import sys
@@ -1410,7 +1410,7 @@ def resolve_active_snp_sets():
         if not found:
             raise ValueError(
                 f"No curated SNP sets found under {store}. "
-                "Open the GEA tab in the ADAPTOGENE Shiny app, curate SNPs with your "
+                "Open the GEA tab in the CLINE-GO Shiny app, curate SNPs with your "
                 "desired threshold/strategy/regime, and click 'Save SNP set for "
                 "maladaptation' before running mode=maladaptation. "
                 "(Set Maladaptation.snp_sets to a list of names to select specific sets.)"

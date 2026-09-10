@@ -26,7 +26,7 @@ ROOT <- Sys.getenv("PIPELINE_ROOT", "/pipeline")
 EVAL <- file.path(ROOT, "benchmarks/mvp_eval")
 OFF  <- Sys.getenv("OFFSET_DIR", "offset11")
 OUT  <- Sys.getenv("FIG_OUT", file.path(EVAL, "figures_main"))
-source(file.path(ROOT, "scripts/R/utils/theme_adaptogene.R"))
+source(file.path(ROOT, "scripts/R/utils/theme_clinego.R"))
 
 MINOU <- c(teal="#00798c", red="#d1495b", amber="#edae49", sage="#66a182",
            navy="#2e4057", grey="#8d96a3")
@@ -73,7 +73,7 @@ build <- function(mode, tag_suffix) {
       scale_x_log10(breaks = c(0.1,0.25,0.5,1,2,4,8,16)) +
       scale_colour_manual(values = RULE_COL, name = NULL) +
       labs(tag = paste0("B1", tag_suffix), x = NULL, y = "F-beta score") +
-      theme_adaptogene() +
+      theme_clinego() +
       theme(plot.tag = element_text(face="bold", size=13), legend.position="none",
             strip.text = element_text(size=8.5), panel.border = element_blank(),
             axis.text.x = element_blank(), axis.ticks.x = element_blank())
@@ -83,12 +83,12 @@ build <- function(mode, tag_suffix) {
       scale_x_log10(breaks = c(0.1,0.25,0.5,1,2,4,8,16)) +
       scale_fill_manual(values = RULE_COL, name = NULL) +
       labs(x = "β        (← precision weighted            recall weighted →)", y = NULL) +
-      theme_adaptogene() +
+      theme_clinego() +
       theme(legend.position = "bottom", strip.text = element_blank(),
             axis.text.y = element_blank(), axis.ticks.y = element_blank(),
             panel.border = element_blank(), strip.background = element_blank()) +
       guides(fill = guide_legend(nrow = 1))
-  adapt_save_both(file.path(OUT, sprintf("B1_fbeta_curves_%s", mode)),
+  clinego_save_both(file.path(OUT, sprintf("B1_fbeta_curves_%s", mode)),
                   plot_grid(p1, strip, ncol=1, rel_heights=c(1, 0.42), align="v", axis="lr"),
                   w = 11, h = 5)
 
@@ -103,11 +103,11 @@ build <- function(mode, tag_suffix) {
       labs(tag = paste0("B2", tag_suffix),
            x = "β        (← precision weighted            recall weighted →)",
            y = "rank (1 = best)") +
-      theme_adaptogene() +
+      theme_clinego() +
       theme(plot.tag = element_text(face="bold", size=13), legend.position="bottom",
             strip.text = element_text(size=8.5), panel.border = element_blank()) +
       guides(colour = guide_legend(nrow = 1))
-  adapt_save_both(file.path(OUT, sprintf("B2_rank_bump_%s", mode)), p2, w = 11, h = 4.6)
+  clinego_save_both(file.path(OUT, sprintf("B2_rank_bump_%s", mode)), p2, w = 11, h = 4.6)
 
   # ---- B3: precision-recall space with iso-F1 contours --------------------
   gr <- CJ(recall = seq(max(1e-4, min(PR$recall)*0.7), max(PR$recall)*1.25, length.out = 220),
@@ -124,10 +124,10 @@ build <- function(mode, tag_suffix) {
       scale_colour_manual(values = RULE_COL, guide = "none") +
       labs(tag = paste0("B3", tag_suffix),
            x = "recall (log scale)", y = "precision") +
-      theme_adaptogene() +
+      theme_clinego() +
       theme(plot.tag = element_text(face="bold", size=13),
             strip.text = element_text(size=8.5), panel.border = element_blank())
-  adapt_save_both(file.path(OUT, sprintf("B3_pr_space_%s", mode)), p3, w = 11.5, h = 4.6)
+  clinego_save_both(file.path(OUT, sprintf("B3_pr_space_%s", mode)), p3, w = 11.5, h = 4.6)
 
   # ---- B4: rank heatmap ---------------------------------------------------
   HB <- c(0.1,0.15,0.25,0.4,0.6,1,1.6,2.5,4,6.5,10,16)
@@ -141,12 +141,12 @@ build <- function(mode, tag_suffix) {
                                                     MINOU[["red"]]))(6), name = "rank") +
       labs(tag = paste0("B4", tag_suffix),
            x = "β        (← precision weighted            recall weighted →)", y = NULL) +
-      theme_adaptogene() +
+      theme_clinego() +
       theme(plot.tag = element_text(face="bold", size=13),
             axis.text.x = element_text(size=6, angle=90, vjust=0.5),
             strip.text = element_text(size=8.5), panel.border = element_blank(),
             legend.position = "none")
-  adapt_save_both(file.path(OUT, sprintf("B4_rank_heatmap_%s", mode)), p4, w = 11, h = 4)
+  clinego_save_both(file.path(OUT, sprintf("B4_rank_heatmap_%s", mode)), p4, w = 11, h = 4)
 
   message(sprintf("  OK B1-B4 (%s)", mode))
   print(dcast(win[, .(n = .N), by=.(arch, rule)], rule ~ arch, value.var="n", fill=0L))
