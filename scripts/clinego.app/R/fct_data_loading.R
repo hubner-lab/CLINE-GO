@@ -1,10 +1,8 @@
-# Source shared pipeline utilities for interactive threshold computation.
-# compute_pval_threshold() is used directly; lib/sig_snps.R is not needed
-# here (we implement a simpler single-threaded version inline).
-if (file.exists("/pipeline/scripts/R/utils/pval_threshold.R")) {
-    source("/pipeline/scripts/R/utils/pval_threshold.R")
-}
-
+# compute_pval_threshold() comes from /pipeline/scripts/R/utils/pval_threshold.R,
+# loaded into the package namespace by .onLoad() in zzz.R (and by dev.R on the
+# file path). Do NOT source() it here: top-level code in R/ runs during
+# R CMD INSTALL, where /pipeline is not mounted. lib/sig_snps.R is not needed --
+# a simpler single-threaded version is implemented inline below.
 # ── Processing QC loaders ────────────────────────────────────────────────────
 
 #' Load filtering summary table

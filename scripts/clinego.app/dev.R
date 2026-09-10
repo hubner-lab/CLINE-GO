@@ -50,6 +50,26 @@ for (f in sort(list.files(app_r_dir, pattern = "\\.R$", full.names = TRUE))) {
     source(f, local = FALSE)
 }
 
+# Shared pipeline libraries (lib/regions.R, utils/pval_threshold.R).
+#
+# On the package path these are loaded by .onLoad() in zzz.R. This path never
+# calls library(clinego.app) -- it source()s R/*.R directly -- so .onLoad() does
+# NOT fire here and the libraries must be loaded explicitly. Without this,
+# compute_all_regions() dies with "could not find function
+# cluster_snps_to_regions", and interactive thresholds silently return NA for
+# every method (the compute_pval_threshold() call sits inside a tryCatch that
+# maps errors to status = "error"), i.e. no significant SNPs anywhere.
+#
+# CLINEGO_SHARED_LIBS and load_shared_libs() are defined in zzz.R, already
+# sourced by the loop above -- add a library there and this picks it up.
+.missing_libs <- load_shared_libs(globalenv())
+if (length(.missing_libs)) {
+    stop("dev.R: shared pipeline libraries not found:\n  ",
+         paste(.missing_libs, collapse = "\n  "),
+         "\nIs the pipeline root mounted at /pipeline?")
+}
+rm(.missing_libs)
+
 # Serve static assets (CSS/JS/SCSS from inst/app/www/)
 shiny::addResourcePath("www", "/pipeline/scripts/clinego.app/inst/app/www")
 

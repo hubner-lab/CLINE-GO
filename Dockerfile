@@ -152,6 +152,27 @@ RUN Rscript -e " \
 "
 
 # Install golem Shiny app as R package
+#
+# ── PLANNED: move this block, and a COPY of the rest of the project, to the END
+# ── of this file, as the last step before the verification RUN.
+#
+# Today this image contains NO pipeline code: this is the only COPY, and all 65
+# /pipeline/scripts/*.R paths the Snakefile invokes resolve solely through
+# `-v $PWD:/pipeline`. The app package is the one exception, and that split is
+# what let clinego.app's shared-library loading rot unnoticed (see zzz.R).
+#
+# The end state is a self-contained image: COPY scripts/ workflow/ Snakefile
+# into /pipeline, then install the app. Two reasons to do it at the END and not
+# here:
+#   1. Sitting at this line, a change to ANY app file invalidates ~22 downstream
+#      layers (topr, GAPIT, gradientForest, vegan, Bioconductor) -- a ~20 minute
+#      rebuild. As the last step it is ~15 seconds.
+#   2. With scripts/ copied in before the app install, zzz.R's file.exists()
+#      guards become true at BUILD time, so the shared libs are baked into the
+#      installed namespace and the package path stops depending on a mount.
+#
+# Until then the bind mount stays the source of truth for pipeline code, and
+# `-v $PWD:/pipeline` remains required at run time for both run paths.
 COPY scripts/clinego.app /tmp/clinego.app
 RUN Rscript -e "remotes::install_local('/tmp/clinego.app', dependencies = FALSE)" \
   && rm -rf /tmp/clinego.app

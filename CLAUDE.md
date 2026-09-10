@@ -586,10 +586,30 @@ When pipeline modules produce optional outputs (pop_stats piemaps, zoom maps, ha
 **CRITICAL — selectInput inside cards**: Never wrap `selectInput` inside `bslib::card()` without `overflow: visible` on the card. Bootstrap 5 cards have `overflow: hidden` by default (for border-radius clipping), which hides selectize.js dropdown menus. The `.control-bar` CSS class in `custom.scss` handles this automatically — always use that class for inline control bars.
 
 ### Running the App
+
+Two run paths, both verified 2026-09-10. Prefer **dev mode** for day-to-day work — it needs no
+rebuild after an R file change. Use the **package mode** only to check that the installed
+package itself is sound.
+
+**Dev mode** (file path — `dev.R` sources `R/*.R` off the mount, `.onLoad()` never fires):
 ```bash
-docker run --user $(id -u):$(id -g) --rm -e USER=pipeline -p 3838:3838 -v $PWD:/pipeline cline-go:latest \
-  R -e "clinego.app::run_app(options = list(host = '0.0.0.0', port = 3838))"
+docker run --user $(id -u):$(id -g) --rm --name clinego_app -e USER=pipeline -p 3838:3838 \
+  -v $PWD:/pipeline cline-go:latest Rscript /pipeline/scripts/clinego.app/dev.R
 ```
+
+**Package mode** (`library(clinego.app)` → `.onLoad()` in `zzz.R` loads the shared libs):
+```bash
+docker run --user $(id -u):$(id -g) --rm --name clinego_prod -e USER=pipeline -p 3838:3838 \
+  -v $PWD:/pipeline cline-go:latest R -e "clinego.app::run_app(host = '0.0.0.0', port = 3838)"
+```
+
+**Pass `host`/`port` directly — NOT `options = list(...)`.** `run_app(...)` already wraps its
+`...` in `shinyApp(options = list(...))`, so the old documented form nested to
+`options = list(options = list(host, port))`, which Shiny ignores: the app came up on a random
+loopback port (observed: `127.0.0.1:7729`) and the published `-p` mapping went nowhere.
+
+`-v $PWD:/pipeline` is required for **both** paths: the image contains no pipeline code (see the
+marker comment at the app-install block in `Dockerfile`).
 
 ### Key Config Files
 - `scripts/clinego.app/inst/golem-config.yml` — sets `pipeline_path: /pipeline`
