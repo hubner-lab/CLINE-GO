@@ -620,11 +620,49 @@ marker comment at the app-install block in `Dockerfile`).
 
 ## TODO
 
-### Unit Testing (High Priority)
-No function-level tests exist. Need `testthat` (R) and `pytest` (Python) infrastructure. Priority targets: region creation, gene-region overlap, chromosome normalization, trait extraction, format conversions.
+### Unit Testing
 
-### Exon/Promoter SNP Validation
-Validate exon/promoter SNP counting in `find_genes_around_regions.R` (uses GenomicRanges::findOverlapPairs).
+Two testthat roots. **Both must be green before a merge.**
+
+```bash
+# Tier 1 — scripts/R/lib + scripts/R/utils (the shared science). ~20 s.
+docker run --rm --user $(id -u):$(id -g) -e USER=pipeline -v $PWD:/pipeline \
+  cline-go:latest Rscript /pipeline/tests/run_tests.R
+
+# The Shiny app package. ~40 s.
+docker run --rm --user $(id -u):$(id -g) -e USER=pipeline -v $PWD:/pipeline \
+  cline-go:latest Rscript -e 'setwd("/pipeline/scripts/clinego.app/tests"); source("testthat.R")'
+```
+
+Baseline as of 2026-09-10: `tests/` = 370 passing / 10 skipped, app = 69 passing.
+`run_tests.R` exits non-zero on any failure, so it is CI-able as-is.
+
+`tests/` is a **non-package** root: it uses `test_dir()` plus
+`tests/testthat/helper-libs.R`, which attaches the packages the libs assume (they never
+call `library()` themselves — several need a bare `%>%`, `qvalue()` or `covRob()`) and
+`source()`s them in dependency order. Add a new lib to that vector when you add one.
+Both commands need `-v $PWD:/pipeline`; the image ships no pipeline code. Do **not** route
+either through `dev.R` or prepend `.R_libs_dev` — that carries testthat 3.3.2 while the
+image pins 3.2.3.
+
+`tests/testthat/test-known-bugs.R` holds correct-behaviour assertions for defects that are
+known and deliberately unfixed, each behind a `skip()` naming where it is filed. Fixing one
+means deleting a `skip()` line. Never weaken a test there to match current output.
+
+Still missing: **`pytest` for `scripts/*.py`** (`design_adequacy.py`, `gff2topr.py`,
+`snakemake_progress_handler.py` — no Python test infrastructure exists at all), golden-file
+regression on SIMDATA outputs, and Shiny/pipeline equivalence checks. See the
+"Regression tests for scientific outputs" objective in the ADAPTOGENE pipeline dossier for
+the full tier plan.
+
+### Exon/Promoter SNP Validation — validated 2026-09-10, and it is WRONG
+`.count_snps_in_features()` (`scripts/R/lib/genes_in_regions.R:174`) builds its SNP id from
+the plain, feature-side `s` column of `foverlaps(snps, feats)`, so `exon_snps` /
+`promoter_snps` report the **feature's start coordinate** and `exon_snp_count` /
+`promoter_snp_count` count features hit, not SNPs. Two SNPs at 120 and 130 inside a
+100-200 exon yield `1:100` and a count of 1. Invisible on SIMDATA (every cell is empty
+there). Not fixed — filed in `docs/pipeline_improvement_requests.md` and quarantined in
+`tests/testthat/test-known-bugs.R`.
 
 ## Active Obsidian Project
 - Project: ADAPTOGENE
