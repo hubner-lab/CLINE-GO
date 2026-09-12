@@ -684,11 +684,21 @@ load-bearing and not obvious:
 rewrite the tracked SIMDATA fixtures in place. A denylist test enforces it rather than leaving it
 to review.
 
-Baseline as of 2026-09-12 (after the quick/heavy split and the Tier 1/2/6 gap closure):
-`tests/` = **934 passing / 18 skipped**, app = **417 passing / 3 skipped**, python =
+Baseline as of 2026-09-12 (after closing the wrapper, app-unit and equivalence objectives):
+`tests/` = **1051 passing / 21 skipped**, app = **749 passing / 7 skipped**, python =
 **74 tests**, heavy = **29 passing**. `run_tests.R` and `run_heavy.R` both exit non-zero on any
-failure, so both are CI-able as-is. (Previous figures: 620/14, 213/1, 67 — the jump is 18 new CLI
-wrapper rows, five new lib test files, five new app test files, and the heavy root.)
+failure, so both are CI-able as-is. (Previous figures: 934/18, 417/3, 74, 29 — the jump is 10 new
+CLI wrapper rows over 5 scripts, 4 of them newly covered (29 -> 33 distinct scripts), seven new
+app test files, and four new equivalence blocks.)
+
+**The quick gate's warning baseline is ZERO**, and that is load-bearing rather than cosmetic: a
+suite carrying standing warnings is one the next real warning hides in. Two known warts emit
+data.table's shallow-copy notice when a combine strategy selects nothing — pipeline
+`combine_sigsnps.R:166` and app `fct_combine.R:121` — and are suppressed at the two named helpers
+in `test-equivalence-app-pipeline.R` with the reason stated there, not globally.
+
+The 21 and the 7 are QUARANTINE counts. An increment that moves either is adding a `skip()`, and
+the commit must name the filing it points at.
 
 **Newly covered 2026-09-12**, closing gaps that were scoped out earlier on a premise that turned
 out to be false:
@@ -768,15 +778,30 @@ means deleting a `skip()` line. Never weaken a test there to match current outpu
 suite now uses the same convention — `test-fct_threshold_rules.R` carries one `skip()`ped
 correct-behaviour assertion for the qvalue-not-in-Imports defect.
 
+Every such `skip()` names `docs/pipeline_improvement_requests.md`, which is **gitignored** — a
+fresh clone has the quarantined tests but not the queue they cite. The same filings are also in
+the ADAPTOGENE testing track dossier's `## Findings`
+(`~/Orthidian/projects/ADAPTOGENE/ADAPTOGENE-testing.md`); read them there when the local `docs/`
+tree is absent.
+
 **Tier 6 — Python + CLI wrappers** landed 2026-09-12, in two places. `tests/python/`
 is a third suite (`unittest`, registered at `run_all.sh:70-78`) covering
 `design_adequacy.py`'s hand-rolled eigensolver, `gff2topr.py` (subprocess only — it has no
 `__main__` guard and `sys.exit()`s from its module body), `snakemake_progress_handler.py`,
 and the one part of `workflow/methods/` that is code rather than data: `gwas.py`'s
 comprehension filtering `GEA_METHODS` by `supports_phenotypes`. `tests/testthat/test-cli-wrappers.R`
-smoke-tests 11 of the 40 zero-function `commandArgs()` wrappers — the ones whose inputs are
-plain TSVs — asserting exit 0 and non-empty declared outputs, which is the layer Tier 1 could
-not see. **No Dockerfile change was needed**: the image already ships python3.12 + numpy +
+smoke-tests **33 of the ~40** zero-function `commandArgs()` wrappers, asserting exit 0 and
+non-empty declared outputs — the layer Tier 1 could not see. One row asserts a NON-zero exit:
+`check_invariants.R` is a validator, so `quit(status = 1)` on an error-severity violation is its
+contract, expressed through the spec's optional `expect_status` field.
+
+**A green smoke row does not prove the interesting branch ran**, and three wrappers needed a
+separate check at authoring time to establish that it did. `fit_ld_curve` degrades to LOESS and
+then to `insufficient_data`, `pregea_recommend.R`'s three recommenders each have a fallback, and
+`check_invariants.R` exits 1 on an uncaught R error exactly as it does on a real violation — all
+of them writing the same files with the same status. Where a row targets a specific branch, run
+the script directly once and read the output (`method = hill_weir`, the `rule` strings, the
+violation report) rather than trusting the row. **No Dockerfile change was needed**: the image already ships python3.12 + numpy +
 pandas + scipy + stdlib `unittest`, and pytest was deliberately not added (PEP 668 marker plus
 cleaned apt lists make it a layer for no gain).
 
