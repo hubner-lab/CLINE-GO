@@ -208,3 +208,66 @@ test_that("annotate_cross_trait_overlaps handles NULL the way its own guard impl
 
     expect_no_error(annotate_cross_trait_overlaps(NULL, 1000L))
 })
+
+# ---------------------------------------------------------------------------
+# 8. manhattan_utils.R:85,95,104 — three palette getters index with
+#    `x[1:length(y)]`. At length 0 that is `x[1:0]` = `x[c(1, 0)]`, which returns
+#    ONE element instead of none, and setNames() then labels it NA. An empty
+#    trait/method/region set is ordinary (a trait with no significant SNPs), so
+#    these hand a one-colour palette with an NA name to ggplot2 rather than an
+#    empty one. get_chr_colors (:76) is CORRECT — rep(length.out = 0) handles 0.
+#    Filed: docs/pipeline_improvement_requests.md (2026-09-12).
+#    Fix in all three: seq_len(length(y)) instead of 1:length(y).
+# ---------------------------------------------------------------------------
+
+test_that("get_trait_colors returns an empty palette for no traits", {
+    skip("known bug: manhattan_utils.R:85 uses 1:length(traits) — filed 2026-09-12")
+
+    got <- get_trait_colors(character(0))
+    expect_length(got, 0L)
+})
+
+test_that("get_method_shapes returns an empty vector for no methods", {
+    skip("known bug: manhattan_utils.R:104 uses 1:length(methods) — filed 2026-09-12")
+
+    got <- get_method_shapes(character(0))
+    expect_length(got, 0L)
+    expect_false(any(is.na(names(got))))
+})
+
+test_that("get_region_colors returns an empty vector for zero regions", {
+    skip("known bug: manhattan_utils.R:95 uses colors[1:n_regions] — filed 2026-09-12")
+
+    expect_length(get_region_colors(0), 0L)
+})
+
+# ---------------------------------------------------------------------------
+# 9. enrichment.R:66-80 — get_go_descriptions() passes its keys straight to
+#    AnnotationDbi::select() with no validation. That call HARD-ERRORS when none
+#    of the keys resolve ("None of the keys entered are valid keys for 'GOID'"),
+#    so a GFF whose go_field holds a typo, a non-GO string or an obsolete term
+#    kills build_term2gene_from_gff() — and with it the whole enrichment rule —
+#    instead of degrading to GO-ID labels the way the "GO.db not available" path
+#    does. Found 2026-09-12 while writing test-enrichment.R, whose fixture had to
+#    switch to real GO ids to get past it.
+#    Filed: docs/pipeline_improvement_requests.md (2026-09-12).
+# ---------------------------------------------------------------------------
+
+test_that("build_term2gene_from_gff survives a GFF with unresolvable GO ids", {
+    skip("known bug: enrichment.R:69-74 select() errors on all-invalid keys — filed 2026-09-12")
+
+    d <- withr::local_tempdir()
+    p <- file.path(d, "annot.gff3")
+    writeLines(c("##gff-version 3",
+                 paste("1", "src", "mRNA", "1000", "1500", ".", "+", ".",
+                       "ID=g1;Ontology=GO:9999999", sep = "\t"),
+                 paste("1", "src", "mRNA", "2000", "2500", ".", "+", ".",
+                       "ID=g2;Ontology=GO:9999999", sep = "\t")),
+               p)
+
+    # The TERM2GENE half needs no GO.db at all, so an unresolvable id should cost
+    # only the human-readable names.
+    got <- suppressMessages(build_term2gene_from_gff(p, "mRNA", "Ontology"))
+    expect_identical(nrow(got$term2gene), 2L)
+    expect_setequal(got$all_genes_with_go, c("g1", "g2"))
+})
