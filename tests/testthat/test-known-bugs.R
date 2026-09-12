@@ -271,3 +271,30 @@ test_that("build_term2gene_from_gff survives a GFF with unresolvable GO ids", {
     expect_identical(nrow(got$term2gene), 2L)
     expect_setequal(got$all_genes_with_go, c("g1", "g2"))
 })
+
+# ---------------------------------------------------------------------------
+# 8. invariants.R:371 — check_summary_counts()'s `step` parameter is shadowed by
+#    the data.table column of the same name, so `step == step` is TRUE for every
+#    row and the step filter does nothing. The sibling at :319 gets it right
+#    (`step == step_`). With a metric name present under two steps the match is
+#    length 2, `next` fires, and the count goes unchecked in silence.
+#    Found 2026-09-12 while building the check_invariants.R wrapper fixture.
+#    Filed: docs/pipeline_improvement_requests.md (2026-09-12).
+# ---------------------------------------------------------------------------
+
+test_that("check_summary_counts scopes its comparison to the step it was given", {
+    skip("known bug: invariants.R:371 `step == step` self-compares the column — filed 2026-09-12")
+
+    # The same metric name under two steps: exactly what write_summary.R writes.
+    s <- data.table::data.table(
+        step   = c("gea", "gwas"),
+        metric = c("selected_snps_total", "selected_snps_total"),
+        value  = c("8", "3")
+    )
+    # gea really has 8, so scoped to gea this is clean...
+    expect_identical(nrow(check_summary_counts(s, "gea", list(selected_snps_total = 8L))), 0L)
+    # ...and scoped to gwas, 8 is wrong: gwas states 3.
+    v <- check_summary_counts(s, "gwas", list(selected_snps_total = 8L))
+    expect_identical(nrow(v), 1L)
+    expect_identical(v$check, "summary_count_disagrees_with_table")
+})

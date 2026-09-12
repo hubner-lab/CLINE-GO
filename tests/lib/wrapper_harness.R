@@ -221,6 +221,126 @@ fx_inter_dir <- function(d, name = "inter") {
     paste0(p, "/")
 }
 
+# A minimal but INTERNALLY CONSISTENT {PROJECT}_results/ tree for
+# check_invariants.R. Returns the results directory.
+#
+# Only the GEA module is populated: check_invariants.R's read_tsv() returns NULL
+# for a missing file and every caller skips, so an absent module costs nothing
+# and a second one would only duplicate the same code path.
+#
+# Consistency is the whole point. The default tree must produce ZERO
+# error-severity violations, which pins every cross-table relationship the
+# shaping layer builds:
+#   * summary counts equal the row counts of the tables they summarise
+#   * a region's snp_ids name SNPs that exist in selected_snps.tsv and fall
+#     inside its own bounds, and snp_count agrees with that list
+#   * length == end - start (NOT end - start + 1; regions.R:90)
+#   * min_pvalue equals the smallest p for that SNP across the *_sig_snps_* tables
+#   * every chr in every table is in the canonical set, which is built from the
+#     *_pvalues_K*.tsv tables alone
+#   * genes reference regions that exist in regions_per_trait.tsv
+#
+# Two schema traps this fixture exists to honour, both recorded at
+# check_invariants.R:12-18 as the misreads found while writing it:
+#   * selected_snps.tsv's per-method columns hold TRAIT NAMES, not p-values
+#   * the sig tables' overlap_traits must name OTHER traits, never the row's own
+#
+# violations = TRUE applies exactly two independent error-severity mutations —
+# one p-value of 1.5 (check_pvalues_table) and one gene row on "chr2"
+# (check_chromosome_names, both the ^chr-prefix and the not-canonical halves).
+# Neither cascades into another checker, so the exit status is traceable.
+fx_results_tree <- function(d, project = "FX", violations = FALSE) {
+    res <- file.path(d, paste0(project, "_results"))
+    gea <- file.path(res, "GEA", "tables")
+    mth <- file.path(gea, "methods", "EMMAX")
+    prc <- file.path(res, "Processing", "tables")
+    for (p in c(mth, prc)) dir.create(p, recursive = TRUE, showWarnings = FALSE)
+
+    write_tsv(data.table::data.table(
+        step = c(rep("processing", 7L), rep("gea", 4L)),
+        metric = c("samples_total", "samples_removed", "samples_het_outliers_removed",
+                   "samples_removed_relatedness", "samples_after_filtering",
+                   "samples_with_coordinates", "samples_dropped_missing_coordinates",
+                   "selected_snps_total", "regions_per_trait", "regions_combined",
+                   "genes_found"),
+        # 10 - 2 - 0 - 0 = 8, and 8 + 0 = 8: both accounting identities close.
+        value = c("10", "2", "0", "0", "8", "8", "0", "3", "2", "2", "2")),
+        file.path(res, "pipeline_summary.tsv"))
+
+    write_tsv(data.table::data.table(
+        stage = c("raw", "maf", "missingness"),
+        n_samples = c(10L, 10L, 8L),
+        n_snps    = c(100L, 80L, 70L)),
+        file.path(prc, "filtering_summary.tsv"))
+
+    write_tsv(data.table::data.table(
+        site   = rep(c("NEG", "TAV"), each = 4L),
+        sample = sprintf("ID%03d", seq_len(8L))),
+        file.path(prc, "metadata.tsv"))
+
+    snpid <- c("1:100", "1:200", "2:100")
+    minp  <- c(1e-8, 2e-8, 3e-8)
+
+    # EMMAX holds trait names, not numbers. min_pvalue is the only numeric column.
+    write_tsv(data.table::data.table(
+        SNPID = snpid, chr = c("1", "1", "2"), pos = c(100L, 200L, 100L),
+        EMMAX = c("bio_1", "bio_1", "bio_2"), min_pvalue = minp),
+        file.path(gea, "selected_snps.tsv"))
+
+    write_tsv(data.table::data.table(
+        region_id = c("1_50-250_bio_1", "2_50-150_bio_2"),
+        trait = c("bio_1", "bio_2"), chr = c("1", "2"),
+        start = c(50L, 50L), end = c(250L, 150L), length = c(200L, 100L),
+        snp_count = c(2L, 1L), snp_ids = c("1:100,1:200", "2:100")),
+        file.path(gea, "regions_per_trait.tsv"))
+
+    write_tsv(data.table::data.table(
+        region_id = c("1_50-250", "2_50-150"), chr = c("1", "2"),
+        start = c(50L, 50L), end = c(250L, 150L), length = c(200L, 100L),
+        snp_count = c(2L, 1L), snp_ids = c("1:100,1:200", "2:100")),
+        file.path(gea, "regions_combined.tsv"))
+
+    genes <- data.table::data.table(
+        region_id = c("1_50-250_bio_1", "2_50-150_bio_2"),
+        gene_id = c("g1", "g2"), chr = c("1", "2"),
+        gene_start = c(60L, 60L), gene_end = c(120L, 120L))
+    if (violations) {
+        # A gene table chr is checked by check_chromosome_names but takes part in
+        # no membership check, so the prefix mutation stays contained.
+        genes <- rbind(genes, data.table::data.table(
+            region_id = "2_50-150_bio_2", gene_id = "g3", chr = "chr2",
+            gene_start = 70L, gene_end = 130L))
+    }
+    write_tsv(genes, file.path(gea, "genes_per_region.tsv"))
+    write_tsv(data.table::data.table(
+        region_id = c("1_50-250_bio_1", "2_50-150_bio_2"),
+        gene_ids = c("g1", "g2")),
+        file.path(gea, "genes_per_region_collapsed.tsv"))
+    write_tsv(data.table::data.table(
+        gene_id = c("g1", "g2"), chr = c("1", "2")),
+        file.path(gea, "genes_combined.tsv"))
+
+    # The canonical chromosome set is derived from THIS table alone, so it must
+    # carry every chr the region/gene tables use.
+    pv <- data.table::data.table(
+        SNPID = snpid, chr = c("1", "1", "2"), pos = c(100L, 200L, 100L),
+        bio_1 = c(1e-8, 2e-8, 0.4), bio_2 = c(0.5, 0.6, 3e-8))
+    if (violations) pv[1L, bio_1 := 1.5]
+    write_tsv(pv, file.path(mth, "EMMAX_pvalues_K3.tsv"))
+
+    # One threshold variant only: a second would fire
+    # check_single_threshold_variant, which is a real staleness defect and not
+    # what either row is measuring.
+    write_tsv(data.table::data.table(
+        SNPID = snpid, chr = c("1", "1", "2"), pos = c(100L, 200L, 100L),
+        pvalue = minp, trait = c("bio_1", "bio_1", "bio_2"),
+        overlap_traits = c("bio_2", "", "bio_1"),
+        overlap_snps   = c("2:100", "", "1:100")),
+        file.path(mth, "EMMAX_pvalues_K3_sig_snps_bonf_0.05.tsv"))
+
+    res
+}
+
 # ------------------------------------------------------------------- runner
 
 # Invoked exactly as the Snakefile does: `Rscript /pipeline/scripts/<name>.R ...`.
@@ -256,6 +376,13 @@ run_wrapper <- function(script, args, wd = NULL) {
 #                      in the test would duplicate production logic.
 #   tools    OPTIONAL character vector of executables/paths the heavy tier
 #            requires; asserted present, never skipped (see require_tools()).
+#   expect_status OPTIONAL integer exit status, default 0L. Only one wrapper is
+#            not a "runs clean" smoke: check_invariants.R is a VALIDATOR, and
+#            quit(status = 1) on an error-severity violation (:272-274) is its
+#            contract, not a failure. Asserting exit 1 on a tree built to
+#            violate is what proves the file -> checker shaping layer — the
+#            layer its own header (:12-18) names as untested — actually reaches
+#            the checkers.
 expect_wrapper_ok <- function(spec) {
     d <- withr::local_tempdir()
     sandbox <- file.path(d, "cwd")
@@ -264,10 +391,11 @@ expect_wrapper_ok <- function(spec) {
     args <- spec$args(d, spec$build(d))
     res  <- run_wrapper(spec$script, args, wd = sandbox)
 
+    want_status <- if (is.null(spec$expect_status)) 0L else as.integer(spec$expect_status)
     testthat::expect_identical(
-        res$status, 0L,
-        info = paste0(spec$script, " exited ", res$status, "\nargs: ",
-                      paste(args, collapse = " "), "\n", res$output))
+        res$status, want_status,
+        info = paste0(spec$script, " exited ", res$status, ", expected ", want_status,
+                      "\nargs: ", paste(args, collapse = " "), "\n", res$output))
 
     for (f in spec$outputs(d)) {
         testthat::expect_true(file.exists(f),

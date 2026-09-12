@@ -453,6 +453,36 @@ WRAPPERS <- list(
                                    file.path(d, "scree.tsv"), f[2]),
         outputs = function(d) file.path(d, c("scree.png", "scree.tsv")),
         fails_without_input = TRUE
+    ),
+    # check_invariants.R is the one wrapper that is a VALIDATOR rather than a
+    # producer: it writes nothing (outputs = character(0)) and its exit status IS
+    # the result. Its own header (:12-18) names the file -> checker shaping layer
+    # as the untested part, and the two misreads found while writing it both
+    # lived there. The checkers themselves are covered by test-invariants.R
+    # against hand-built fixtures; these two rows cover the layer in between.
+    list(
+        label   = "check_invariants.R (clean tree)",
+        script  = "check_invariants.R",
+        build   = function(d) fx_results_tree(d, violations = FALSE),
+        args    = function(d, res) c(res, "--modules", "GEA"),
+        outputs = function(d) character(0),
+        # argv[1] is normalizePath(mustWork = TRUE) at :41, so a missing results
+        # dir is a hard error.
+        fails_without_input = TRUE
+    ),
+    list(
+        label   = "check_invariants.R (violating tree exits 1)",
+        script  = "check_invariants.R",
+        build   = function(d) fx_results_tree(d, violations = TRUE),
+        args    = function(d, res) c(res, "--modules", "GEA"),
+        outputs = function(d) character(0),
+        # The load-bearing row. Exit 1 proves the shaping layer actually reached
+        # the checkers: a schema misread would silently produce an empty or
+        # NULL table, every checker would return no_violations(), and the run
+        # would exit 0 while asserting nothing. Both mutations
+        # (pvalue_out_of_range, chromosome_name_not_normalized) are severity
+        # "error" — quit(status = 1) at :272-274 counts only those.
+        expect_status = 1L
     )
 )
 
