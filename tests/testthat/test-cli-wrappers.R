@@ -527,6 +527,60 @@ WRAPPERS <- list(
         fails_without_input = TRUE
     ),
     list(
+        # Eleven positionals, five TSV inputs, one output. The fixtures are built
+        # to reach the PRIMARY branch of all four recommenders rather than their
+        # fallbacks, so the row covers the rules rather than the escape hatches:
+        #   LFMM.K            rung 3 wins on min hist_flatness_ks among rungs
+        #                     whose hits_qval is >= 50% of the ladder max (:57-61)
+        #   EMMAX.n_pcs       rung 2 is the smallest with lambda_gc inside
+        #                     [DEFLATION_FLOOR, 1 + LAMBDA_TOL] = [0.90, 1.15]
+        #                     (:79-80), not the min|lambda-1| fallback
+        #   RDA.condition_pcs rung 2 is the smallest passing VIF/aliasing/
+        #                     significance with r2_adj within 1 SE of the max
+        #                     (:117-121), not the order(-r2_adj)[1] fallback
+        #   RDA.predictor_set the kept set, with a dropped predictor present so
+        #                     the note branch at :151-156 is taken too
+        label   = "pregea_recommend.R",
+        script  = "pregea_recommend.R",
+        build   = function(d) {
+            lfmm <- write_tsv(data.table::data.table(
+                        trait = "__pooled__", rung_value_num = c(2L, 3L, 4L),
+                        hits_qval = c(100, 80, 30),
+                        hist_flatness_ks = c(0.20, 0.05, 0.40)),
+                    file.path(d, "lfmm_ladder.tsv"))
+            emmax <- write_tsv(data.table::data.table(
+                         trait = "__pooled__", rung_value_num = c(0L, 2L, 4L),
+                         lambda_gc = c(1.30, 1.05, 0.98)),
+                     file.path(d, "emmax_ladder.tsv"))
+            rda <- write_tsv(data.table::data.table(
+                       status = "ok", condition_pcs = c(1L, 2L, 3L),
+                       r2_adj = c(0.10, 0.14, 0.13), max_vif = c(3, 4, 5),
+                       n_aliased = 0L, anova_full_p = 0.001,
+                       n_axes_sig = c(2L, 3L, 3L)),
+                   file.path(d, "rda_condition_ladder.tsv"))
+            collin <- write_tsv(data.table::data.table(
+                          predictor = c("bio_1", "bio_2", "bio_12"),
+                          action = c("kept", "kept", "dropped")),
+                      file.path(d, "rda_predictor_collinearity.tsv"))
+            axis <- write_tsv(data.table::data.table(
+                        condition_pcs = rep(c(1L, 2L, 3L), each = 3L),
+                        axis = rep(1:3, 3L), axis_eig = rep(c(0.4, 0.3, 0.2), 3L),
+                        axis_p = rep(c(0.001, 0.02, 0.30), 3L)),
+                    file.path(d, "rda_axis_anova.tsv"))
+            c(lfmm, emmax, rda, collin, axis)
+        },
+        args    = function(d, f) c(f[1], f[2], f[3], f[4], f[5],
+                                   "3",            # K_BEST — a DEAD positional, see below
+                                   "0.15", "0.90", "10", "0.05",
+                                   file.path(d, "pregea_recommendations.tsv")),
+        outputs = function(d) file.path(d, "pregea_recommendations.tsv"),
+        # read_or_null (:37) returns NULL for a missing input and the script still
+        # fwrites the empty 11-column table and exits 0 (:164-169) — the same
+        # silently-optional class as write_summary.R's read_opt. Quarantined in
+        # test-known-bugs.R rather than pinned here.
+        fails_without_input = FALSE
+    ),
+    list(
         # No .stat.gz at all. The table is still written (a header-only skeleton)
         # and .write_placeholder_plot (:256-265, :270-273) still emits BOTH the
         # PNG and its .svg sibling, exit 0. Cheap, and it is the branch a real

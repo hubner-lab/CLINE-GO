@@ -298,3 +298,31 @@ test_that("check_summary_counts scopes its comparison to the step it was given",
     expect_identical(nrow(v), 1L)
     expect_identical(v$check, "summary_count_disagrees_with_table")
 })
+
+# ---------------------------------------------------------------------------
+# 9. pregea_recommend.R:164-169 — with every ladder input missing, read_or_null()
+#    returns NULL for all five, no recommender fires, and the script still
+#    fwrites the empty 11-column table and exits 0. Same silently-optional class
+#    as write_summary.R's read_opt(), and the reason this wrapper cannot carry
+#    the fails_without_input negative control.
+#    Found 2026-09-12 while adding its wrapper row.
+#    Filed: docs/pipeline_improvement_requests.md (2026-09-12).
+# ---------------------------------------------------------------------------
+
+test_that("pregea_recommend.R fails loudly when every ladder input is missing", {
+    skip("known bug: pregea_recommend.R:164-169 writes an empty table and exits 0 — filed 2026-09-12")
+
+    d <- withr::local_tempdir()
+    out <- file.path(d, "recs.tsv")
+    missing <- file.path(d, "not-here.tsv")
+    res <- run_wrapper("pregea_recommend.R",
+                       c(missing, missing, missing, missing, missing,
+                         "3", "0.15", "0.90", "10", "0.05", out),
+                       wd = d)
+
+    # A recommender with nothing to recommend from has not "succeeded with zero
+    # recommendations" — it could not run. An empty table is indistinguishable
+    # from a real ladder that qualified nothing.
+    expect_gt(res$status, 0L)
+    expect_false(file.exists(out))
+})
