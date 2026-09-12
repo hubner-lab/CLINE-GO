@@ -351,27 +351,84 @@ test_that("the app extends the gene window upstream only, like the pipeline's pr
 
 test_that("KNOWN DIVERGENCE: the app's gene_id fallback is dead code", {
     # CORRECT behaviour, deliberately not made to pass.
+    #
     # fct_data_loading.R:533-544 builds gene_id with
-    # regmatches(regexpr("(?<=Parent=)...")), which DROPS non-matching elements
-    # instead of yielding "". So `na_idx <- !nzchar(id)` (:536) is never TRUE and
-    # the ID= fallback at :538-540 can never execute. On a GFF whose selected
-    # feature rows mix Parent= and ID=-only, the length mismatch throws inside
-    # the tryCatch at :552 and load_gff_genes() returns an EMPTY table — every
-    # region silently finds zero genes. The pipeline's extract_gene_id
-    # (gff_parsing.R:8-13) uses length-preserving str_extract + ifelse and is
-    # correct on all three cases (all-Parent, mixed, no-Parent).
-    # Filed 2026-09-10 in docs/pipeline_improvement_requests.md.
+    # regmatches(regexpr("(?<=Parent=)...")), which returns ONLY THE ELEMENTS THAT
+    # MATCHED rather than one entry per row. So `id` is shorter than nrow(dt),
+    # `na_idx <- !nzchar(id)` (:536) never aligns with the rows it is meant to
+    # index, and the ID= fallback at :538-540 is unreachable. The pipeline's
+    # extract_gene_id (gff_parsing.R:8-13) uses length-preserving str_extract +
+    # ifelse and is correct on every shape.
+    #
+    # SYMPTOM CORRECTED 2026-09-12, measured in-container. The 2026-09-10 filing
+    # said the mixed case "throws inside the tryCatch at :552 and returns an EMPTY
+    # table". That is only one of THREE outcomes, and not the worst:
+    #
+    #   all rows have Parent=        -> gene_id is the PARENT value, never the ID=
+    #   mixed, exactly ONE Parent=   -> data.table RECYCLES that single id across
+    #                                   every row. Right row count, wrong ids, no
+    #                                   error, nothing stale-looking. The bad one.
+    #   mixed, k>1 Parent=, k!=nrow  -> assignment refused -> empty table (as filed)
+    #   no row has Parent=           -> gene_id is NA for every row
+    #
+    # The recycling case is the reason this block asserts all four shapes rather
+    # than just the empty-table one: a test that only checked nrow would PASS on
+    # the silent-corruption case.
+    # Filed 2026-09-10, corrected 2026-09-12, docs/pipeline_improvement_requests.md.
     skip("known divergence: app load_gff_genes gene_id fallback unreachable — filed 2026-09-10")
 
     skip_without_app()
-    mixed <- c(
-        gff_line("1", 1000, 2000, "ID=g1;Name=alpha"),              # ID= only
-        gff_line("1", 4000, 5000, "Parent=t2;ID=g2;Name=beta")      # has Parent=
-    )
-    path <- write_gff(mixed)
-    genes <- quiet(clinego.app:::load_gff_genes(path, "gene"))
-    expect_identical(nrow(genes), 2L)
-    expect_setequal(genes$gene_id, c("g1", "g2"))
+    # CALL SHAPE — corrected 2026-09-12, a TEST-code fix. This block previously
+    # called load_gff_genes(path, "gene"), but the real signature is
+    # load_gff_genes(project, config) (fct_data_loading.R:502): it resolves the GFF
+    # as file.path(get_pipeline_path(), Input$dir, Input$gff) and reads GFF$feature
+    # from the config. With the old call, deleting the skip() above would have
+    # produced an arity/argument error rather than the empty table the defect
+    # actually causes — i.e. the skip was hiding a broken test, and "un-skip and
+    # watch it fail" would have proved nothing about the defect.
+    #
+    # The unique project name is mandatory, not hygiene: load_cached's key here is
+    # "gff_genes_<project>" with NO fingerprint (:503-504), so it is sticky for the
+    # whole session.
+    root <- withr::local_tempdir()
+    withr::local_options(clinego.pipeline_path = root)
+    dir.create(file.path(root, "data"), recursive = TRUE, showWarnings = FALSE)
+
+    # A UNIQUE project per call is mandatory, not hygiene: load_gff_genes' cache key
+    # is "gff_genes_<project>" with NO fingerprint (fct_data_loading.R:503, filed),
+    # so it is sticky for the whole session.
+    app_gene_ids <- function(lines, tag) {
+        writeLines(c("##gff-version 3", lines),
+                   file.path(root, "data", paste0(tag, ".gff3")))
+        cfg <- list(Input = list(dir = "data", gff = paste0(tag, ".gff3")),
+                    GFF   = list(feature = "gene"))
+        quiet(clinego.app:::load_gff_genes(
+            paste0("equiv_gff_", tag, "_",
+                   as.integer(stats::runif(1, 1, 1e6))), cfg))
+    }
+
+    # 1. Mixed, one Parent=: currently recycles "t2" into both rows.
+    mixed1 <- app_gene_ids(c(
+        gff_line("1", 1000, 2000, "ID=g1;Name=alpha"),
+        gff_line("1", 4000, 5000, "Parent=t2;ID=g2;Name=beta")), "mixed1")
+    expect_identical(nrow(mixed1), 2L)
+    expect_setequal(mixed1$gene_id, c("g1", "g2"))
+
+    # 2. Mixed, two Parent= among three rows: currently an empty table.
+    mixed2 <- app_gene_ids(c(
+        gff_line("1", 1000, 2000, "ID=g1"),
+        gff_line("1", 3000, 4000, "Parent=t2;ID=g2"),
+        gff_line("1", 5000, 6000, "Parent=t3;ID=g3")), "mixed2")
+    expect_identical(nrow(mixed2), 3L)
+    expect_setequal(mixed2$gene_id, c("g1", "g2", "g3"))
+
+    # 3. No Parent= anywhere: currently NA for every row.
+    noparent <- app_gene_ids(c(
+        gff_line("1", 1000, 2000, "ID=g1"),
+        gff_line("1", 3000, 4000, "ID=g2")), "noparent")
+    expect_identical(nrow(noparent), 2L)
+    expect_false(any(is.na(noparent$gene_id)))
+    expect_setequal(noparent$gene_id, c("g1", "g2"))
 })
 
 test_that("the pipeline's gene_id extraction handles all three attribute shapes", {
