@@ -221,6 +221,58 @@ fx_inter_dir <- function(d, name = "inter") {
     paste0(p, "/")
 }
 
+# Climate/varpart summary inputs. write_summary.R's `climate` branch reads five
+# tables, each with a different shape.
+#
+# NOTE ON NAMING: there is NO `varpart` MODE. write_summary.R dispatches on
+# processing|prestructure|pregea|climate|traits|structure|gea|gwas|
+# maladaptation|gea_x_gwas, and an unknown mode warns and quits 0 (:606-609).
+# The variance-partition table is args[5] INSIDE the `climate` branch (:257).
+fx_varpart <- function(d, name = "variance_partition.tsv") {
+    # comp_key() (write_summary.R:268-272) slugifies the human-readable component
+    # name, so "Climate n Structure" becomes varpart_climate_structure_R2adj.
+    # scripts/pregea_varpart.R writes this one schema for every model variant.
+    write_tsv(data.table::data.table(
+        status    = "ok",
+        model     = "3-way",
+        component = c("Climate", "Structure", "Climate ∩ Structure", "Residual"),
+        variance_pct = c(0.12, 0.31, 0.07, 0.50)),
+        file.path(d, name))
+}
+
+fx_dbmem_diag <- function(d, name = "dbmem_diagnostics.tsv") {
+    # Long key/value, not one row per metric: write_summary.R:282-286 does
+    # setNames(dbmem$value, dbmem$key) and picks six keys out by name.
+    #
+    # `key` cannot be passed to data.table() as a column name — it is that
+    # function's own KEY argument, so data.table(key = c(...)) tries to set a
+    # key from those strings and dies with "some columns are not in the
+    # data.table". Build it under another name and rename.
+    dt <- data.table::data.table(
+        k = c("spatial_level", "n_sites", "n_unique_coords",
+              "mst_threshold_km", "n_mem_positive", "status"),
+        value = c("site", "9", "9", "48.2", "4", "ok"))
+    data.table::setnames(dt, "k", "key")
+    write_tsv(dt, file.path(d, name))
+}
+
+# Exactly what ld_decay_analyze.R writes (:247-250) and what write_summary.R's
+# structure branch reads back (:383-397) — one fixture for both sides, so a
+# column rename cannot pass one and fail the other silently.
+# The group == "All" & scope == "genome_wide" row is the one :385 picks out.
+fx_ld_decay_table <- function(d, name = "ld_decay_half_distances.tsv") {
+    write_tsv(data.table::data.table(
+        group = c("All", "All", "NEG"),
+        scope = c("genome_wide", "per_chromosome", "genome_wide"),
+        half_decay_bp = c(1240, 1180, 990),
+        r2_02_bp = c(3100, 2980, 2450),
+        n_samples = c(50L, 50L, 17L),
+        n_pairs = c(12000L, 4100L, 3900L),
+        r2_intercept = c(0.62, 0.60, 0.66),
+        method = c("hill_weir", "hill_weir", "loess")),
+        file.path(d, name))
+}
+
 # A minimal but INTERNALLY CONSISTENT {PROJECT}_results/ tree for
 # check_invariants.R. Returns the results directory.
 #

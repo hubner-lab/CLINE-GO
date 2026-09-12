@@ -274,6 +274,78 @@ WRAPPERS <- list(
         outputs = function(d) file.path(d, "pipeline_summary.tsv"),
         fails_without_input = FALSE
     ),
+    # write_summary.R's OTHER two modes. Same OUTPUT contract (argv[2] is the
+    # only file it ever writes, read-modify-write via update_summary at :31-37),
+    # entirely different argv beyond it.
+    list(
+        # The gwas_only shape. summary.smk:152-158 always passes all NINE
+        # positionals and uses the literal string "NULL" for the climate ones
+        # when Climate.enabled is false — it never sends a short argv.
+        #
+        # That distinction matters and cost a red run to learn: only args 6-9 are
+        # `length(args) >= n` guarded (:352-355). CLIMATE_SITE = args[4] and
+        # PREDICTORS = args[5] are NOT, so a genuinely short argv makes args[4]
+        # NA and `if (NA != "NULL")` dies with "missing value where TRUE/FALSE
+        # needed". Filed; this row deliberately passes the shape the rule
+        # actually emits rather than pinning the crash.
+        label   = "write_summary.R (structure, gwas_only shape)",
+        script  = "write_summary.R",
+        build   = function(d) fx_ld_decay_table(d),
+        args    = function(d, f) c("structure", file.path(d, "pipeline_summary.tsv"),
+                                   "3", "NULL", "NULL", f, "site", "both", "NULL"),
+        outputs = function(d) file.path(d, "pipeline_summary.tsv"),
+        fails_without_input = FALSE
+    ),
+    list(
+        label   = "write_summary.R (structure, all optional inputs)",
+        script  = "write_summary.R",
+        build   = function(d) {
+            # NOT fx_climate_site: that fixture is 4 columns, and :362 computes
+            # n_climate_vars as ncol - 4 assuming site/sample/lat/lon, which
+            # would bake the known-wrong 0 into this row. The real shape is
+            # those four identity columns PLUS one column per predictor.
+            cs <- write_tsv(data.table::data.table(
+                      site = c("NEG", "TAV"), sample = c("ID001", "ID002"),
+                      latitude = c(30.85, 32.08), longitude = c(34.78, 34.78),
+                      bio_1 = c(19.4, 20.1), bio_12 = c(90, 540)),
+                  file.path(d, "climate_present_site.tsv"))
+            na_ex <- write_tsv(data.table::data.table(sample = "ID003"),
+                               file.path(d, "climate_na_excluded.tsv"))
+            c(cs, fx_ld_decay_table(d), na_ex)
+        },
+        args    = function(d, f) c("structure", file.path(d, "pipeline_summary.tsv"),
+                                   "3", f[1], "bio_1,bio_12", f[2], "site",
+                                   "both", f[3]),
+        outputs = function(d) file.path(d, "pipeline_summary.tsv"),
+        fails_without_input = FALSE
+    ),
+    list(
+        # The variance-partition table is args[5] of the CLIMATE mode. There is
+        # no `varpart` mode — an unknown mode warns and quits 0 (:606-609),
+        # which is exactly how a row aimed at one would pass while testing
+        # nothing.
+        label   = "write_summary.R (climate + varpart)",
+        script  = "write_summary.R",
+        build   = function(d) {
+            inv <- write_tsv(data.table::data.table(
+                       predictor = "bio_12", reason = "zero variance across sites"),
+                   file.path(d, "climate_invariant_predictors.tsv"))
+            conf <- write_tsv(data.table::data.table(
+                        confounded = TRUE, r2_climate_on_structure = 0.41),
+                    file.path(d, "climate_confounding.tsv"))
+            px <- write_tsv(data.table::data.table(
+                      variable = c("bio_1", "bio_12"), Px = c(0.38, 0.11)),
+                  file.path(d, "px_per_variable.tsv"))
+            c(inv, fx_dbmem_diag(d), fx_varpart(d), conf, px)
+        },
+        args    = function(d, f) c("climate", file.path(d, "pipeline_summary.tsv"),
+                                   f[1], f[2], f[3], f[4], f[5]),
+        outputs = function(d) file.path(d, "pipeline_summary.tsv"),
+        # read_opt() (:261) returns NULL for a declared-but-missing input and the
+        # guarded block is skipped: exit 0 with a thinner table. Filed and
+        # quarantined, same as the traits row above.
+        fails_without_input = FALSE
+    ),
     list(
         label   = "pregea_ladder_stats.R",
         script  = "pregea_ladder_stats.R",
