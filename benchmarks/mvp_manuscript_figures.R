@@ -47,6 +47,7 @@ OUT  <- Sys.getenv("FIG_OUT", file.path(EVAL, "figures_ms"))
 dir.create(OUT, recursive = TRUE, showWarnings = FALSE)
 
 source(file.path(ROOT, "scripts/R/utils/theme_clinego.R"))
+source(file.path(ROOT, "benchmarks/mvp_arm.R"))
 
 # Constants from the seed-selection screen. Sourced from
 # docs/gea_simulation_benchmarks.md sections 3.1 and 8.2 -- not re-derived here.
@@ -93,6 +94,13 @@ message("\n=== A: benchmark design ===")
 seeds <- rd(ROOT, "benchmarks/mvp_seeds.tsv")
 stopifnot(!is.null(seeds))
 seeds[, is_control := arm == "control_degenerate"]
+# Restrict to the reported arm plus the degenerate controls. WITHOUT THIS every panel
+# built from `seeds` silently pools corpora: since 2026-09 the manifest carries 360
+# SS-Clines replicates alongside the legacy 90, and the old `seeds[is_control == FALSE]`
+# took all 450. Defaults reproduce the pre-SS-Clines manifest exactly (90 + 2). Row
+# order preserved -- an rbind would reshuffle the emitted A1b table.
+seeds <- seeds[(arm == mvp_arm() &
+                (!nzchar(mvp_added()) | added == mvp_added())) | is_control]
 seeds[, arch_lab := relabel_arch(arch_level)]
 stopifnot(!any(is.na(seeds$arch_lab)))
 PRIM <- seeds[is_control == FALSE]
@@ -302,12 +310,28 @@ for (a in list(list(tag = "", arm = "base", sfx = ""),
         comp[[length(comp) + 1L]] <- cbind(seed = sd_, arm = a$arm, x)
     }
 }
-if (length(comp)) {
-    CP <- rbindlist(comp, fill = TRUE)
+CP <- if (length(comp)) rbindlist(comp, fill = TRUE) else data.table()
+if (nrow(CP)) {
     CP[, family := fifelse(grepl("^combine_", kind), "combination", "single method")]
     CP[, label := sub("^combine_", "", kind)]
+    # INNER join, not all.x. sweep07 is the DETECTION arm, and an arm that does not
+    # extend it -- SS-Clines does not -- has no replicates in it. Keeping unmatched
+    # rows left arch = NA on every row, which reached facet_wrap() as "Faceting
+    # variables must have at least one value" and killed the whole script at B6,
+    # taking C*, D*, E*, F* down with it. Byte-identical for the legacy arm, where
+    # every sweep07 seed is in the manifest already.
     CP <- merge(CP, seeds[, .(seed, arch = arch_lab, is_control, n_causal_maf01)],
-                by = "seed", all.x = TRUE)
+                by = "seed")
+}
+# The guard has to be on the NON-CONTROL rows, not on CP itself. The two degenerate
+# controls are in sweep07 and are kept by every arm, so CP is never empty -- but every
+# figure below filters is_control == FALSE first, and on an arm that does not extend
+# the detection arm that filter leaves nothing.
+CP_HAS_DATA <- nrow(CP) > 0L && CP[, any(!is_control)]
+if (!CP_HAS_DATA)
+    message("  B6/B6b/D8 skipped: the detection arm (sweep07) holds no non-control ",
+            "replicates of ", mvp_arm_label(), " -- this corpus does not extend it")
+if (CP_HAS_DATA) {
     # The three components must reconstruct the total, or the table is not a
     # partition and the stacked bar would silently lie.
     bad <- CP[abs(n_called - (tp + expected_linked + fp_background)) > 0]
@@ -607,6 +631,18 @@ PANEL_MAP <- data.table(
 
 tau  <- rd(EVAL, OFF, "phase1_seed_medians_solo.tsv")
 pr   <- rd(EVAL, OFF, "panel_pr_recomputed.tsv")
+# panel_pr_recomputed is written CROSS-ARM by mvp_panel_tables.R -- on offset12 it
+# carries 332 seeds spanning the legacy arm and all three SS-Clines blocks. Every
+# other reader joins it against the manifest; this one fed it straight into F4, F8
+# and T4d, so those figures pooled arms while every neighbouring figure did not.
+# No-op on the legacy default (offset09's table is 32 seeds, all of them primary).
+if (!is.null(pr)) {
+    n_before <- uniqueN(pr$seed)
+    pr <- pr[seed %in% seeds$seed]
+    if (uniqueN(pr$seed) != n_before)
+        message(sprintf("  panel_pr_recomputed: %d of %d seeds are in %s, rest dropped",
+                        uniqueN(pr$seed), n_before, mvp_arm_label()))
+}
 psum <- rd(EVAL, "figures/panel_summary.tsv")
 ptst <- rd(EVAL, "figures/panel_paired_tests.tsv")
 abs_counts <- rd(EVAL, "figures/table_absolute_counts.tsv")

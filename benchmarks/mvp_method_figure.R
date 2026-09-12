@@ -28,6 +28,7 @@ OFF  <- Sys.getenv("OFFSET_DIR", "offset11")
 OUT  <- Sys.getenv("FIG_OUT", file.path(EVAL, "method_figure"))
 dir.create(OUT, recursive = TRUE, showWarnings = FALSE)
 source(file.path(ROOT, "scripts/R/utils/theme_clinego.R"))
+source(file.path(ROOT, "benchmarks/mvp_arm.R"))
 
 MINOU <- c(teal = "#00798c", red = "#d1495b", amber = "#edae49",
            sage = "#66a182", navy = "#2e4057", grey = "#8d96a3")
@@ -53,7 +54,7 @@ base_t <- function(p, tag) p + theme_clinego() +
     labs(tag = tag)
 
 seeds <- rd(ROOT, "benchmarks/mvp_seeds.tsv")
-PRIM  <- seeds[arm == "primary"]
+PRIM  <- mvp_prim(seeds)
 PRIM[, arch_lab := factor(arch_level, levels = ARCH_LEVELS, labels = ARCH_LABELS)]
 
 S <- rd(EVAL, OFF, "phase1_seed_medians_solo.tsv")

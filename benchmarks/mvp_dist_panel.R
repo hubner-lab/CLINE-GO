@@ -21,6 +21,7 @@ ROOT <- Sys.getenv("PIPELINE_ROOT","/pipeline"); EVAL <- file.path(ROOT,"benchma
 OFF <- Sys.getenv("OFFSET_DIR","offset11"); METHOD <- Sys.getenv("METHOD","GFoffset")
 OUT <- Sys.getenv("FIG_OUT", file.path(EVAL,"figures_main"))
 source(file.path(ROOT,"scripts/R/utils/theme_clinego.R"))
+source(file.path(ROOT, "benchmarks/mvp_arm.R"))
 
 MINOU <- c(teal="#00798c", red="#d1495b", amber="#edae49", sage="#66a182",
            navy="#2e4057", grey="#8d96a3")
@@ -38,7 +39,7 @@ SETLAB <- c(gea_best="2/3 methods", gea_strict="3/3 methods", gea_union="1/3 met
             adaptive="causal loci", all="all loci")
 ARCHL <- c(oliogenic="oligo",`mod-polygenic`="moderate",`highly-polygenic`="high")
 
-man <- fread(file.path(ROOT,"benchmarks/mvp_seeds.tsv"), colClasses=c(seed="character"))[arm=="primary"]
+man <- mvp_prim(fread(file.path(ROOT,"benchmarks/mvp_seeds.tsv"), colClasses=c(seed="character")))
 S <- fread(file.path(EVAL,OFF,"phase1_seed_medians_solo.tsv"), colClasses=c(seed="character"))
 S <- S[seed %in% man$seed & marker_set %in% names(SETLAB) & method_label==METHOD]
 S[, `:=`(accuracy=-tau, label=factor(SETLAB[marker_set], levels=ORD))]

@@ -30,6 +30,7 @@ SRC  <- Sys.getenv("STATS_DIR", file.path(EVAL, "figures_oracle"))
 OUT  <- Sys.getenv("FIG_OUT",   file.path(EVAL, "main_figure_v2"))
 dir.create(OUT, recursive = TRUE, showWarnings = FALSE)
 source(file.path(ROOT, "scripts/R/utils/theme_clinego.R"))
+source(file.path(ROOT, "benchmarks/mvp_arm.R"))
 
 MINOU <- c(teal = "#00798c", red = "#d1495b", amber = "#edae49",
            sage = "#66a182", navy = "#2e4057", grey = "#8d96a3")
@@ -68,7 +69,22 @@ rd <- function(...) { f <- file.path(...); if (!file.exists(f)) stop("MISSING: "
 # recommended rule at the top. The order below IS the mean-shortfall order over the
 # nine architecture x method cells (2/3 37% < RDA 44% < 3/3 47% < EMMAX 50% <
 # 1/3 80% < LFMM 86%); if the corpus changes, re-derive it once and re-pin it here.
-ROW_ORDER <- c("LFMM", "1/3 methods", "EMMAX", "3/3 methods", "RDA", "2/3 methods")
+# Each ARM gets its own pinned order: each is a different corpus and the shortfall
+# ranking genuinely differs. Keyed, not relaxed -- a corpus with no entry stops at
+# the stopifnot below rather than silently re-deriving.
+#   primary (SS-Mtn, 90):            2/3 37% < RDA 44% < 3/3 47% < EMMAX 50% < 1/3 80% < LFMM 86%
+#   primary_ssclines/nvar_mvar (120): 2/3 62% < LFMM 64% < 1/3 66% < RDA 72% < 3/3 76% < EMMAX 81%
+# On SS-Clines the single-method panels move UP relative to the combined ones (LFMM
+# from worst to second-best) and 3/3 falls to second-worst. 2/3 leads on both -- but
+# see panel B, where on that landscape it no longer REACHES the oracle.
+ROW_ORDER_BY_ARM <- list(
+    primary          = c("LFMM", "1/3 methods", "EMMAX", "3/3 methods", "RDA", "2/3 methods"),
+    primary_ssclines = c("EMMAX", "3/3 methods", "RDA", "1/3 methods", "LFMM", "2/3 methods"))
+ROW_ORDER <- ROW_ORDER_BY_ARM[[mvp_arm()]]
+if (is.null(ROW_ORDER))
+    stop("no pinned panel-B row order for arm '", mvp_arm(), "' -- derive it once from ",
+         "below_by_method.tsv (mean below_pct over the arch x working-method cells, ",
+         "worst first) and add it to ROW_ORDER_BY_ARM. Do NOT derive it here.")
 # The order below is stated worst-first for the same reason; it is unchanged by
 # the switch from `below_pct` to `match_pct`, which is its exact complement.
 
@@ -78,6 +94,10 @@ ROW_ORDER <- c("LFMM", "1/3 methods", "EMMAX", "3/3 methods", "RDA", "2/3 method
 # performance made the bars jump for no reason a reader of A could see. Pinned for
 # the same reason as ROW_ORDER. Pooled median usable markers per replicate:
 # EMMAX 14 < 3/3 61 < RDA 87 < 2/3 136 < LFMM 162 < 1/3 187.
+# Both arms agree on this ordering, so one literal serves both -- itself the result
+# worth noting: what each rule RETURNS is stable across landscapes even though how
+# well it PREDICTS is not. primary_ssclines medians: EMMAX 3 < 3/3 14.5 < RDA 69 <
+# 2/3 138.5 < LFMM 142.5 < 1/3 186.
 ROW_ORDER_A <- c("EMMAX", "3/3 methods", "RDA", "2/3 methods", "LFMM", "1/3 methods")
 
 BM <- rd(SRC, "below_by_method.tsv")
@@ -92,9 +112,9 @@ PR_KEY <- c(best = "2/3 methods", intersect3 = "3/3 methods", union = "1/3 metho
             solo_rda = "RDA", solo_emmax = "EMMAX", solo_lfmm = "LFMM",
             truth = "causal loci")
 seeds <- rd(ROOT, "benchmarks/mvp_seeds.tsv")
-PRIM  <- seeds[arm == "primary"]
+PRIM  <- mvp_prim(seeds)
 PRIM[, arch_lab := factor(arch_level, levels = ARCH_LEVELS, labels = ARCH_LABELS)]
-stopifnot(nrow(PRIM) == 90L)
+stopifnot(nrow(PRIM) == mvp_n_expect())
 
 comp <- rd(EVAL, OFF, "panel_pr_recomputed.tsv")
 comp <- merge(comp, PRIM[, .(seed, arch_lab)], by = "seed")

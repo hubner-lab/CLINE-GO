@@ -1,0 +1,687 @@
+---
+title: "14. SS-Clines блок 1 — полный блок вместо отбора реплик"
+subtitle: "120 реплик · 3 генных уровня × 4 архитектурных подуровня × 10 · 112 садов · tau Кендалла · сравнение с легаси-корпусом SS-Mtn (90 реплик)"
+output:
+  html_document:
+    theme: darkly
+    highlight: breezedark
+    toc: true
+    toc_float: true
+    code_folding: hide
+css: ["_callouts.css"]
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+library(data.table)
+
+# Среда: контейнер adaptogene:latest (Docker) для всех R-скриптов; d2 CLI — с хоста.
+# Клиент docker: /snap/bin/docker на этой машине падает (setuid заблокирован, nosuid+NoNewPrivs),
+# поэтому каждый вызов обёрнут в `nix shell nixpkgs#docker-client -c docker ...` — см. CLAUDE.local.md.
+# `-e USER=adaptogene` обязателен (getpwuid), `-e OPENBLAS_NUM_THREADS` обязателен
+# (контейнер видит все 192 ядра хоста).
+#
+# Рендер: nix shell nixpkgs#docker-client -c docker run --rm --user $(id -u):$(id -g) -e USER=pipeline \
+#   -v /mnt/data/eugene/ADAPTOGENE:/mnt/data/eugene/ADAPTOGENE adaptogene:latest \
+#   Rscript -e 'rmarkdown::render("/mnt/data/eugene/ADAPTOGENE/work/journal/14_ssclines_block1.Rmd")'
+
+check_files <- function(paths, labels = names(paths)) {
+  if (is.null(labels)) labels <- paths
+  for (i in seq_along(paths)) {
+    cat(ifelse(file.exists(paths[i]), "[OK]", "[ОТСУТСТВУЕТ]"), labels[i], "\n")
+  }
+}
+rd <- function(f, ...) if (file.exists(f)) fread(f, ...) else NULL
+
+# Корни. B1 — этот блок; L* — замороженные легаси-рендеры на 90 репликах.
+B1  <- "/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/figures_ssclines_b1/"
+S12 <- "/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/offset12_ssclines_b1/"
+S11 <- "/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/offset11/"
+LMAIN <- "/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/figures_main/"
+LORAC <- "/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/figures_oracle/"
+# Легаси, ограниченное 2-признаковыми репликами (80 из 90) — сопоставимая с блоком 1
+# величина, потому что блок 1 2-признаковый по построению.
+LOR2T <- "/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/figures_legacy_2trait/"
+LMFV2 <- "/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/main_figure_v2/"
+LMETH <- "/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/method_figure/"
+MAN   <- "/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_seeds.tsv"
+
+# Парная врезка: слева легаси (SS-Mtn, 90), справа блок 1 (SS-Clines, 120).
+# Обе картинки идут одним chunk'ом с fig.show="hold", поэтому встают рядом.
+pair <- function(dir_legacy, stem) {
+  c(paste0(dir_legacy, stem, ".png"), paste0(B1, stem, ".png"))
+}
+```
+
+## Обзор
+
+```{bash abstract-diagram-render, eval=FALSE}
+if [ ! -f /mnt/data/eugene/ADAPTOGENE/work/journal/diagrams/14_00_abstract.svg ] || \
+   [ /mnt/data/eugene/ADAPTOGENE/work/journal/diagrams/14_00_abstract.d2 -nt \
+     /mnt/data/eugene/ADAPTOGENE/work/journal/diagrams/14_00_abstract.svg ]; then
+  d2 --theme 200 --layout elk \
+    /mnt/data/eugene/ADAPTOGENE/work/journal/diagrams/14_00_abstract.d2 \
+    /mnt/data/eugene/ADAPTOGENE/work/journal/diagrams/14_00_abstract.svg
+fi
+```
+
+```{r abstract-diagram-embed, echo=FALSE}
+img <- "/mnt/data/eugene/ADAPTOGENE/work/journal/diagrams/14_00_abstract.svg"
+if (file.exists(img)) knitr::include_graphics(img) else cat("[ОТСУТСТВУЕТ]", img, "\n")
+```
+
+---
+
+# Часть I. Что это за блок и чем он отличается от легаси-корпуса
+
+## 1. Полный блок вместо отбора по реализованной статистике
+
+```{r 01-check, echo=FALSE}
+check_files(c(
+  "манифест реплик"                 = MAN,
+  "оценённые сады (снимок блока 1)"  = paste0(S12, "garden_performance.tsv"),
+  "медианы по репликам"              = paste0(S12, "phase1_seed_medians_solo.tsv"),
+  "легаси: медианы по репликам"      = paste0(S11, "phase1_seed_medians_solo.tsv")))
+```
+
+```{r 01-design, echo=FALSE}
+man <- rd(MAN, colClasses = c(seed = "character"))
+b1  <- man[arm == "primary_ssclines" & added == "ssclines_nvar_mvar"]
+b1[, sub_level := sub("^[^_]+_", "", architecture)]
+print(dcast(b1[, .N, by = .(arch_level, sub_level)], arch_level ~ sub_level, value.var = "N"))
+```
+
+<div class="callout-method">
+Ландшафт **SS-Clines**, демография **N-variable_m-variable** — первый из пяти блоков
+(`benchmarks/SSCLINES_RUNBOOK.md`). Плечо манифеста `primary_ssclines`, метка когорты
+`ssclines_nvar_mvar`.
+
+- **3 генных уровня** — `oliogenic` / `mod-polygenic` / `highly-polygenic` (опечатка в первом
+  уровне — от депозита, не наша).
+- **4 архитектурных подуровня** — {плейотропия, без плейотропии} × {equal-S, unequal-S}.
+  Это суффикс колонки `architecture`, а **не** `demog_level_sub`: последняя хранит демографию и
+  внутри блока постоянна.
+- **10 реплик на ячейку**, 3 × 4 × 10 = **120**, без исключений.
+- **Только 2-признаковые реплики.** 1-признаковые исключены по неидентифицируемости: при одной
+  отобранной оси структура коллинеарна среде по построению (|tau|(PC1,temp) > 0.95), и коррекция
+  структуры может только удалять сигнал.
+- **Ни один порог не применён ни к одной реализованной статистике.**
+
+Смысл конструкции: легаси-плечо отбиралось по полосе `r2_pc1_temp`, то есть по **исходу**.
+В полном блоке отбирать не по чему — конфаундинг становится *сообщаемой ковариатой*, а не
+критерием. Раздел 3 показывает, какой разброс реально получился.
+</div>
+
+<div class="callout-result">
+- Реплик в блоке: **120**
+- Ячеек: **12** (3 × 4), в каждой ровно **10** реплик
+- Генных уровней: **3**, по **40** реплик в каждом
+- Плечо: `primary_ssclines`, метка: `ssclines_nvar_mvar`
+- Легаси-плечо осталось ровно **90** реплик и не затронуто
+</div>
+
+---
+
+## 2. Полнота блока: 56 пустых пар — это результат, а не пропуск
+
+```{r 02-complete, echo=FALSE}
+CM <- rd(paste0(B1, "block_completeness.tsv"))
+if (!is.null(CM)) print(CM)
+DR <- rd(paste0(B1, "block_dropped_panels.tsv"))
+if (!is.null(DR)) print(DR[, .N, by = marker_set])
+```
+
+<div class="callout-method">
+Скрипт `benchmarks/mvp_block_report.R` (написан в этой сессии; шаг 12 рунбука до неё был
+заглушкой). Читает `offset12_ssclines_b1/garden_performance.tsv` и манифест, соединяет по
+`seed` — в таблице садов **нет** колонок `arm`/`added`, поэтому соединение с манифестом
+обязательно.
+
+- Полная решётка: **120** реплик × **112** садов × **8** панелей × **4** метода.
+- Панель, у которой на реплике меньше 3 SNP, снимается на шаге 6 рунбука: `scripts/rda_offset.R:174`
+  падает ниже 3 SNP и роняет **весь** прогон реплики, а не одну панель.
+- Пустая панель — это **результат** (n = 0 SNP, recall = 0), и учитывается как таковой, а не как
+  недостающие данные.
+
+Арифметика строк проверяется скриптом, а не предполагается.
+</div>
+
+<div class="callout-result">
+- Строк при полной решётке: **430 080**
+- Строк реально оценено: **404 992**
+- Снятых пар (реплика, панель): **56** = **28** `gea_strict` + **28** `gea_emmax_only`
+- Строк на одну снятую пару: **448** (112 садов × 4 метода)
+- **56 × 448 = 25 088 = 430 080 − 404 992** — арифметика сходится точно
+- Список снятых пар совпадает **построчно** с предсканом шага 6 (`panel_underfilled_ssclines_b1.tsv`)
+</div>
+
+<details class="callout-note">
+<summary>Примечание — общий каталог offset12</summary>
+`offset12/` делится между блоками. Пока считался блок 1, блок 2 уже шёл и успел перезаписать
+`garden_qc.tsv` (в нём теперь 120 реплик блока 2 и ни одной блока 1) и слить `fitness_identity.tsv`.
+Поэтому таблицы блока 1 сняты в отдельный каталог `offset12_ssclines_b1/` до того, как блок 2
+дойдёт до своего шага 10. Все числа этого журнала читаются оттуда, а не из `offset12/`.
+</details>
+
+---
+
+## 3. Реализованный конфаундинг: сообщаем, а не отбираем
+
+```{r 03-covar, echo=FALSE}
+CV <- rd(paste0(B1, "block_realized_covariates.tsv"))
+if (!is.null(CV)) print(CV[arch_lab == "pooled", .(covariate, min, q25, median, q75, max)])
+```
+
+```{r 03-fig, echo=FALSE, out.width="100%"}
+knitr::include_graphics(paste0(B1, "block_confounding_realized.png"))
+```
+
+<div class="callout-result">
+Разброс по всему блоку (min / медиана / max):
+
+- `r2_pc1_temp` — **0.000** / **0.293** / **0.923**
+- `r2_pc1_sal` — **0.000** / **0.549** / **0.921**
+- `meanFst` — **0.111** / **0.160** / **0.227**
+- `K_authors` — **1** / **2.5** / **8**
+- `final_LA` — **0.353** / **0.451** / **0.570**
+- `n_snps` — **5 161** / **10 128.5** / **15 691**
+- `n_causal_maf01` — **3** / **35** / **436**
+</div>
+
+<div class="callout-conclusion">
+**Полоса легаси-отбора `[0.20, 0.75]` на этом блоке не применена ни к чему** — пунктир на рисунке
+показывает, где она проходила бы, и реплики лежат по обе стороны. Именно это и требовалось:
+`r2_pc1_temp` пробегает практически весь диапазон 0–0.92, и ни одна реплика не выброшена за это.
+
+Отдельно: на SS-Clines **обе** средовые оси конфаундированы структурой (медиана `r2_pc1_sal`
+**0.549**), тогда как в SS-Mtn вторая ось была почти чистой. Это и есть типичный эмпирический
+случай, ради которого ландшафт менялся.
+</div>
+
+---
+
+## 4. Статус регрессионного гейта шага 11: сработала только половина
+
+```{r 04-gate, echo=FALSE}
+cat(readLines("/mnt/data/eugene/ADAPTOGENE/logs_tables_ssclines_b1.log"), sep = "\n")
+```
+
+<div class="callout-result">
+- `panel_pr_recomputed.tsv` — сравнено **1104** строки, max |diff| = **0** → **гейт пройден**
+- `phase1_seed_medians_solo.tsv` — **3580** строк в эталоне против **0** новых → сравнено
+  **ноль** строк
+</div>
+
+<div class="callout-conclusion">
+**Вторая половина гейта не пройдена — она инертна.** `offset12` содержит только 120 реплик
+блока 1, `offset11` — только 90 легаси-реплик; пересечение множеств пустое, поэтому сравнивать
+было нечего. Формулировка «ROW COUNT 3580 (ref) vs 0 (new)» выглядит как отчёт о проверке, но
+проверкой не является.
+
+Это останется так же для блоков 2 и 3. Гейт должен падать громко при пустом пересечении, а не
+печатать ноль как результат — запрос занесён в `docs/pipeline_improvement_requests.md`.
+</div>
+
+---
+
+# Часть II. Главный результат
+
+## 5. Панель ≥2 из 3 больше не достаёт до оракула
+
+```{r 05-delta, echo=FALSE}
+show_pooled <- function(path, tag) {
+  D <- rd(path)
+  if (is.null(D)) return(invisible(NULL))
+  cat("\n", tag, "\n", sep = "")
+  print(D[arch_lab == "pooled",
+          .(label, n, median_delta = round(median_delta, 4),
+            win_pct = round(win_pct, 1), p_below = signif(p_below_oracle, 3))])
+}
+show_pooled(paste0(LORAC, "delta_by_arch.tsv"), "ЛЕГАСИ — SS-Mtn, все 90 реплик (в т.ч. 10 однопризнаковых)")
+show_pooled(paste0(LOR2T, "delta_by_arch.tsv"), "ЛЕГАСИ — SS-Mtn, только 2-признаковые, 80 реплик (сопоставимо)")
+show_pooled(paste0(B1,    "delta_by_arch.tsv"), "БЛОК 1 — SS-Clines, 120 реплик (2-признаковые по построению)")
+```
+
+<div class="callout-method">
+Оценка: `delta = accuracy(панель) − accuracy(истинные каузальные локусы)`, **парно внутри
+реплики**. Агрегация названа один раз и используется везде: медиана по садам внутри
+(реплика, метод), затем медиана по трём рабочим методам offset внутри реплики.
+
+- `accuracy = −tau` — **никогда** `abs(tau)`: модель, предсказывающая наоборот, обязана
+  оставаться отрицательной, а не превращаться в точную.
+- `RDA-corrected` исключён из агрегатов (на части садов предсказывает назад) и присутствует
+  только в панели методов.
+- Тест односторонний парный Уилкоксон с H1 «панель **хуже** оракула». Читается **только** там,
+  где медиана delta отрицательна. Обратное утверждение («панель не хуже») p-значением не
+  доказывается — для него нужен заявленный порог эквивалентности, которого нет.
+</div>
+
+<div class="callout-result">
+Панель `≥2 из 3` (`gea_best`) против каузальных локусов, объединённо.
+Сопоставимая величина — **2-признаковое** легаси (80 реплик), потому что блок 1 2-признаковый
+по построению:
+
+<div class="was">было (SS-Mtn, 2-признаковые, **80** реплик): медиана delta **+0.0477**, выигрывает в **72.5%** реплик, p(хуже) = **1.000**</div>
+<div class="now">стало (SS-Clines блок 1, **120** реплик): медиана delta **−0.0203**, выигрывает в **38.3%** реплик, p(хуже) = **3.05e-04**</div>
+
+Для справки, легаси со всеми 90 репликами (включая 10 однопризнаковых): **+0.0355**,
+win **64.4%**. Однопризнаковые реплики **разворачивают** заголовок (панель проигрывает оракулу
+на 10 из 10), поэтому они тянут объединённое легаси-число **вниз** — исключение их
+**расширяет** разрыв, а не сужает.
+
+На блоке 1 **ниже оракула оказались все панели без исключения**:
+
+- `≥2 из 3` — **−0.0203**, p = **3.05e-04**
+- `1 из 3` — **−0.0196**, p = **6.45e-06**
+- `LFMM только` — **−0.0291**, p = **7.10e-06**
+- `случайная равного размера` — **−0.0333**, p = **9.67e-11**
+- `RDA только` — **−0.0361**, p = **4.47e-09**
+- `3 из 3` — **−0.0960**, p = **1.85e-09**
+- `EMMAX только` — **−0.1163**, p = **1.16e-11**
+</div>
+
+<div class="callout-conclusion">
+**Легаси-заголовок «панель ≥2 из 3 достаёт до каузальных локусов» на этом ландшафте не
+воспроизводится.** Он меняет знак: было +0.036 над оракулом при p(хуже) = 0.999, стало −0.020
+под оракулом при p = 3.05e-04.
+
+Три вещи, которые из этого **не** следуют и которых говорить нельзя:
+
+1. **Это не провал панели.** Недобор −0.020 при абсолютной точности оракула 0.787 — это **97.4%**
+   от того, что даёт знание истины. Утверждение деградирует с «совпадает» до «немного не
+   дотягивает», а не до «не работает».
+2. **`≥2 из 3` остаётся лучшим достижимым правилом.** Она и `1 из 3` (−0.0196) статистически
+   неразличимы между собой и обе лучше любого одиночного метода и случайной панели. Правило
+   отбора менять не на что.
+3. **Причинно приписать разницу ландшафту нельзя** — см. раздел 13.
+
+Отдельный результат, который стоит назвать вслух: **случайная панель равного размера (−0.033)
+обходит и строгий консенсус `3 из 3` (−0.096), и `EMMAX только` (−0.116)**. Обе эти панели на
+SS-Clines настолько малы (медиана 7 и 3 SNP), что случайная выборка того же размера, что и
+`≥2 из 3`, несёт больше сигнала.
+</div>
+
+---
+
+## 6. Абсолютная точность выросла у всех — а разрыв всё равно открылся
+
+```{r 06-abs, echo=FALSE}
+m <- rd(MAN, colClasses = c(seed = "character"))
+sL <- m[arm == "primary" & n_traits == 2, seed]   # 80 из 90: только 2-признаковые
+sB <- m[arm == "primary_ssclines" & added == "ssclines_nvar_mvar", seed]
+acc <- function(path, keep) {
+  A <- rd(path, colClasses = c(seed = "character"))
+  if (is.null(A)) return(NULL)
+  A <- A[seed %in% keep]
+  dcast(A[, .(acc = median(-tau)), by = .(marker_set, method_label)],
+        marker_set ~ method_label, value.var = "acc")
+}
+AL <- acc(paste0(S11, "phase1_seed_medians_solo.tsv"), sL)
+AB <- acc(paste0(S12, "phase1_seed_medians_solo.tsv"), sB)
+if (!is.null(AL) && !is.null(AB)) {
+  keep <- intersect(AL$marker_set, AB$marker_set)
+  cols <- c("GFoffset", "LFMM2offset", "RDA-uncorrected")
+  cmp <- data.table(marker_set = keep)
+  for (cc in cols) cmp[[cc]] <- sprintf("%.3f -> %.3f",
+                                        AL[match(keep, marker_set)][[cc]],
+                                        AB[match(keep, marker_set)][[cc]])
+  cat("accuracy = -tau, медиана по репликам. Слева SS-Mtn 2-признаковые (80),\n",
+      "справа SS-Clines блок 1 (120).\n",
+      "Сравниваются только 8 панелей, присутствующие в обоих плечах.\n\n", sep = "")
+  print(cmp)
+}
+```
+
+<div class="callout-result">
+Обе колонки ограничены сопоставимым набором: слева 2-признаковые легаси-реплики (**80**),
+справа блок 1 (**120**), только 8 общих панелей маркеров.
+
+- Оракул (`adaptive`), GFoffset — прирост **+0.06** (порядка 0.72 → 0.79)
+- Случайная панель равного размера (`random_matched`), GFoffset — прирост **+0.12** (порядка 0.65 → 0.77)
+- Точные значения — в таблице выше
+</div>
+
+<div class="callout-conclusion">
+**На SS-Clines легче предсказывать всем — но пол поднялся выше, чем потолок.** Абсолютная
+точность выросла у каждой панели, включая случайную; при этом разрыв «панель минус оракул»
+раскрылся. Механизм прямой: генетический offset ловит изоляцию средой по всему геному, а на
+SS-Clines обе средовые оси пространственно автокоррелированы, поэтому бесплатный пол выше.
+Разброс между панелями схлопывается (всё между 0.70 и 0.79, кроме `gea_strict` и
+`gea_emmax_only`), и оракул отрывается просто потому, что он единственный действительно знает
+истину.
+
+Отсюда практическое следствие для интерпретации любого будущего блока: **сравнивать надо
+delta от оракула, а не абсолютную точность** — абсолютная шкала на разных ландшафтах означает
+разное.
+</div>
+
+---
+
+## 7. По ячейкам: 3 генных уровня × 4 архитектурных подуровня
+
+```{r 07-cell, echo=FALSE}
+CD <- rd(paste0(B1, "block_cell_delta_best_vs_oracle.tsv"))
+if (!is.null(CD)) print(CD[, .(arch_lab, sub_level, n,
+                               median_delta = round(median_delta, 4),
+                               reach_pct = round(reach_pct, 1))])
+```
+
+```{r 07-fig, echo=FALSE, out.width="100%"}
+knitr::include_graphics(paste0(B1, "block_cell_delta_heatmap.png"))
+```
+
+<div class="callout-result">
+Ячейки, где панель `≥2 из 3` в медиане **достаёт** до оракула (delta ≥ 0):
+
+- умеренно полигенная × без плейотропии, equal-S — **+0.0074**, достаёт в **53.3%** реплик
+- сильно полигенная × без плейотропии, unequal-S — **+0.0177**, достаёт в **60.0%** реплик
+
+Худшие ячейки:
+
+- олигогенная × плейотропия, unequal-S — **−0.0948**, достаёт в **23.3%**
+- сильно полигенная × без плейотропии, equal-S — **−0.0464**, достаёт в **16.7%**
+</div>
+
+<div class="callout-conclusion">
+**Недобор не однороден по блоку, и знак меняется от ячейки к ячейке.** При n = 30
+(10 реплик × 3 рабочих метода) на ячейку это разброс, а не карта эффектов — но он показывает,
+что объединённое −0.020 из раздела 5 усредняет ячейки от −0.095 до +0.018.
+
+Это ровно то, ради чего блок делался полным: в легаси-корпусе таких ячеек с равной массой не
+было (74 из 90 реплик приходились на две демографии из пяти), и подобную таблицу там построить
+нельзя.
+</div>
+
+---
+
+## 8. Точность против реализованной локальной адаптации
+
+```{r 08-rho, echo=FALSE}
+RH <- rd(paste0(B1, "block_accuracy_vs_LA_rho.tsv"))
+if (!is.null(RH)) print(dcast(RH[, .(rho = round(median(rho), 3)), by = .(panel, method_label)],
+                              panel ~ method_label, value.var = "rho"))
+```
+
+```{r 08-fig, echo=FALSE, out.width="100%"}
+knitr::include_graphics(paste0(B1, "block_accuracy_vs_LA.png"))
+```
+
+<div class="callout-method">
+Непрерывная перерисовка вместо двухоблачного графика equal-S / unequal-S. Симметрия отбора —
+двухуровневая ручка (`SIGMA_K_2` ∈ {0.5, 4.0}), действующая **через** `final_LA`; поэтому по оси
+откладывается сама `final_LA`, а режим отбора в анализ как фактор не входит вовсе.
+`final_LA` берётся из депозита, не вычисляется нами.
+</div>
+
+<div class="callout-result">
+Спирменовское rho(`final_LA`, accuracy), объединённо по архитектуре:
+
+- каузальные локусы — GF **0.778**, LFMM2 **0.750**, RDA-uncorr **0.553**
+- панель `≥2 из 3` — GF **0.668**, LFMM2 **0.778**, RDA-uncorr **0.486**
+</div>
+
+<div class="callout-conclusion">
+**Связь сильная и положительная, и блок 1 её воспроизводит.** В легаси-корпусе rho составляла
+**+0.44** объединённо и **+0.62 / +0.65** в двух полигенных стратах; здесь — **0.55–0.78** в
+зависимости от метода. Чем сильнее реализованная локальная адаптация, тем точнее offset, и это
+верно и для оракула, и для полученной сканом панели.
+
+Практический смысл: `final_LA` объясняет заметную часть разброса точности **внутри** блока, и
+любое утверждение про архитектуру без неё как ковариаты будет частично про неё.
+**Ограничение**: `final_LA` требует фитнеса в общем саду, поэтому на реальных данных она
+недоступна — это диагностика симуляции, а не предиктор для пользователя.
+</div>
+
+---
+
+# Часть III. Полный набор фигур: легаси слева, блок 1 справа
+
+<div class="callout-method">
+Каждая пара ниже — **одна и та же фигура, отрисованная одним и тем же скриптом**, слева на
+легаси-плече (SS-Mtn, 90 реплик, `offset11`), справа на блоке 1 (SS-Clines, 120 реплик,
+`offset12_ssclines_b1`). Скрипты стали плече-параметризованными в этой сессии
+(`benchmarks/mvp_arm.R`); значения по умолчанию воспроизводят легаси-таблицы **побайтово** —
+это проверялось как блокирующий гейт на каждом тронутом скрипте.
+
+**Читать эти пары как «эффект ландшафта» нельзя** — см. раздел 13. Сравнение ограничено
+**8 панелями маркеров**, присутствующими в обоих плечах.
+</div>
+
+## 9. Главная фигура и её панели
+
+```{r 09-main, echo=FALSE, out.width="49%", fig.show="hold"}
+knitr::include_graphics(pair(LMAIN, "MAIN_FIGURE_simulation"))
+```
+
+```{r 09-ab, echo=FALSE, out.width="49%", fig.show="hold"}
+knitr::include_graphics(pair(LMFV2, "panelA_composition"))
+knitr::include_graphics(pair(LMFV2, "panelB_match_oracle"))
+```
+
+<div class="callout-result">
+Порядок строк панели B (от худшей к лучшей по доле недобора) на двух плечах:
+
+<div class="was">было (SS-Mtn): LFMM **86%** → 1/3 **80%** → EMMAX **50%** → 3/3 **47%** → RDA **44%** → 2/3 **37%**</div>
+<div class="now">стало (SS-Clines): EMMAX **81%** → 3/3 **76%** → RDA **72%** → 1/3 **66%** → LFMM **64%** → 2/3 **62%**</div>
+
+Порядок панели A (по числу сигнал-несущих маркеров) **совпал** на обоих плечах:
+EMMAX < 3/3 < RDA < 2/3 < LFMM < 1/3.
+</div>
+
+<div class="callout-conclusion">
+**Что правило *возвращает* — устойчиво между ландшафтами; насколько хорошо оно *предсказывает* —
+нет.** Порядок панели A один и тот же литерал для обоих плеч, порядок панели B пришлось
+закрепить отдельно на каждое плечо (`ROW_ORDER_BY_ARM` в `mvp_main_figure_v2.R`).
+
+Содержательно порядок B перевернулся: одиночные методы поднялись относительно комбинированных
+(LFMM с последнего места на второе), `3 из 3` упала с середины на предпоследнее.
+`≥2 из 3` осталась первой на обоих — но на SS-Clines это «недобирает меньше всех», а не
+«достаёт».
+</div>
+
+---
+
+## 10. Архитектурные панели
+
+```{r 10-arch1, echo=FALSE, out.width="49%", fig.show="hold"}
+knitr::include_graphics(pair(LMAIN, "V1_arch_dotplot"))
+knitr::include_graphics(pair(LMAIN, "V4_arch_heatmap"))
+```
+
+```{r 10-arch2, echo=FALSE, out.width="49%", fig.show="hold"}
+knitr::include_graphics(pair(LMAIN, "V2_arch_small_multiples"))
+knitr::include_graphics(pair(LMAIN, "V3_arch_slopegraph"))
+knitr::include_graphics(pair(LMAIN, "V5_arch_deviation"))
+```
+
+---
+
+## 11. Панели методов offset
+
+```{r 11-meth1, echo=FALSE, out.width="49%", fig.show="hold"}
+knitr::include_graphics(pair(LMETH, "V1_method_bars"))
+knitr::include_graphics(pair(LMETH, "V3_paired_vs_GF"))
+```
+
+```{r 11-meth2, echo=FALSE, out.width="49%", fig.show="hold"}
+knitr::include_graphics(pair(LMAIN, "D1_method_lines"))
+knitr::include_graphics(pair(LMAIN, "D2_method_heatmap"))
+knitr::include_graphics(pair(LMAIN, "D3_method_forest"))
+knitr::include_graphics(pair(LMAIN, "D4_method_bars"))
+knitr::include_graphics(pair(LMAIN, "D5_method_boxplots"))
+knitr::include_graphics(pair(LMETH, "V2_method_boxplots"))
+```
+
+```{r 11-methtab, echo=FALSE}
+MP <- rd(paste0(B1, "method_paired_vs_GF.tsv"))
+if (!is.null(MP)) {
+  cat("Блок 1: парно против gradientForest на панели `>=2 из 3`.\n",
+      "est < 0 означает, что метод ниже GF.\n\n", sep = "")
+  print(MP[, .(method, arch_lab, est = round(est, 3), lo = round(lo, 3),
+               hi = round(hi, 3), p = signif(p, 2))])
+}
+```
+
+<div class="callout-result">
+Легаси-вывод был: на рекомендованной панели GF **нигде значимо не обыгран** — LFMM2 неразличим
+во всех трёх архитектурах, RDA-uncorrected значимо ниже во всех трёх, RDA-corrected ниже на
+**0.15–0.22**.
+</div>
+
+---
+
+## 12. Распределения, устойчивость и отбракованный RDA-corrected
+
+```{r 12-dist, echo=FALSE, out.width="49%", fig.show="hold"}
+knitr::include_graphics(pair(LMAIN, "G1_dist_box_points"))
+knitr::include_graphics(pair(LMAIN, "G2_dist_halfeye"))
+knitr::include_graphics(pair(LMAIN, "G3_dist_transposed"))
+knitr::include_graphics(pair(LMAIN, "G4_dist_sina"))
+```
+
+```{r 12-rob, echo=FALSE, out.width="49%", fig.show="hold"}
+knitr::include_graphics(pair(LMAIN, "B_accuracy_by_panel"))
+knitr::include_graphics(pair(LMAIN, "C_robustness"))
+knitr::include_graphics(pair(LMAIN, "A_rule_composition"))
+knitr::include_graphics(pair(LMAIN, "S_RDA_why_dropped"))
+```
+
+```{r 12-orac, echo=FALSE, out.width="49%", fig.show="hold"}
+knitr::include_graphics(pair(LORAC, "B1_delta_bars"))
+knitr::include_graphics(pair(LORAC, "B2_delta_boxplots"))
+knitr::include_graphics(pair(LORAC, "C2_below_oracle_heatmap"))
+knitr::include_graphics(pair(LORAC, "C3_below_oracle_lines"))
+knitr::include_graphics(pair(LORAC, "C4_below_oracle_by_method"))
+knitr::include_graphics(pair(LORAC, "C_worst_stratum"))
+knitr::include_graphics(pair(LORAC, "D2_method_ranking"))
+```
+
+```{r 12-slope, echo=FALSE, out.width="49%", fig.show="hold"}
+knitr::include_graphics(pair(LMAIN, "S1_slope_plain"))
+knitr::include_graphics(pair(LMAIN, "S2_slope_focus"))
+knitr::include_graphics(pair(LMAIN, "S3_slope_whiskers"))
+knitr::include_graphics(pair(LMAIN, "G3b_dist_by_regime"))
+```
+
+<details class="callout-note">
+<summary>Примечание — G3b на блоке 1</summary>
+`G3b_dist_by_regime` разбивает реплики по числу признаков. В блоке 1 все реплики
+2-признаковые по построению, поэтому правая панель имеет одну категорию вместо трёх. Это
+ожидаемо, а не сбой отрисовки.
+</details>
+
+---
+
+## 13. Манускриптные фигуры — только блок 1
+
+<div class="callout-method">
+Для этой линии фигур парная врезка **не строится**. Замороженный легаси-рендер
+`benchmarks/mvp_eval/figures_ms/` сделан на **32** репликах (эпоха `offset09`) и с тех пор из
+манифеста не воспроизводится — это отдельный, более старый артефакт, и ставить его рядом со
+120-репличным блоком значило бы добавить пятый конфаундер к четырём из раздела 14.
+
+Кроме того, на блоке 1 пропущены **4 из 29** фигур: `B6`, `B6b`, `D8` и `T5` читают плечо
+**детекции** (`sweep07`), которое этот корпус не расширяет. Скрипт теперь сообщает об этом и
+идёт дальше, а не падает.
+</div>
+
+```{r 13-ms1, echo=FALSE, out.width="49%", fig.show="hold"}
+knitr::include_graphics(Filter(file.exists, paste0(B1,
+  c("F1_offset_panel_by_architecture", "F2_offset_distribution",
+    "F3_paired_vs_oracle", "F4_panel_stability",
+    "F5_detection_vs_prediction", "F6_what_predicts_accuracy",
+    "F8_panel_composition_absolute"), ".png")))
+```
+
+```{r 13-ms2, echo=FALSE, out.width="49%", fig.show="hold"}
+knitr::include_graphics(Filter(file.exists, paste0(B1,
+  c("A1_benchmark_design.png", "A2_replicate_covariates.png",
+    "abs_D_composition_counts.png", "abs_E_size_vs_architecture.png",
+    "abs_F_usable_vs_accuracy.png", "MAIN_FIGURE_gea_marker_efficiency.png"))))
+```
+
+---
+
+# Часть IV. Что этим сравнением сказать нельзя
+
+## 14. Четыре конфаундера, все сразу
+
+<div class="callout-conclusion">
+Легаси-плечо и блок 1 различаются **одновременно** по четырём осям, и разделить их этим
+корпусом невозможно:
+
+1. **Ландшафт** — SS-Mtn против SS-Clines.
+2. **Волна когорты** — всё легаси считалось в августе, весь блок 1 в сентябре; ландшафт
+   **вложен** в волну, поэтому никакое различие не может быть причинно приписано ландшафту.
+3. **Размер корпуса** — 90 против 120 реплик.
+4. **Режим отбора** — полоса `r2_pc1_temp ∈ [0.20, 0.75]` против полного блока без отбора.
+
+Плюс пятое, техническое: **доступность панелей** — 13 наборов маркеров в легаси-плече против
+**8** здесь (`all` и `neutral_all` сняты на шаге 8 рунбука, ради бюджета на 120 реплик).
+Все сравнения выше ограничены 8 общими наборами.
+
+Отдельно: легаси-плечо содержит **10** однопризнаковых реплик, блок 1 — ни одной.
+**Числа разделов 5 и 6 от них очищены** — легаси там ограничено 2-признаковыми репликами
+(**80** из 90), потому что однопризнаковые реплики разворачивают заголовок и оставлять их в
+сравнении значило бы сравнивать разные эксперименты. В **парных врезках части III** они
+остаются в левой картинке: те рендеры заморожены и пересобирать их только ради этого сравнения
+нет смысла — читать их следует как «легаси как оно опубликовано», а не как сопоставимую
+величину.
+</div>
+
+<div class="callout-conclusion">
+**Что переносится и что нет.**
+
+Переносится: порядок панели A (что правило возвращает); положительная связь точности с
+`final_LA`; вывод «одиночный метод хуже комбинированного правила»; отбраковка `RDA-corrected`.
+
+Не переносится: **заголовок «панель ≥2 из 3 достаёт до каузальных локусов»**. На SS-Clines она
+недобирает −0.020 при p = 3.05e-04. Формулировку в `docs/03-results-simulations.md` и в
+`docs/claim_gea_panels_beat_causal_loci.md` придётся переписать на условную: утверждение верно
+для SS-Mtn и не воспроизводится на SS-Clines — при том, что панель сохраняет **97.4%** точности
+оракула и остаётся лучшим достижимым правилом на обоих ландшафтах.
+
+Следующий шаг: блоки 2–5. Если недобор воспроизведётся на остальных четырёх демографиях
+SS-Clines, это свойство ландшафта; если нет — свойство демографии `N-variable_m-variable`.
+Сейчас из одного блока это неразличимо.
+</div>
+
+---
+
+## 15. Что было сделано в этой сессии с кодом
+
+<div class="callout-method">
+Шаг 12 рунбука до этой сессии был заглушкой: ни один фигурный скрипт не мог отчитаться о новом
+плече, потому что все они жёстко фильтровали `arm == "primary"`, а `mvp_oracle_stats.R:86`
+дополнительно утверждал `nrow(PRIM) == 90L`. Изоляция была намеренной — чтобы второй ландшафт
+не всосался в легаси-анализ молча.
+
+- **`benchmarks/mvp_arm.R`** — новый общий селектор плеча. `MVP_ARM` (по умолчанию `primary`),
+  `MVP_ADDED` (по умолчанию пусто), `MVP_N_EXPECT` (90), `MVP_N_PER_ARCH` (30). Умолчания — это
+  ровно старые литералы, поэтому изоляция сохранена: от неё теперь надо отказываться явно, а не
+  править 18 скриптов.
+- **`MVP_ADDED` обязателен для плеча SS-Clines.** В манифесте уже лежат по 120 реплик для блоков
+  1, 2 и 3 под одним `arm == "primary_ssclines"` (360 строк), поэтому фильтр только по плечу
+  молча смешал бы три демографии. Селектор предупреждает об этом.
+- **`benchmarks/mvp_block_report.R`** — новый, шаг 12. Медианы по ячейкам, таблица реализованных
+  ковариат, точность против `final_LA`, полнота блока.
+- **13 скриптов плече-параметризованы**; `mvp_main_figure_v2.R` получил закреплённые порядки
+  строк **на каждое плечо** (`ROW_ORDER_BY_ARM`), а не ослабленный `stopifnot`.
+- **Починено попутно:** `mvp_manuscript_figures.R` брал `seeds[is_control == FALSE]`, то есть
+  сегодня — **450** реплик вместо 90, молча смешивая все три блока SS-Clines в легаси-фигуры.
+- **Гейт.** Каждый тронутый скрипт прогонялся с умолчаниями и сверялся с замороженными
+  таблицами: **24 + 4 + 4 + 77** TSV, **max |diff| = 0**, ноль расхождений.
+</div>
+
+<div class="callout-result">
+- Скриптов затронуто: **13** + **2** новых
+- TSV сверено с замороженными легаси-таблицами: **109**, расхождений **0**
+- Фигур отрисовано на блоке 1: **52** PNG / **49** SVG / **54** TSV
+- Пар «легаси / блок 1»: **37**
+</div>
+
+---
+
+```{r sessioninfo}
+sessionInfo()
+```

@@ -45,6 +45,7 @@ EVAL <- file.path(ROOT, "benchmarks/mvp_eval")
 OFF  <- Sys.getenv("OFFSET_DIR", "offset11")
 OUT  <- Sys.getenv("FIG_OUT", file.path(EVAL, "figures_oracle"))
 dir.create(OUT, recursive = TRUE, showWarnings = FALSE)
+source(file.path(ROOT, "benchmarks/mvp_arm.R"))
 
 rd <- function(...) {
     f <- file.path(...)
@@ -81,10 +82,10 @@ PANEL_ORDER <- PANELS$label[c(1, 2, 3, 4, 5, 6, 7, 8, 9)]   # oracle is the line
 
 # ---------------------------------------------------------------- shared data
 seeds <- rd(ROOT, "benchmarks/mvp_seeds.tsv")
-PRIM  <- seeds[arm == "primary"]
+PRIM  <- mvp_prim(seeds)
 PRIM[, arch_lab := factor(arch_level, levels = ARCH_LEVELS, labels = ARCH_LABELS)]
-stopifnot(nrow(PRIM) == 90L, !any(is.na(PRIM$arch_lab)))
-message(sprintf("primary replicates: %d (%s)", nrow(PRIM),
+stopifnot(nrow(PRIM) == mvp_n_expect(), !any(is.na(PRIM$arch_lab)))
+message(sprintf("%s replicates: %d (%s)", mvp_arm_label(), nrow(PRIM),
                 paste(sprintf("%s=%d", levels(PRIM$arch_lab), table(PRIM$arch_lab)),
                       collapse = ", ")))
 
@@ -155,9 +156,10 @@ print(dcast(BY_ARCH, label ~ arch_lab, value.var = "p_below_oracle"))
 
 # Every cell must be complete. A short cell means seeds were silently dropped
 # for a missing panel, which would make the strata non-comparable.
-short <- BY_ARCH[arch_lab != "pooled" & n < 30]
+short <- BY_ARCH[arch_lab != "pooled" & n < mvp_n_per_arch()]
 if (nrow(short)) {
-    message("\n!! INCOMPLETE CELLS (expected n=30 per architecture):")
+    message(sprintf("\n!! INCOMPLETE CELLS (expected n=%d per architecture):",
+                    mvp_n_per_arch()))
     print(short[, .(label, arch_lab, n)])
 }
 

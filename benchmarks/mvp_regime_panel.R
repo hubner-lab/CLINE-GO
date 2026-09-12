@@ -16,6 +16,7 @@ ROOT <- Sys.getenv("PIPELINE_ROOT","/pipeline"); EVAL <- file.path(ROOT,"benchma
 OFF <- Sys.getenv("OFFSET_DIR","offset11"); METHOD <- Sys.getenv("METHOD","GFoffset")
 OUT <- Sys.getenv("FIG_OUT", file.path(EVAL,"figures_main"))
 source(file.path(ROOT,"scripts/R/utils/theme_clinego.R"))
+source(file.path(ROOT, "benchmarks/mvp_arm.R"))
 
 MINOU <- c(teal="#00798c", red="#d1495b", amber="#edae49", sage="#66a182",
            navy="#2e4057", grey="#8d96a3")
@@ -29,7 +30,7 @@ SETLAB <- c(gea_best="2/3 methods", gea_strict="3/3 methods", gea_union="1/3 met
 ARCHL <- c(oliogenic="oligogenic",`mod-polygenic`="moderately polygenic",
            `highly-polygenic`="highly polygenic")
 
-man <- fread(file.path(ROOT,"benchmarks/mvp_seeds.tsv"), colClasses=c(seed="character"))[arm=="primary"]
+man <- mvp_prim(fread(file.path(ROOT,"benchmarks/mvp_seeds.tsv"), colClasses=c(seed="character")))
 man[, regime := fifelse(grepl("1-trait", architecture), "1-trait",
                 fifelse(grepl("unequal-S", architecture), "unequal-S", "equal-S"))]
 man[, regime := factor(regime, levels=names(REG_COL))]

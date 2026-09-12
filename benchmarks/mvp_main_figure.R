@@ -39,6 +39,7 @@ OUT  <- Sys.getenv("FIG_OUT", file.path(EVAL, "figures_main"))
 dir.create(OUT, recursive = TRUE, showWarnings = FALSE)
 
 source(file.path(ROOT, "scripts/R/utils/theme_clinego.R"))
+source(file.path(ROOT, "benchmarks/mvp_arm.R"))
 
 # =============================================================================
 # Palette -- ltc "minou" (Theodosiou), hex read verbatim from the package source
@@ -125,8 +126,8 @@ save_fig <- function(p, stem, w, h) {
 # ---------------------------------------------------------------- shared data
 seeds <- rd(ROOT, "benchmarks/mvp_seeds.tsv")
 seeds[, arch_lab := relabel_arch(arch_level)]
-PRIM  <- seeds[arm == "primary"]
-stopifnot(nrow(PRIM) == 90L, !any(is.na(PRIM$arch_lab)))
+PRIM  <- mvp_prim(seeds)
+stopifnot(nrow(PRIM) == mvp_n_expect(), !any(is.na(PRIM$arch_lab)))
 message(sprintf("primary replicates: %d (%s)", nrow(PRIM),
                 paste(sprintf("%s=%d", levels(PRIM$arch_lab), table(PRIM$arch_lab)),
                       collapse = ", ")))

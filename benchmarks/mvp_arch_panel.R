@@ -26,6 +26,7 @@ OFF  <- Sys.getenv("OFFSET_DIR", "offset11")
 OUT  <- Sys.getenv("FIG_OUT", file.path(EVAL, "figures_main"))
 METHOD <- Sys.getenv("METHOD", "GFoffset")
 source(file.path(ROOT, "scripts/R/utils/theme_clinego.R"))
+source(file.path(ROOT, "benchmarks/mvp_arm.R"))
 
 MINOU <- c(teal="#00798c", red="#d1495b", amber="#edae49", sage="#66a182",
            navy="#2e4057", grey="#8d96a3")
@@ -48,7 +49,7 @@ OBT <- c("2/3 methods","3/3 methods","1/3 methods","RDA","EMMAX","LFMM")
 ARCHL <- c(oliogenic="oligogenic",`mod-polygenic`="moderately polygenic",
            `highly-polygenic`="highly polygenic")
 
-man <- fread(file.path(ROOT,"benchmarks/mvp_seeds.tsv"), colClasses=c(seed="character"))[arm=="primary"]
+man <- mvp_prim(fread(file.path(ROOT,"benchmarks/mvp_seeds.tsv"), colClasses=c(seed="character")))
 S <- fread(file.path(EVAL,OFF,"phase1_seed_medians_solo.tsv"), colClasses=c(seed="character"))
 S <- S[seed %in% man$seed & marker_set %in% names(SETLAB) & method_label==METHOD]
 S[, `:=`(accuracy=-tau, label=SETLAB[marker_set])]

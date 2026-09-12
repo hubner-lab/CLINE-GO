@@ -32,6 +32,7 @@ OFF  <- Sys.getenv("OFFSET_DIR", "offset11")
 OUT  <- Sys.getenv("FIG_OUT", file.path(EVAL, "figures_oracle"))
 dir.create(OUT, recursive = TRUE, showWarnings = FALSE)
 source(file.path(ROOT, "scripts/R/utils/theme_clinego.R"))
+source(file.path(ROOT, "benchmarks/mvp_arm.R"))
 
 # ---- palette --------------------------------------------------------------
 # Same semantics as figures_main so a reader who has seen one figure can read the
@@ -90,7 +91,7 @@ PR_KEY <- c(best = "2/3 methods", intersect3 = "3/3 methods", union = "1/3 metho
             truth = "causal loci", all = "all loci", neutral_all = "neutral",
             rand_best1 = "random, size-matched")
 seeds <- rd(ROOT, "benchmarks/mvp_seeds.tsv")
-PRIM  <- seeds[arm == "primary"]
+PRIM  <- mvp_prim(seeds)
 PRIM[, arch_lab := factor(arch_level,
                           levels = c("oliogenic", "mod-polygenic", "highly-polygenic"),
                           labels = ARCH_LABELS)]

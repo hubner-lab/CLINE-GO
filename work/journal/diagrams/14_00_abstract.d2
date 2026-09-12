@@ -1,0 +1,39 @@
+direction: right
+
+block: {
+  label: "SS-Clines блок 1\n**120** реплик · 3 × 4 × 10"
+  shape: rectangle
+}
+noselect: {
+  label: "полный блок\nотбор по реализованным\nстатистикам НЕ применялся"
+  shape: rectangle
+}
+scored: {
+  label: "оценено\n**404 992** строки\n8 панелей × 4 метода × 112 садов"
+  shape: rectangle
+}
+dropped: {
+  label: "**56** пар (реплика, панель)\nпусты — это результат,\nа не пропуск данных"
+  shape: rectangle
+}
+lead: {
+  label: "панель ≥2 из 3\nмедиана **−0.020** от оракула\np = **3.05e-04**"
+  shape: rectangle
+  style.fill: "#7a2d3a"
+}
+legacy: {
+  label: "легаси SS-Mtn, **90** реплик\nта же панель **+0.036**\nнад оракулом"
+  shape: rectangle
+  style.fill: "#2d4a3a"
+}
+figs: {
+  label: "**37** фигур парных\n+ **3** блочных"
+  shape: rectangle
+}
+
+block -> noselect
+noselect -> scored
+scored -> dropped
+scored -> lead
+legacy -> lead: "что изменилось" {style.stroke-dash: 3}
+lead -> figs

@@ -177,3 +177,7 @@ selected_figures_*/
 
 # testthat failure dump, written on every failing run
 testthat-problems.rds
+
+# SS-Clines block run artifacts (benchmarks/SSCLINES_RUNBOOK.md)
+logs_*.log
+benchmarks/mvp_seeds.tsv.pre_*

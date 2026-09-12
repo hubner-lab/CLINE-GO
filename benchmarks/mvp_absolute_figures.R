@@ -18,6 +18,7 @@
 suppressPackageStartupMessages({library(data.table); library(ggplot2)})
 PIPELINE_ROOT <- Sys.getenv("PIPELINE_ROOT", "/pipeline")
 source(file.path(PIPELINE_ROOT, "scripts/R/utils/theme_clinego.R"))
+source(file.path(PIPELINE_ROOT, "benchmarks/mvp_arm.R"))
 # Which scored offset root to read. Defaults to offset09, the 32-replicate run, so an
 # unparameterised call reproduces the frozen figure set; a new cohort passes OFFSET_DIR.
 OFF <- Sys.getenv("OFFSET_DIR", "offset09")
@@ -39,7 +40,7 @@ RL <- c(adaptive = "truth", gea_strict = "intersect3", gea_best = "best",
 S[, set := RL[marker_set]]
 A <- S[!is.na(set), .(accuracy = -median(tau)), by = .(seed, set)]
 M <- merge(D, A, by = c("seed", "set"))
-M <- merge(M, man[, .(seed, arch_level, arm)], by = "seed")[arm == "primary"]
+M <- merge(M, mvp_prim(man)[, .(seed, arch_level, arm)], by = "seed")
 
 LAB <- c(truth = "true QTNs\n(oracle)", best = "≥2 methods\nagree",
          intersect3 = "all 3\nagree", union = "union\n(any method)",

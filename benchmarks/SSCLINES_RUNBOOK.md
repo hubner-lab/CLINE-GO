@@ -293,15 +293,118 @@ change leaked in and the legacy numbers moved — stop and diagnose before trust
 
 ## Step 12 — block report
 
-**None of the existing figure scripts will report this block.** They all filter
-`arm == "primary"`, and `mvp_oracle_stats.R:84-86` additionally asserts `nrow(PRIM) == 90L`.
-That is the intended consequence of the `primary_ssclines` arm — the legacy analysis keeps
-working untouched and stays at exactly 90 replicates, and nothing silently absorbs a second
-landscape. It also means a **block-report script does not exist yet** and has to be written
-before step 12 can run. Until it does, step 12 is:
+The figure scripts are now **arm-parameterised** via `benchmarks/mvp_arm.R`, whose defaults
+(`MVP_ARM=primary`, `MVP_N_EXPECT=90`, `MVP_N_PER_ARCH=30`) are exactly the old hardcoded
+literals — so the legacy analysis stays untouched at exactly 90 replicates and nothing absorbs a
+second landscape unless you opt out explicitly. **`MVP_ADDED` is mandatory here**: the manifest
+holds 120 rows each for b1, b2 and b3 under one `arm == "primary_ssclines"`, so filtering on arm
+alone pools three demographies.
+
+**Snapshot first.** Steps 10-11 write fixed filenames into the shared `offset12/`, so the next
+block's step 10 overwrites this block's `garden_performance.tsv`. Copy them out before starting
+the next block:
 
 ```bash
-# placeholder: block report script pending (see "Still to write" below)
+SNAP="benchmarks/mvp_eval/offset12_${MVP_COHORT}"
+mkdir -p "$SNAP"
+for f in garden_performance.tsv source_performance.tsv phase1_seed_medians_solo.tsv \
+         panel_pr_recomputed.tsv panel_offset_exclusions.tsv panel_coverage.tsv; do
+  cp -p "$OFFSET_DIR/$f" "$SNAP/$f"
+done
+cp -p "panel_underfilled_${MVP_COHORT}.tsv" "sets_per_seed_${MVP_COHORT}.tsv" "$SNAP/"
+```
+
+Then the block report and the figure set. `mvp_block_report.R` emits the three step-12 products
+(per-cell medians, realized covariates, accuracy-vs-`final_LA`) plus the block-completeness
+reconciliation:
+
+```bash
+B1ENV="-e OFFSET_DIR=offset12_${MVP_COHORT} -e MVP_ARM=primary_ssclines \
+       -e MVP_ADDED=${MVP_COHORT_TAG} -e MVP_N_EXPECT=120 -e MVP_N_PER_ARCH=40"
+FIGS=/pipeline/benchmarks/mvp_eval/figures_${MVP_COHORT}
+
+for s in mvp_oracle_stats.R mvp_main_figure_v2.R mvp_block_report.R \
+         mvp_arch_panel.R mvp_method_panel.R mvp_dist_panel.R mvp_regime_panel.R \
+         mvp_slope_panel.R mvp_single_method_panels.R mvp_main_figure.R \
+         mvp_oracle_figure.R mvp_method_figure.R mvp_absolute_figures.R \
+         mvp_manuscript_figures.R; do
+  $DK run --rm --name mvp-fig-${MVP_COHORT}-${s%.R} --user "$UIDGID" -e USER=adaptogene \
+    -e OPENBLAS_NUM_THREADS=4 --cpus=8 --memory=48g $B1ENV \
+    -e FIG_OUT=$FIGS -e STATS_DIR=$FIGS \
+    -v "$PWD":/pipeline cline-go:latest Rscript /pipeline/benchmarks/$s || echo "FAILED $s"
+done
+```
+
+**Gate — the legacy no-op check, before trusting any new number.** Re-run each touched script
+with NO environment set into a throwaway `FIG_OUT` and diff the TSVs against the frozen
+`figures_main/`, `figures_oracle/`, `method_figure/`, `main_figure_v2/`. Require
+**max |diff| = 0**. Anything non-zero means an edit moved the legacy numbers.
+
+**`mvp_main_figure_v2.R` needs a pinned row order per arm.** `ROW_ORDER_BY_ARM` has entries for
+`primary` and `primary_ssclines`; a corpus with no entry stops with instructions rather than
+re-deriving the order silently. Derive it once from `below_by_method.tsv` (mean `below_pct` over
+the arch x working-method cells, worst first) and add it.
+
+Expect **4 of 29** manuscript figures to be skipped (`B6`, `B6b`, `D8`, `T5`) — they read the
+detection arm `sweep07`, which this corpus does not extend. The script says so and continues.
+
+Block 1 is reported in `work/journal/14_ssclines_block1.Rmd`; use it as the template for the
+next block.
+
+### The SHORT report — what to produce when asked for "the report"
+
+The full journal (`14_ssclines_block1.Rmd`, 16 sections, 87 figures) was the one-off that
+established what block 1 shows. **It is not what gets produced per block.** From block 2 onward
+the standing request is the short form, and it will be asked for repeatedly: after each block
+finishes, and again on the pooled corpus once several are done.
+
+**Contents — exactly three images, nothing else:**
+
+| slot | stem | source dir |
+|---|---|---|
+| 1 | `MAIN_FIGURE_simulation` | the run's `FIG_OUT` |
+| 2 | `panelA_composition` | same |
+| 3 | `panelB_match_oracle` | same |
+| 4 | `G3_dist_transposed` | same |
+
+Slots 1-3 are section 9 of journal 14 (the main figure and its two panels, from
+`mvp_main_figure_v2.R`); slot 4 is `mvp_dist_panel.R`'s transposed distribution plot, kept
+because it is the one that makes the accuracy distributions readable.
+
+**Form: figures placed together. No prose, no captions, no callouts, no tables, no
+interpretation.** The reader supplies the reading. Legacy left / new right, same pairing
+convention as journal 14 part III, drawn from `figures_main/` and `main_figure_v2/` for the
+legacy side.
+
+**Pooling several blocks** is an explicit act, not an omission — pass every cohort tag:
+
+```bash
+-e MVP_ARM=primary_ssclines \
+-e MVP_ADDED=ssclines_nvar_mvar,ssclines_ncline_ns,ssclines_nequal_mconst \
+-e MVP_N_EXPECT=360 -e MVP_N_PER_ARCH=120
+```
+
+`mvp_arm.R` accepts the comma-separated list, validates every tag against the manifest, and
+labels the figures "3 blocks pooled (...)". Leaving `MVP_ADDED` unset also pools, but warns —
+because unset is indistinguishable from forgetting it.
+
+Two things that still have to be done per pooled run, and are not automatic:
+
+1. **Snapshot each block's scored tables before the next block's step 10** (above). A pooled
+   report reads the snapshots, not `offset12/`.
+2. **`ROW_ORDER_BY_ARM` in `mvp_main_figure_v2.R` has no entry for a pooled corpus.** It will
+   stop with instructions rather than re-derive the order silently — derive it once from the
+   pooled `below_by_method.tsv` and pin it under a new key.
+
+Post-render check that the legacy no-op gate structurally cannot cover — scan for cross-arm
+pooling in the new direction:
+
+```bash
+for f in "$FIGS"/*.tsv; do
+  head -1 "$f" | grep -q 'seed' || continue
+  n=$(awk -F'\t' 'NR==1{for(i=1;i<=NF;i++)if($i=="seed")c=i;next}{print $c}' "$f" | sort -u | wc -l)
+  [ "$n" -gt "$((MVP_N_EXPECT + 2))" ] && echo "POOLING  $f  distinct_seeds=$n"
+done   # +2 = the degenerate controls, which several scripts keep on purpose
 ```
 
 Record the block's realized covariates — these are what the paper reports **instead of**
@@ -314,10 +417,13 @@ and start the next block.
 
 ## Still to write (not blocking steps 0-11)
 
-1. **`benchmarks/mvp_block_report.R`** — the block report. Must read
-   `offset12/garden_performance.tsv` and the manifest, filter `arm == "primary_ssclines"` and
-   the block's `added` tag, and emit: per-cell (genic x sub-level) medians, the realized
-   covariate table, and the accuracy-vs-`final_LA` panel. Needed for step 12.
+1. ~~**`benchmarks/mvp_block_report.R`**~~ — **written 2026-09-12.** Reads the block snapshot
+   plus the manifest, joins on `seed` (the performance table carries no `arm`/`added` column),
+   and emits per-cell (genic x sub-level) medians, the realized covariate table, the
+   accuracy-vs-`final_LA` panel, and a block-completeness reconciliation. Note the architecture
+   sub-level is the **suffix of `architecture`** ({pleiotropy, no-pleiotropy} x {equal-S,
+   unequal-S}), NOT `demog_level_sub` — that column holds the demography and is constant within
+   a block.
 2. **`mvp_lind_compare.R:74-98`** — errors rather than degrades when `all` / `neutral` are
    absent from `garden_performance.tsv` (bare `all` resolves to `base::all`). Guard it before
    running that script against `offset12`, or skip it explicitly.
