@@ -1,4 +1,4 @@
-# Smoke tests for the thin R CLI wrappers in scripts/.
+# Smoke tests for the thin R CLI wrappers in scripts/ — QUICK tier.
 #
 # 40 of the 78 files in scripts/*.R define no functions at all: they read
 # commandArgs(trailingOnly=TRUE) positionally, call a library in scripts/R/lib,
@@ -11,153 +11,25 @@
 # non-empty. That is deliberately shallow: this file checks PLUMBING. What the
 # numbers should be is asserted in the Tier 1 lib tests.
 #
+# The fixture builders and the runner live in tests/lib/wrapper_harness.R,
+# shared with the heavy tier (tests/heavy/test-heavy-wrappers.R). Read that file
+# before adding a row — in particular the cwd-sandbox rationale and the
+# trailing-slash requirement on every INTER_DIR argument.
+#
 # Two constraints worth knowing before extending the table:
 #   * Every wrapper source()s /pipeline/scripts/R/... with an ABSOLUTE path, so
 #     these run only inside the container with the repo mounted at /pipeline.
-#   * A wrapper's outputs are not always in argv. vcf2lfmm.R derives
-#     <base>.lfmm + <base>.lfmm_nmissing from its INPUT path, and
-#     plot_cross_entropy.R derives the SVG and QS siblings of the PNG it is
-#     given (:19-20). `outputs` must list what is written, not what is passed.
+#   * A wrapper's outputs are not always in argv. plot_density.R derives its SVG
+#     and QS siblings from the PNG it is given (:18-19); plot_manhattan.R derives
+#     every basename from PLOT_DIR (:156-208) — use `out_min` for those rather
+#     than re-deriving production names here.
 #
-# Out of scope on purpose: every wrapper needing a VCF, plink, LEA/sNMF, EMMAX,
-# GAPIT or a WorldClim raster. Those are integration runs, not smoke tests.
+# THIS TIER TAKES NO GENOMICS TOOL. Anything needing a VCF, plink, LEA, EMMAX,
+# GAPIT, vcftools, a raster or the network belongs in tests/heavy/ — which is
+# expected GREEN, merely slow, and is run with `tests/run_all.sh --heavy`.
 
-REPO  <- getOption("clinego.repo_root", "/pipeline")
-SCRIPTS <- file.path(REPO, "scripts")
-
-# ------------------------------------------------------------------ fixtures
-
-write_tsv <- function(dt, path) {
-    data.table::fwrite(dt, path, sep = "\t")
-    path
-}
-
-fx_metadata <- function(d, n = 12) {
-    dt <- data.table::data.table(
-        site      = rep(c("NEG", "TAV", "GAL"), length.out = n),
-        sample    = sprintf("ID%03d", seq_len(n)),
-        latitude  = 30 + seq_len(n) * 0.1,
-        longitude = 34 + seq_len(n) * 0.1,
-        height    = as.numeric(seq_len(n)),
-        flowering_time = as.numeric(rev(seq_len(n)))
-    )
-    write_tsv(dt, file.path(d, "metadata.tsv"))
-}
-
-fx_climate_site <- function(d) {
-    dt <- data.table::data.table(
-        sample = sprintf("ID%03d", 1:8),
-        bio_1  = c(1.0, 2.0, 3.0, 4.0, 2.5, 3.5, 1.5, 4.5),
-        bio_2  = c(9.0, 7.0, 5.0, 3.0, 8.0, 4.0, 6.0, 2.0),
-        bio_12 = rep(5.0, 8)                       # invariant on purpose
-    )
-    write_tsv(dt, file.path(d, "climate_present_site.tsv"))
-}
-
-fx_pvalues <- function(d, name = "pvalues.tsv") {
-    n <- 20
-    dt <- data.table::data.table(
-        SNPID = sprintf("snp%02d", seq_len(n)),
-        chr   = rep(c("1", "2"), each = n / 2),
-        pos   = seq_len(n) * 10000L,
-        bio_1 = c(1e-9, 1e-8, runif(n - 2, 0.05, 1)),
-        bio_2 = c(runif(n - 2, 0.05, 1), 1e-9, 1e-8)
-    )
-    write_tsv(dt, file.path(d, name))
-}
-
-fx_sig_snps <- function(path, method, traits = c("bio_1", "bio_2")) {
-    dir.create(dirname(path), recursive = TRUE, showWarnings = FALSE)
-    dt <- data.table::data.table(
-        SNPID           = c("snp01", "snp02", "snp11", "snp12"),
-        chr             = c("1", "1", "2", "2"),
-        pos             = c(10000L, 20000L, 110000L, 120000L),
-        pvalue          = c(1e-9, 1e-8, 1e-9, 1e-8),
-        pval_threshold  = 0.0025,
-        method          = method,
-        trait           = rep(traits, length.out = 4),
-        overlap_traits  = "",
-        overlap_snps    = "",
-        overlap_distance = 10000L
-    )
-    write_tsv(dt, path)
-}
-
-fx_regions <- function(d) {
-    dt <- data.table::data.table(
-        region_id = c("1_5000-30000", "2_105000-130000"),
-        trait     = c("bio_1", "bio_2"),
-        chr       = c("1", "2"),
-        start     = c(5000L, 105000L),
-        end       = c(30000L, 130000L)
-    )
-    write_tsv(dt, file.path(d, "regions.tsv"))
-}
-
-fx_gff <- function(d) {
-    p <- file.path(d, "genes.gff3")
-    lines <- c(
-        "##gff-version 3",
-        paste("1", "src", "gene", "8000",  "15000", ".", "+", ".", "ID=g1;Name=ALPHA", sep = "\t"),
-        paste("1", "src", "exon", "9000",  "10000", ".", "+", ".", "ID=e1;Parent=g1",  sep = "\t"),
-        paste("2", "src", "gene", "110000", "125000", ".", "-", ".", "ID=g2;Name=BETA", sep = "\t")
-    )
-    writeLines(lines, p)
-    p
-}
-
-fx_allsnps <- function(d) {
-    p <- file.path(d, "all.vcfsnp")
-    writeLines(c("1 9500 snp01 C A . . PR GT",
-                 "1 12000 snp02 G T . . PR GT",
-                 "2 115000 snp11 A C . . PR GT"), p)
-    p
-}
-
-fx_sample_list <- function(d, name, samples) {
-    p <- file.path(d, name)
-    writeLines(paste(samples, samples), p)   # plink --keep: FID IID, no header
-    p
-}
-
-# ------------------------------------------------------------------- runner
-
-# Invoked exactly as the Snakefile does: `Rscript /pipeline/scripts/<name>.R ...`.
-# The scripts are not executable (mode 644) and carry no reliable shebang, so
-# executing the path directly gives "Permission denied" rather than running them.
-run_wrapper <- function(script, args) {
-    # shQuote every argument. system2() builds a SHELL command line, so an
-    # unquoted space-separated file list (combine_selected_snps.R's argv[1],
-    # combine_pheno_pvalues.R's argv[1]) would be split into separate argv
-    # entries and every later positional would shift by one — the script then
-    # writes its output over one of its own inputs. The Snakefile quotes these
-    # the same way ("{params.files_str}", gwas.smk:93, _assoc_downstream.smk:81).
-    out <- suppressWarnings(system2("Rscript",
-                                    shQuote(c(file.path(SCRIPTS, script), args)),
-                                    stdout = TRUE, stderr = TRUE))
-    status <- attr(out, "status")
-    list(status = if (is.null(status)) 0L else as.integer(status),
-         output = paste(out, collapse = "\n"))
-}
-
-expect_wrapper_ok <- function(spec) {
-    d <- withr::local_tempdir()
-    args <- spec$args(d, spec$build(d))
-    res  <- run_wrapper(spec$script, args)
-
-    testthat::expect_identical(
-        res$status, 0L,
-        info = paste0(spec$script, " exited ", res$status, "\nargs: ",
-                      paste(args, collapse = " "), "\n", res$output))
-
-    for (f in spec$outputs(d)) {
-        testthat::expect_true(file.exists(f),
-            info = paste0(spec$script, " declared ", f, " but did not write it\n",
-                          res$output))
-        testthat::expect_gt(file.size(f), 0)
-    }
-    invisible(d)
-}
+source(file.path(getOption("clinego.repo_root", "/pipeline"),
+                 "tests", "lib", "wrapper_harness.R"))
 
 # -------------------------------------------------------------------- table
 
@@ -167,7 +39,8 @@ WRAPPERS <- list(
         script  = "trait_summary.R",
         build   = function(d) fx_metadata(d),
         args    = function(d, meta) c(meta, file.path(d, "trait_summary.tsv")),
-        outputs = function(d) file.path(d, "trait_summary.tsv")
+        outputs = function(d) file.path(d, "trait_summary.tsv"),
+        fails_without_input = TRUE
     ),
     list(
         label   = "check_climate_variance.R (bio)",
@@ -207,7 +80,8 @@ WRAPPERS <- list(
                                 fx_sample_list(d, "vcf_samples.list",
                                                sprintf("ID%03d", c(3, 1, 2)))),
         args    = function(d, f) c(f[1], f[2], file.path(d, "metadata_ordered.tsv")),
-        outputs = function(d) file.path(d, "metadata_ordered.tsv")
+        outputs = function(d) file.path(d, "metadata_ordered.tsv"),
+        fails_without_input = TRUE
     ),
     list(
         label   = "filter_coord_samples.R",
@@ -218,7 +92,8 @@ WRAPPERS <- list(
                                       file.path(d, "metadata_climate.tsv"),
                                       file.path(d, "coord_missing_summary.tsv")),
         outputs = function(d) file.path(d, c("coord_valid.list", "metadata_climate.tsv",
-                                             "coord_missing_summary.tsv"))
+                                             "coord_missing_summary.tsv")),
+        fails_without_input = TRUE
     ),
     list(
         label   = "filter_climate_valid_samples.R",
@@ -248,7 +123,8 @@ WRAPPERS <- list(
         # a smoke test should not depend on the core count either way.
         args    = function(d, pv) c(pv, "bonf_0.05", "10000", "EMMAX", "1",
                                     file.path(d, "sig_snps.tsv")),
-        outputs = function(d) file.path(d, "sig_snps.tsv")
+        outputs = function(d) file.path(d, "sig_snps.tsv"),
+        fails_without_input = TRUE
     ),
     list(
         label   = "create_regions.R",
@@ -261,7 +137,8 @@ WRAPPERS <- list(
                                      file.path(d, "regions_per_trait.tsv"),
                                      file.path(d, "regions_combined.tsv")),
         outputs = function(d) file.path(d, c("regions_per_trait.tsv",
-                                             "regions_combined.tsv"))
+                                             "regions_combined.tsv")),
+        fails_without_input = TRUE
     ),
     list(
         # combine_selected_snps.R:31 derives the method name from each file's
@@ -305,10 +182,290 @@ WRAPPERS <- list(
                                    file.path(d, "genes_collapsed.tsv")),
         outputs = function(d) file.path(d, c("genes_per_region.tsv",
                                              "genes_collapsed.tsv"))
+    ),
+
+    # ===================================================================
+    # Added 2026-09-12. All of these were previously listed as "out of
+    # scope: needs a VCF / plink / LEA / raster" — measured false. None
+    # of them touches a genomics tool: plot_pca_structure.R and
+    # plot_pregea_screeplot.R read LEA *output text* with fread(header =
+    # FALSE) / readLines() and never call library(LEA).
+    # ===================================================================
+
+    list(
+        label   = "subset_lfmm_matrix.R",
+        script  = "subset_lfmm_matrix.R",
+        build   = function(d) {
+            samples <- sprintf("ID%03d", 1:6)
+            m     <- fx_lfmm_matrix(d, n_ind = 6, n_snp = 8)
+            order <- file.path(d, "samples_order.list")
+            writeLines(samples, order)               # one per line, NOT FID IID
+            keep  <- fx_sample_list(d, "coord_valid.list", samples[1:4])
+            c(m, order, keep)
+        },
+        args    = function(d, f) c(f[1], f[2], f[3], file.path(d, "geno_sub.lfmm")),
+        outputs = function(d) file.path(d, "geno_sub.lfmm"),
+        fails_without_input = TRUE
+    ),
+    list(
+        label   = "prepare_phenotypes.R (MEAN)",
+        script  = "prepare_phenotypes.R",
+        build   = function(d) fx_metadata(d),
+        args    = function(d, meta) c(meta, "MEAN", file.path(d, "pheno_mean"),
+                                      file.path(d, "missing_mean.tsv")),
+        outputs = function(d) c(file.path(d, "missing_mean.tsv"),
+                                file.path(d, "pheno_mean", "all_phenotypes.tsv")),
+        fails_without_input = TRUE
+    ),
+    list(
+        label   = "prepare_phenotypes.R (MEDIAN)",
+        script  = "prepare_phenotypes.R",
+        build   = function(d) fx_metadata(d),
+        args    = function(d, meta) c(meta, "MEDIAN", file.path(d, "pheno_median"),
+                                      file.path(d, "missing_median.tsv")),
+        outputs = function(d) c(file.path(d, "missing_median.tsv"),
+                                file.path(d, "pheno_median", "all_phenotypes.tsv"))
+    ),
+    list(
+        # DROP takes the per-trait branch (:110-131) instead of the single
+        # all_phenotypes.tsv one, so it writes a different set of files. That
+        # divergence is the reason all three strategies get a row.
+        label   = "prepare_phenotypes.R (DROP)",
+        script  = "prepare_phenotypes.R",
+        build   = function(d) fx_metadata(d),
+        args    = function(d, meta) c(meta, "DROP", file.path(d, "pheno_drop"),
+                                      file.path(d, "missing_drop.tsv")),
+        outputs = function(d) c(file.path(d, "missing_drop.tsv"),
+                                file.path(d, "pheno_drop", "height_phenotype.tsv"),
+                                file.path(d, "pheno_drop", "height_samples.list")),
+        out_min = function(d) list(dir = file.path(d, "pheno_drop"),
+                                   pattern = "_phenotype\\.tsv$", n = 2)
+    ),
+    list(
+        label   = "promote_snp_set.R",
+        script  = "promote_snp_set.R",
+        build   = function(d) fx_selected_snps(d),
+        args    = function(d, sel) c(sel, "testset", file.path(d, "snp_sets"), "GEA"),
+        outputs = function(d) c(file.path(d, "snp_sets", "testset", "selected_snps.tsv"),
+                                file.path(d, "snp_sets", "manifest.json")),
+        fails_without_input = TRUE
+    ),
+    list(
+        # write_summary.R is the one row that must NOT get the negative control:
+        # read_opt() (:317) returns NULL for a missing declared input and the
+        # guarded block is simply skipped, so it exits 0 with a thinner table.
+        # That is filed as a defect, and quarantined in test-known-bugs.R.
+        label   = "write_summary.R (traits)",
+        script  = "write_summary.R",
+        build   = function(d) {
+            ts <- write_tsv(data.table::data.table(
+                      trait = c("height", "flowering_time"), n = c(47L, 44L),
+                      n_missing = c(0L, 3L), pct_missing = c(0, 6.38),
+                      mean = c(36.1, 18.9), sd = c(5.9, 4.8),
+                      min = c(26.3, 11.3), median = c(36.2, 18.0), max = c(47, 26)),
+                  file.path(d, "trait_summary.tsv"))
+            inv <- write_tsv(data.table::data.table(predictor = character(),
+                                                    reason = character()),
+                             file.path(d, "trait_invariant.tsv"))
+            c(ts, inv, fx_dummy_png(d, "trait_pairs.png"))
+        },
+        args    = function(d, f) c("traits", file.path(d, "pipeline_summary.tsv"),
+                                   f[1], f[2], f[3]),
+        outputs = function(d) file.path(d, "pipeline_summary.tsv"),
+        fails_without_input = FALSE
+    ),
+    list(
+        label   = "pregea_ladder_stats.R",
+        script  = "pregea_ladder_stats.R",
+        build   = function(d) fx_pvalues(d),
+        args    = function(d, pv) c(pv, "lfmm", "K", "3", "0.05", "0.05", "FALSE",
+                                    file.path(d, "ladder_stats.tsv")),
+        outputs = function(d) file.path(d, "ladder_stats.tsv"),
+        fails_without_input = TRUE
+    ),
+    list(
+        label   = "compute_pairwise_ondemand.R",
+        script  = "compute_pairwise_ondemand.R",
+        build   = function(d) {
+            gea  <- file.path(d, "gea_sig.tsv")
+            gwas <- file.path(d, "gwas_sig.tsv")
+            fx_sig_snps(gea,  "EMMAX", traits = c("bio_1", "bio_2"))
+            fx_sig_snps(gwas, "EMMAX", traits = c("height", "flowering_time"))
+            c(gea, gwas)
+        },
+        args    = function(d, f) c(f[1], f[2], "10000", "10000", "1",
+                                   file.path(d, "pw_collapsed.tsv"),
+                                   file.path(d, "pw_table.tsv")),
+        outputs = function(d) file.path(d, c("pw_collapsed.tsv", "pw_table.tsv"))
+    ),
+    list(
+        label   = "compute_pairwise_overlaps.R (both sides)",
+        script  = "compute_pairwise_overlaps.R",
+        build   = function(d) c(fx_selected_snps(d, "gea_selected.tsv"),
+                                fx_selected_snps(d, "gwas_selected.tsv",
+                                                 traits = c("height", "flowering_time"))),
+        args    = function(d, f) c(f[1], f[2], "10000", "1",
+                                   file.path(d, "ov_collapsed.tsv"),
+                                   file.path(d, "ov_pairwise.tsv")),
+        outputs = function(d) file.path(d, c("ov_collapsed.tsv", "ov_pairwise.tsv"))
+    ),
+    list(
+        # The literal string "NULL" is a supported value for either side
+        # (:35) — a one-sided run must still write both tables.
+        label   = "compute_pairwise_overlaps.R (GWAS = \"NULL\")",
+        script  = "compute_pairwise_overlaps.R",
+        build   = function(d) fx_selected_snps(d, "gea_only.tsv"),
+        args    = function(d, sel) c(sel, "NULL", "10000", "1",
+                                     file.path(d, "one_collapsed.tsv"),
+                                     file.path(d, "one_pairwise.tsv")),
+        outputs = function(d) file.path(d, c("one_collapsed.tsv", "one_pairwise.tsv"))
+    ),
+    list(
+        label   = "compute_wza.R",
+        script  = "compute_wza.R",
+        build   = function(d) c(fx_pvalues(d), fx_maf(d)),
+        args    = function(d, f) c(f[1], f[2], "NULL", "50000", "10000", "All",
+                                   file.path(d, "wza.tsv")),
+        outputs = function(d) file.path(d, "wza.tsv"),
+        fails_without_input = TRUE
+    ),
+    list(
+        # The poster child for the cwd sandbox: generate_simdata.R:8 falls back
+        # to a RELATIVE "data/" when argv is empty, and data/ is gitignored, so
+        # a no-arg run would overwrite the working SIMDATA fixtures invisibly.
+        # Always pass an explicit dir — with a trailing slash (:301,:441 concat).
+        label   = "generate_simdata.R",
+        script  = "generate_simdata.R",
+        build   = function(d) fx_inter_dir(d, "simdata"),
+        args    = function(d, outdir) outdir,
+        outputs = function(d) file.path(d, "simdata", c("SIMDATA.vcf", "SIMDATA.gff3"))
+    ),
+
+    # ---- plot smokes: exit 0 + declared PNG/SVG exists and is non-empty.
+    # Plot CONTENT is never read (repo rule 1). What this catches is the actual
+    # failure mode of a plotting wrapper: an argument-order change or an error
+    # inside the ggplot chain.
+
+    list(
+        label   = "plot_density.R",
+        script  = "plot_density.R",
+        build   = function(d) c(fx_climate_site(d), fx_inter_dir(d)),
+        args    = function(d, f) c(f[1], "bio_1,bio_2", file.path(d, "density.png"), f[2]),
+        outputs = function(d) file.path(d, c("density.png", "density.svg"))
+    ),
+    list(
+        label   = "plot_structure.R",
+        script  = "plot_structure.R",
+        build   = function(d) c(fx_clusters(d, k = 3), fx_inter_dir(d)),
+        args    = function(d, f) c(f[1], "3", file.path(d, "structure_K3.png"), f[2]),
+        outputs = function(d) file.path(d, c("structure_K3.png", "structure_K3.svg"))
+    ),
+    list(
+        label   = "plot_trait_pairs.R",
+        script  = "plot_trait_pairs.R",
+        build   = function(d) fx_metadata(d),
+        args    = function(d, meta) c(meta, file.path(d, "trait_pairs.png"), "8"),
+        outputs = function(d) file.path(d, c("trait_pairs.png", "trait_pairs.svg")),
+        fails_without_input = TRUE
+    ),
+    list(
+        label   = "plot_correlation_heatmap.R (one block)",
+        script  = "plot_correlation_heatmap.R",
+        build   = function(d) c(fx_climate_site(d), fx_inter_dir(d)),
+        args    = function(d, f) c(f[1], "NULL", file.path(d, "corr.png"), f[2]),
+        outputs = function(d) file.path(d, c("corr.png", "corr.svg"))
+    ),
+    list(
+        label   = "plot_correlation_heatmap.R (two blocks)",
+        script  = "plot_correlation_heatmap.R",
+        build   = function(d) c(fx_climate_site(d), fx_metadata(d, n = 8),
+                                fx_inter_dir(d)),
+        args    = function(d, f) c(f[1], f[2], file.path(d, "corr2.png"), f[3],
+                                   "Traits x climate"),
+        outputs = function(d) file.path(d, c("corr2.png", "corr2.svg"))
+    ),
+    list(
+        # PLOT_DIR-style output: plot_manhattan.R:156-208 derives every basename
+        # itself, so assert a count of matching files rather than re-deriving
+        # production names in the test.
+        label   = "plot_manhattan.R",
+        script  = "plot_manhattan.R",
+        build   = function(d) {
+            dir.create(file.path(d, "plots"), showWarnings = FALSE)
+            fx_pvalues(d)
+        },
+        args    = function(d, pv) c(pv, "bonf_0.05", "3", "EMMAX", "bio_1",
+                                    file.path(d, "plots"), "bio_1,bio_2"),
+        outputs = function(d) character(0),
+        out_min = function(d) list(dir = file.path(d, "plots"),
+                                   pattern = "\\.png$", n = 1)
+    ),
+    list(
+        label   = "plot_manhattan_combined.R",
+        script  = "plot_manhattan_combined.R",
+        build   = function(d) {
+            dir.create(file.path(d, "plots_comb"), showWarnings = FALSE)
+            paste0("EMMAX:bonf_0.05:", fx_pvalues(d))
+        },
+        args    = function(d, files_str) c(files_str, "bio_1,bio_2", "3",
+                                           file.path(d, "plots_comb")),
+        outputs = function(d) character(0),
+        out_min = function(d) list(dir = file.path(d, "plots_comb"),
+                                   pattern = "\\.png$", n = 1)
+    ),
+    list(
+        label   = "plot_miami.R",
+        script  = "plot_miami.R",
+        build   = function(d) {
+            dir.create(file.path(d, "plots_miami"), showWarnings = FALSE)
+            gea  <- fx_pvalues(d, "gea_pv.tsv")
+            gwas <- data.table::data.table(
+                SNPID = sprintf("snp%02d", 1:20), chr = rep(c("1", "2"), each = 10),
+                pos = seq_len(20) * 10000L,
+                height = c(1e-9, runif(19, 0.05, 1)),
+                flowering_time = c(runif(19, 0.05, 1), 1e-9))
+            c(paste0("EMMAX:bonf_0.05:", gea),
+              paste0("EMMAX:bonf_0.05:", write_tsv(gwas, file.path(d, "gwas_pv.tsv"))))
+        },
+        args    = function(d, f) c(f[1], f[2], "bio_1,bio_2",
+                                   "height,flowering_time", "3",
+                                   file.path(d, "plots_miami")),
+        outputs = function(d) character(0),
+        out_min = function(d) list(dir = file.path(d, "plots_miami"),
+                                   pattern = "\\.png$", n = 1)
+    ),
+    list(
+        label   = "plot_pca_structure.R",
+        script  = "plot_pca_structure.R",
+        build   = function(d) c(fx_clusters(d, k = 3), fx_projections(d),
+                                fx_eigenvalues(d), fx_inter_dir(d)),
+        args    = function(d, f) c(f[1], f[2], f[3], "3",
+                                   file.path(d, "pca_structure_K3.png"), f[4]),
+        outputs = function(d) file.path(d, c("pca_structure_K3.png",
+                                             "pca_structure_K3.svg"))
+    ),
+    list(
+        label   = "plot_pregea_screeplot.R",
+        script  = "plot_pregea_screeplot.R",
+        build   = function(d) c(fx_eigenvalues(d), fx_inter_dir(d)),
+        args    = function(d, f) c(f[1], "3", "2,3,4,5", "5",
+                                   file.path(d, "scree.png"),
+                                   file.path(d, "scree.tsv"), f[2]),
+        outputs = function(d) file.path(d, c("scree.png", "scree.tsv")),
+        fails_without_input = TRUE
     )
 )
 
 # --------------------------------------------------------------------- tests
+
+# One LOUD test for the mount, so a broken mount is a single red rather than 40
+# silent skips. The per-row skip_if_not below then stays as the graceful path for
+# anyone running the file outside the container.
+test_that("the repo is mounted where the wrappers expect it", {
+    expect_true(dir.exists(SCRIPTS),
+                info = paste0("scripts/ not found at ", SCRIPTS,
+                              " — run this suite with -v $PWD:/pipeline"))
+})
 
 for (spec in WRAPPERS) {
     local({
@@ -318,8 +475,23 @@ for (spec in WRAPPERS) {
             skip_if_not(nzchar(Sys.which("Rscript")), "Rscript not on PATH")
             expect_wrapper_ok(s)
         })
+
+        if (isTRUE(s$fails_without_input)) {
+            test_that(paste0("wrapper fails loudly on a missing input: ", s$label), {
+                skip_if_not(dir.exists(SCRIPTS), "scripts/ not mounted")
+                expect_wrapper_fails_without_input(s)
+            })
+        }
     })
 }
+
+test_that("no spec invokes a wrapper that rewrites the tracked fixtures", {
+    # add_related_samples.R and add_pregea_sites.R take NO argv and
+    # read-modify-write data/SIMDATA.* in place. data/ is gitignored, so nothing
+    # downstream would notice. Keep this a mechanism, not a review convention.
+    scripts_used <- vapply(WRAPPERS, function(s) s$script, character(1))
+    expect_length(intersect(scripts_used, WRAPPER_DENYLIST), 0L)
+})
 
 test_that("find_genes_around_regions.R actually annotates the overlapping genes", {
     skip_if_not(dir.exists(SCRIPTS), "scripts/ not mounted")
@@ -337,13 +509,4 @@ test_that("find_genes_around_regions.R actually annotates the overlapping genes"
     # as an empty table rather than as a non-zero exit.
     expect_gt(nrow(genes), 0)
     expect_true(all(c("region_id", "gene_id", "chr") %in% names(genes)))
-})
-
-test_that("a wrapper given a missing input fails loudly instead of writing a stub", {
-    skip_if_not(dir.exists(SCRIPTS), "scripts/ not mounted")
-    d <- withr::local_tempdir()
-    out <- file.path(d, "trait_summary.tsv")
-    res <- run_wrapper("trait_summary.R", c(file.path(d, "nope.tsv"), out))
-    expect_gt(res$status, 0L)
-    expect_false(file.exists(out))
 })
