@@ -2,12 +2,23 @@
 # One command for the whole test suite.
 #
 #   tests/run_all.sh                          # the merge gate: all unit suites
+#   tests/run_all.sh --heavy                  # + the tool-dependent wrapper tests
 #   tests/run_all.sh --invariants SIMDATA_results     # path relative to the repo root
 #   tests/run_all.sh --image cline-go:latest
 #
 # Runs every suite to completion and reports a one-line summary per suite, then
 # exits non-zero if any suite failed. It deliberately does NOT stop at the first
 # failure: the point is to learn everything that broke in one pass.
+#
+# THREE GATES, THREE DIFFERENT CONTRACTS. Do not confuse them:
+#
+#   default    MUST be green. Hermetic, no genomics tool, seconds to minutes.
+#   --heavy    EXPECTED green. Needs plink / LEA / EMMAX / vcftools; separated
+#              from the default gate by RUNTIME and tool dependency, NOT by
+#              correctness. Run it before publishing a pipeline version. A missing
+#              tool FAILS rather than skips — inside the image they are all
+#              present, so absence means the image is wrong.
+#   --invariants  EXPECTED RED. See the note below.
 #
 # ON --invariants: the validator is EXPECTED to be red on the current
 # SIMDATA_results tree. Every violation it reports there corresponds to a defect
@@ -19,14 +30,16 @@
 set -uo pipefail
 
 IMAGE="cline-go:latest"
+RUN_HEAVY=0
 INVARIANTS_DIR=""
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --heavy)      RUN_HEAVY=1;             shift 1 ;;
         --invariants) INVARIANTS_DIR="${2:-}"; shift 2 ;;   # path RELATIVE to the repo root
         --image)      IMAGE="${2:-}";          shift 2 ;;
-        -h|--help)    sed -n '2,20p' "${BASH_SOURCE[0]}"; exit 0 ;;
+        -h|--help)    sed -n '2,32p' "${BASH_SOURCE[0]}"; exit 0 ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
 done
@@ -77,7 +90,15 @@ run_suite "shiny app (clinego.app)" clinego_tests_app \
 run_suite "python (tests/python/)" clinego_tests_python \
     python3 -B -m unittest discover -s /pipeline/tests/python -t /pipeline/tests/python
 
-# 4. Invariants over a real results tree — opt-in, see the header note.
+# 4. Heavy tier: wrapper tests needing plink / LEA / EMMAX / vcftools. Opt-in for
+#    runtime, not for correctness — expected green. Its own testthat root, so the
+#    default gate neither sources nor skips it (tests/run_heavy.R explains why).
+if [[ "$RUN_HEAVY" -eq 1 ]]; then
+    run_suite "heavy wrappers (tests/heavy/)" clinego_tests_heavy \
+        Rscript /pipeline/tests/run_heavy.R
+fi
+
+# 5. Invariants over a real results tree — opt-in, see the header note.
 if [[ -n "$INVARIANTS_DIR" ]]; then
     # The container sees the repo at /pipeline, so the argument must be a path
     # relative to the repo root. Accept an absolute host path too by stripping
