@@ -66,3 +66,44 @@ test_that("sass is declared in Imports, since app_theme.R calls it", {
     imports <- utils::packageDescription("clinego.app", fields = "Imports")
     expect_true(grepl("\\bsass\\b", imports))
 })
+
+# ---------------------------------------------------------------------------
+# fct_data_loading.R:478,550 — parse_gff_attributes() drops empty rows, and
+# load_gff_genes() cbinds the result POSITIONALLY. A GFF whose selected feature
+# set contains any row with an empty attributes field therefore yields a gene
+# table where every gene after that row carries ANOTHER gene's attributes.
+# Measured: 3 input rows / 2 parsed recycles with a warning; 4 input rows / 2
+# parsed recycles with NO warning at all, because the lengths divide evenly.
+#
+# DISTINCT from the already-filed gene_id defect in the same function: that one
+# is regmatches() on the gene_id extraction (:533-544), this one is row loss in
+# the attribute parser plus a positional bind.
+# Found 2026-09-12 while writing test-fct_data_loading.R.
+# Filed: docs/pipeline_improvement_requests.md (2026-09-12).
+# ---------------------------------------------------------------------------
+
+test_that("parse_gff_attributes keeps one output row per input row", {
+    skip("known bug: fct_data_loading.R:478 rbindlist drops empty lists — filed 2026-09-12")
+
+    # The contract load_gff_genes()'s positional cbind silently assumes.
+    got <- parse_gff_attributes(c("ID=g1", NA_character_, "ID=g3"))
+    expect_identical(nrow(got), 3L)
+    expect_identical(got$ID, c("g1", NA_character_, "g3"))
+})
+
+test_that("load_gff_genes does not recycle attributes across genes", {
+    skip("known bug: fct_data_loading.R:550 positional cbind over a shorter table — filed 2026-09-12")
+
+    # Written against the helper rather than the loader so it needs no GFF on
+    # disk: this is exactly the bind load_gff_genes performs.
+    dt <- data.table::data.table(
+        gene_id = c("a", "b", "c", "d"), chr = "1", start = 1L, end = 2L,
+        attributes = c("ID=g1", "", "ID=g3", ""))
+    attr_dt <- parse_gff_attributes(dt$attributes)
+    expect_identical(nrow(attr_dt), nrow(dt))
+
+    bound <- cbind(dt[, .(gene_id, chr, start, end)], attr_dt)
+    # Genes b and d have no attributes of their own and must not inherit a
+    # neighbour's.
+    expect_identical(bound$ID, c("g1", NA_character_, "g3", NA_character_))
+})
