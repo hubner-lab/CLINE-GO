@@ -1,25 +1,43 @@
-"""workflow/methods/ — only the two places where CODE, not data, can be wrong.
+"""workflow/methods/ — the places where CODE, not data, can be wrong, plus the two
+assertion families that are not value restatements.
 
 gwas.py is NOT a dict literal: it is a comprehension filtering GEA_METHODS by a
 flag (:9-13), so flipping `supports_phenotypes` on one entry silently changes
 which methods mode=gwas runs. _gapit() (gea.py:51-68) is a factory that produces
 8 of the 11 GEA entries.
 
-Deliberately NOT tested: the GEA_METHODS schema sweep and maladaptation.py's
-contents. Those are plain dict literals — a test restating them catches nothing
-(edit the dict, edit the test) and CLAUDE.md's "avoid redundancy aggressively"
-cuts against it.
+Deliberately NOT tested: a GEA_METHODS / MALADAPTATION_METHODS schema sweep —
+required-key presence, per-key types, allowed `engine` values. Those are plain dict
+literals; a test restating them catches nothing (edit the dict, edit the test) and
+CLAUDE.md's "avoid redundancy aggressively" cuts against it.
+
+ADDED 2026-09-12, and the line between the two is worth stating because it is easy
+to slide back across. Two assertion families about the same dicts DO have an
+independent failure mode, so they are not restatements:
+
+  * TestRegistryScriptsExist — every declared script path is checked against the
+    FILESYSTEM. A renamed or deleted R script currently surfaces only as a
+    Snakemake error mid-run, arbitrarily far downstream.
+  * TestRegistryCrossFieldRules — a capability flag and the script path it implies
+    must agree (builds_model without a model_script, and so on). These encode a
+    RULE about the registry, not the registry's contents: a new entry that gets it
+    wrong goes red without the test being edited.
 
 workflow/rules/*.smk stays out of scope entirely: common.smk:9 needs the
 Snakemake-injected `workflow` global and :66-78 reads `config` and touches the
 filesystem, both at import time.
 """
+import os
 import unittest
 
 import _support
 
 gea = _support.import_methods("gea")
 gwas = _support.import_methods("gwas")
+malad = _support.import_methods("maladaptation")
+
+SCRIPT_KEYS = ("script", "model_script", "offset_script",
+               "cumimp_script", "importance_script")
 
 GAPIT_MODELS = {"BLINK", "FarmCPU", "MLM", "MLMM", "GLM", "CMLM", "ECMLM", "SUPER"}
 
@@ -99,6 +117,82 @@ class TestParamSpec(unittest.TestCase):
 
     def test_p_without_keywords_is_type_and_default_only(self):
         self.assertEqual(gea.P("bool", False), {"type": "bool", "default": False})
+
+
+class TestRegistryScriptsExist(unittest.TestCase):
+    """Every declared script path must resolve to a real file.
+
+    Not a restatement: the assertion is about the filesystem, not about the dict.
+    Paths are repo-relative (e.g. "scripts/gapit.R").
+    """
+
+    def _check(self, registry, label):
+        seen = 0
+        for name, cfg in registry.items():
+            for key in SCRIPT_KEYS:
+                rel = cfg.get(key)
+                if rel is None:
+                    continue
+                path = os.path.join(_support.REPO_ROOT, rel)
+                self.assertTrue(os.path.isfile(path),
+                                f"{label}[{name}][{key}] -> missing file {rel}")
+                seen += 1
+        # Guard against a vacuous pass if the registry is ever emptied or a key
+        # is renamed out from under SCRIPT_KEYS.
+        self.assertGreater(seen, 0, f"{label}: no script paths checked at all")
+
+    def test_gea_method_scripts_exist(self):
+        self._check(gea.GEA_METHODS, "GEA_METHODS")
+
+    def test_maladaptation_method_scripts_exist(self):
+        self._check(malad.MALADAPTATION_METHODS, "MALADAPTATION_METHODS")
+
+
+class TestRegistryCrossFieldRules(unittest.TestCase):
+    """Rules relating a capability flag to the script path it implies.
+
+    Each encodes an invariant the rule factories depend on, so a new entry that
+    violates one goes red without this file being touched.
+    """
+
+    def test_multivariate_implies_a_pseudo_trait_and_vice_versa(self):
+        # gea.py's header: multivariate=True means ONE p-value column for the whole
+        # predictor set, named by pseudo_trait. One without the other leaves the
+        # threshold layer with no column name to dispatch on.
+        for name, cfg in gea.GEA_METHODS.items():
+            self.assertEqual(bool(cfg["multivariate"]),
+                             cfg["pseudo_trait"] is not None,
+                             f"GEA_METHODS[{name}]: multivariate and pseudo_trait disagree")
+
+    def test_builds_model_false_implies_no_model_script(self):
+        # builds_model=False is documented as "one-call: model + offset in a single
+        # script"; a model_script alongside it would never be invoked.
+        for name, cfg in malad.MALADAPTATION_METHODS.items():
+            if not cfg["builds_model"]:
+                self.assertIsNone(cfg["model_script"],
+                                  f"MALADAPTATION_METHODS[{name}]: "
+                                  "builds_model is False but a model_script is declared")
+
+    def test_builds_model_true_requires_a_model_script(self):
+        for name, cfg in malad.MALADAPTATION_METHODS.items():
+            if cfg["builds_model"]:
+                self.assertIsNotNone(cfg["model_script"],
+                                     f"MALADAPTATION_METHODS[{name}]: "
+                                     "builds_model is True but no model_script")
+
+    def test_cumulative_importance_requires_a_cumimp_script(self):
+        for name, cfg in malad.MALADAPTATION_METHODS.items():
+            if cfg["supports_cumulative_importance"]:
+                self.assertIsNotNone(cfg["cumimp_script"],
+                                     f"MALADAPTATION_METHODS[{name}]: claims cumulative "
+                                     "importance support with no cumimp_script")
+
+    def test_every_maladaptation_method_computes_an_offset(self):
+        # The offset raster is the module's entire output; a method without one
+        # would register a target nothing can build.
+        for name, cfg in malad.MALADAPTATION_METHODS.items():
+            self.assertIsNotNone(cfg["offset_script"],
+                                 f"MALADAPTATION_METHODS[{name}]: no offset_script")
 
 
 if __name__ == "__main__":
