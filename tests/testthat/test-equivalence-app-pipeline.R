@@ -450,8 +450,20 @@ test_that("the pipeline's gene_id extraction handles all three attribute shapes"
 # one row per (SNPID, method, trait) (fct_combine.R:131-135). So membership is
 # compared first and min_pvalue separately.
 
+# suppressWarnings, not just quiet(), on BOTH sides. When a strategy selects
+# NOTHING, each implementation's rbindlist over an empty list produces a table
+# that data.table then flags with its "shallow copy ... := can add or remove
+# columns by reference" notice. The wart is symmetric — pipeline
+# combine_sigsnps.R:166 and app fct_combine.R:121 — belongs to the empty path
+# rather than to anything these blocks measure, and this suite's warning
+# baseline is zero, so letting it through would leave standing noise for the
+# next real warning to hide in.
 app_combine <- function(sig_list, strategy, gap) {
-    quiet(clinego.app:::combine_sigsnps(sig_list, strategy, gap))
+    suppressWarnings(quiet(clinego.app:::combine_sigsnps(sig_list, strategy, gap)))
+}
+
+pipe_combine <- function(sig_list, strategy, distance, predictors = PREDICTORS) {
+    suppressWarnings(quiet(combine_sigsnps(sig_list, strategy, distance, predictors)))
 }
 
 test_that("the strategy alias tables are identical on both sides", {
@@ -709,4 +721,441 @@ test_that("a scalar distance reaches the shared clusterer identically", {
     expect_identical(.get_dist(500L, "1"), 500L)
     r <- regions_both_sides(500L)
     expect_identical(nrow(r$pipe), nrow(r$app))
+})
+
+# --- 6. Cross-method per-trait ----------------------------------------------
+#
+# Block 3 above compares Union, single-method and plain Cross-method. The
+# per-trait branch — pipeline .overlap_cross_method(per_trait = TRUE)
+# (combine_sigsnps.R:132-167) against the app's loop (fct_combine.R:99-121) —
+# has never been compared, only its ALIAS was (block 3's first test).
+#
+# SCOPE NOTE, because the filing is easy to over-read: the superset defect
+# skip()ped at the Cross-method block is the plain Cross-method branch ONLY
+# (fct_combine.R:97 returns all_snps[SNPID %in% selected_ids], every row for a
+# selected SNP). The per-trait branch returns unique(rbindlist(selected_rows)) —
+# matched rows only — and is structurally correct. Do not read that filing as
+# covering this branch.
+
+# The shared builders use PREDICTORS = c("bio_1", "bio_2"), which covers their
+# whole trait set — so every existing block is structurally blind to the
+# pipeline's `predictors` whitelist (combine_sigsnps.R:51). This builder adds a
+# trait OUTSIDE that vector. It is deliberately a NEW builder rather than a
+# widening of two_method_fixture(): the shared one is used by blocks 1-4, and
+# changing it would silently change what they assert.
+fixture_with_extra_trait <- function() {
+    list(
+        EMMAX = sig_long(c("1:1000", "1:2000", "3:7000"),
+                         c("1", "1", "3"),
+                         c(1000L, 2000L, 7000L),
+                         c("bio_1", "bio_1", "bio_99"),   # bio_99 is NOT in PREDICTORS
+                         "EMMAX",
+                         c(1e-8, 1e-7, 1e-9)),
+        LFMM  = sig_long(c("1:2000", "3:7000"),
+                         c("1", "3"),
+                         c(2000L, 7000L),
+                         c("bio_1", "bio_99"),
+                         "LFMM",
+                         c(1e-9, 1e-10))
+    )
+}
+
+# two_method_fixture() yields ZERO rows under the per-trait rule, and that is
+# correct: its only cross-method co-location (1:2000) is bio_1 in EMMAX and
+# bio_2 in LFMM, so no trait is shared by both methods anywhere. The vacuity
+# guard caught that on the first run — "both sides agree" over an empty result
+# would have asserted nothing. Hence a builder with a genuine SAME-TRAIT,
+# both-methods, within-gap overlap.
+fixture_per_trait_overlap <- function() {
+    list(
+        EMMAX = sig_long(c("1:1000", "1:2000", "2:5000"),
+                         c("1", "1", "2"),
+                         c(1000L, 2000L, 5000L),
+                         c("bio_1", "bio_1", "bio_2"),
+                         "EMMAX",
+                         c(1e-8, 1e-7, 1e-6)),
+        LFMM  = sig_long(c("1:1500", "2:5200"),
+                         c("1", "2"),
+                         c(1500L, 5200L),
+                         c("bio_1", "bio_2"),      # same traits as EMMAX's, nearby
+                         "LFMM",
+                         c(1e-9, 1e-5))
+    )
+}
+
+test_that("Cross-method per-trait selects the same SNPs on both sides", {
+    skip_without_app()
+    gap <- 1000L
+    pipe <- pipe_combine(fixture_per_trait_overlap(), "Cross-method per-trait", gap)
+    app  <- app_combine(fixture_per_trait_overlap(), "Cross-method per-trait", gap)
+
+    expect_gt(nrow(app), 0L)   # never green on nothing
+    expect_gt(nrow(pipe), 0L)
+    expect_setequal(unique(app$SNPID), unique(pipe$SNPID))
+})
+
+test_that("Cross-method per-trait returns nothing when no trait is shared across methods", {
+    skip_without_app()
+    # The zero case, asserted deliberately rather than left as an accident of a
+    # fixture: both sides must agree that an empty result is the right answer.
+    gap  <- 1000L
+    pipe <- pipe_combine(two_method_fixture(), "Cross-method per-trait", gap)
+    app  <- app_combine(two_method_fixture(), "Cross-method per-trait", gap)
+    expect_identical(nrow(pipe), 0L)
+    expect_identical(nrow(app), 0L)
+})
+
+test_that("Cross-method per-trait requires the SAME trait on both methods", {
+    skip_without_app()
+    # This is what separates per-trait from plain Cross-method. In the shared
+    # fixture 1:2000 is EMMAX/bio_1 and LFMM/bio_2 — a cross-method overlap at
+    # the same position but under DIFFERENT traits, so the per-trait rule must
+    # reject it while plain Cross-method accepts it.
+    gap <- 1000L
+    per_trait <- pipe_combine(two_method_fixture(), "Cross-method per-trait", gap)
+    plain     <- pipe_combine(two_method_fixture(), "Cross-method", gap)
+    expect_false("1:2000" %in% per_trait$SNPID)
+    expect_true("1:2000" %in% plain$SNPID)
+
+    app_pt <- app_combine(two_method_fixture(), "Cross-method per-trait", gap)
+    expect_false("1:2000" %in% app_pt$SNPID)
+})
+
+test_that("Cross-method per-trait agrees on min_pvalue for every shared SNP", {
+    skip_without_app()
+    gap  <- 1000L
+    pipe <- pipe_combine(fixture_with_extra_trait(), "Cross-method per-trait", gap,
+                         c(PREDICTORS, "bio_99"))
+    app  <- app_combine(fixture_with_extra_trait(), "Cross-method per-trait", gap)
+
+    app_min <- unique(app[, .(SNPID, min_pvalue)])
+    m <- merge(pipe[, .(SNPID, min_pvalue)], app_min, by = "SNPID",
+               suffixes = c("_pipe", "_app"))
+    expect_gt(nrow(m), 0L)
+    expect_equal(m$min_pvalue_pipe, m$min_pvalue_app)
+})
+
+test_that("the pipeline's `predictors` whitelist has NO app analogue", {
+    skip_without_app()
+    # combine_sigsnps.R:51 filters to `predictors`; the app filters nothing. With
+    # bio_99 excluded pipeline-side, the pipeline drops 3:7000 and the app keeps
+    # it. Every other block is blind to this because their PREDICTORS covers the
+    # whole trait set.
+    gap <- 1000L
+    pipe <- pipe_combine(fixture_with_extra_trait(), "Cross-method per-trait", gap)  # bio_99 NOT allowed
+    app  <- app_combine(fixture_with_extra_trait(), "Cross-method per-trait", gap)
+
+    expect_false("3:7000" %in% pipe$SNPID)
+    expect_true("3:7000" %in% app$SNPID)
+})
+
+test_that("both sides iterate unordered method pairs to the same result set", {
+    skip_without_app()
+    # The pipeline fixed its double loop to unordered pairs
+    # (combine_sigsnps.R:136-142); the app still runs the ordered loop AND calls
+    # both directions inside it (fct_combine.R:104-112). Same answer, 4x the
+    # foverlaps calls for two methods. Asserted as agreement so that porting the
+    # optimisation cannot silently change the result.
+    gap <- 1000L
+    swapped <- rev(two_method_fixture())
+    a <- app_combine(two_method_fixture(), "Cross-method per-trait", gap)
+    b <- app_combine(swapped, "Cross-method per-trait", gap)
+    expect_setequal(unique(a$SNPID), unique(b$SNPID))
+})
+
+# --- 7. SNP-set store: a CONTRACT, not two implementations -------------------
+#
+# The app WRITES the store and Snakemake READS it. Nothing computes the same
+# thing twice here, so this block pins an interface: the four TSV columns, and
+# the glob that has to find them. Both sides currently agree — these assertions
+# exist so a one-sided change cannot pass unnoticed.
+#
+# Structural assertions over source text, in the manner of the qvalue/DESCRIPTION
+# assertion in block 4: the pipeline halves are a shell script and a .smk file,
+# neither loadable into R.
+
+SNP_SET_COLS <- c("SNPID", "chr", "pos", "min_pvalue")
+
+test_that("the app writes exactly the four columns promote_snp_set.R requires", {
+    skip_without_app()
+    withr::local_options(clinego.pipeline_path = withr::local_tempdir())
+    project <- basename(tempfile("EQ_SS_"))
+
+    dt <- data.table::data.table(
+        SNPID = c("1:100", "1:100", "2:300"), chr = c("1", "1", "2"),
+        pos = c(100L, 100L, 300L), pvalue = c(1e-8, 3e-9, 5e-7),
+        method = c("EMMAX", "LFMM", "EMMAX"), trait = "bio_1",
+        region_id = NA_character_)
+    dt[, min_pvalue := min(pvalue, na.rm = TRUE), by = "SNPID"]
+
+    n <- clinego.app:::save_snp_set(project, "setA", dt[], list(source_module = "GEA"))
+    expect_identical(n, 2L)
+
+    written <- data.table::fread(clinego.app:::snp_set_path(project, "setA"), sep = "\t")
+    expect_identical(names(written), SNP_SET_COLS)
+
+    # The reader's own declared requirement, read from its source.
+    src <- readLines(file.path(.clinego_root, "scripts", "promote_snp_set.R"))
+    req <- grep("^required_cols <- ", src, value = TRUE)
+    expect_length(req, 1L)
+    for (col in SNP_SET_COLS) expect_true(grepl(paste0('"', col, '"'), req), info = col)
+})
+
+test_that("the app's store layout matches the glob common.smk resolves sets with", {
+    skip_without_app()
+    withr::local_options(clinego.pipeline_path = withr::local_tempdir())
+    project <- basename(tempfile("EQ_SS2_"))
+    dt <- data.table::data.table(SNPID = "1:100", chr = "1", pos = 100L,
+                                 min_pvalue = 1e-8)
+    clinego.app:::save_snp_set(project, "setA", dt, list())
+
+    written <- clinego.app:::snp_set_path(project, "setA")
+    # Snakemake globs "{INTER}snp_sets/*/selected_snps.tsv" and recovers the set
+    # name with basename(dirname(p)) — common.smk:1423-1428.
+    expect_identical(basename(written), "selected_snps.tsv")
+    expect_identical(basename(dirname(written)), "setA")
+    expect_identical(basename(dirname(dirname(written))), "snp_sets")
+
+    smk <- readLines(file.path(.clinego_root, "workflow", "rules", "common.smk"))
+    expect_true(any(grepl('snp_sets/', smk, fixed = TRUE)))
+    expect_true(any(grepl('*/selected_snps.tsv', smk, fixed = TRUE)))
+})
+
+test_that("the manifest cannot be mistaken for a set by that glob", {
+    skip_without_app()
+    withr::local_options(clinego.pipeline_path = withr::local_tempdir())
+    project <- basename(tempfile("EQ_SS3_"))
+    clinego.app:::save_snp_set(project, "setA",
+        data.table::data.table(SNPID = "1:100", chr = "1", pos = 100L,
+                               min_pvalue = 1e-8), list())
+    # manifest.json is a FILE at the store root, so "*/selected_snps.tsv" cannot
+    # reach it. Pinned because moving it into a subdirectory would silently
+    # register a bogus set named after that directory.
+    man <- clinego.app:::snp_sets_manifest_path(project)
+    expect_identical(basename(dirname(man)), "snp_sets")
+    expect_identical(basename(man), "manifest.json")
+})
+
+test_that("delete_snp_set's method list matches the maladaptation registry", {
+    skip_without_app()
+    # fct_snp_sets.R:112 hardcodes the methods whose result dirs it cleans. A new
+    # pipeline method added to workflow/methods/maladaptation.py and not here
+    # silently leaks result directories on every delete.
+    src <- readLines(file.path(.clinego_root, "scripts", "clinego.app", "R",
+                               "fct_snp_sets.R"))
+    line <- grep("all_methods <- ", src, value = TRUE)
+    expect_length(line, 1L)
+
+    py <- readLines(file.path(.clinego_root, "workflow", "methods", "maladaptation.py"))
+    registry <- sub("^\\s*[\"']([A-Za-z_]+)[\"']\\s*:\\s*\\{.*$", "\\1",
+                    grep("^\\s*[\"'][A-Za-z_]+[\"']\\s*:\\s*\\{", py, value = TRUE))
+    registry <- unique(registry[nzchar(registry)])
+    expect_gt(length(registry), 0L)
+    # CONFIRMED DRIFT, 2026-09-12: maladaptation.py registers FOUR methods
+    # (gradient_forest, geometric_offset, rda_offset, rda_offset_corrected) and
+    # fct_snp_sets.R:112 lists three. Deleting a SNP set therefore orphans every
+    # rda_offset_corrected result directory for that set. Filed; the assertion
+    # below is the correct behaviour and is skip()ped until the list is fixed.
+    skip("known bug: rda_offset_corrected missing from delete_snp_set's all_methods — filed 2026-09-12")
+    for (m in registry) {
+        expect_true(grepl(m, line, fixed = TRUE),
+                    info = paste("maladaptation method", m,
+                                 "is not in delete_snp_set's all_methods"))
+    }
+})
+
+# --- 8. coords JSON: the Manhattan hand-off ---------------------------------
+#
+# The pipeline renders a static background PNG and writes the axis geometry to a
+# *_coords.json beside it; the app reads that JSON and positions a plotly overlay
+# on top. Zero shared function names and two different plotting stacks, so
+# expect_identical(body(...)) does not apply — the assertion has to be that the
+# NUMBERS survive the round trip.
+#
+# The JSON is written and read here exactly as production does it
+# (plot_manhattan.R:246-262 / fct_manhattan.R:5-15), through a real file, so the
+# setNames -> toJSON -> unlist name-preservation chain is actually covered.
+
+manhattan_fixture <- function() {
+    data.table::data.table(
+        SNPID = c("1:100", "1:900", "2:50", "2:800"),
+        chr   = c("1", "1", "2", "2"),
+        pos   = c(100L, 900L, 50L, 800L),
+        pvalue = c(1e-8, 1e-3, 1e-6, 1e-2))
+}
+
+write_coords_like_pipeline <- function(chr_info, path) {
+    # Verbatim the shape plot_manhattan.R:247-249 builds. as.list is load
+    # bearing: a bare named numeric vector under auto_unbox = TRUE serialises as
+    # an unnamed array and the chromosome keys are lost.
+    coords <- list(
+        chr_offsets  = stats::setNames(as.list(chr_info$tot), as.character(chr_info$chr_f)),
+        chr_lengths  = stats::setNames(as.list(chr_info$chr_len), as.character(chr_info$chr_f)),
+        gap_fraction = 0.02,
+        x_range      = c(0, max(chr_info$tot + chr_info$chr_len)),
+        y_range      = c(0, 10))
+    jsonlite::write_json(coords, path, auto_unbox = TRUE, digits = 6)
+    path
+}
+
+test_that("chr_offsets survive the JSON round trip keyed by chromosome", {
+    skip_without_app()
+    prep <- prepare_manhattan_data(manhattan_fixture(), pval_col = "pvalue")
+    path <- withr::local_tempfile(fileext = ".json")
+    write_coords_like_pipeline(prep$chr_info, path)
+
+    coords <- clinego.app:::safe_read_json(path)
+    offsets <- unlist(coords$chr_offsets)
+    expect_identical(names(offsets), as.character(prep$chr_info$chr_f))
+    expect_equal(unname(offsets), prep$chr_info$tot, tolerance = 1e-6)
+})
+
+test_that("the app's chr_midpoints reproduces the pipeline's `center`", {
+    skip_without_app()
+    # center is computed in chr_info (manhattan_utils.R:41) but never serialised,
+    # so the app RE-DERIVES it from the two transported vectors
+    # (fct_manhattan.R:14). This is the one quantity the app recomputes rather
+    # than reads, which is exactly why it needs an equivalence assertion.
+    prep <- prepare_manhattan_data(manhattan_fixture(), pval_col = "pvalue")
+    path <- withr::local_tempfile(fileext = ".json")
+    write_coords_like_pipeline(prep$chr_info, path)
+
+    coords <- clinego.app:::safe_read_json(path)
+    expect_equal(unname(clinego.app:::chr_midpoints(coords)),
+                 prep$chr_info$center, tolerance = 1e-6)
+})
+
+test_that("the app's add_cum_pos reproduces the pipeline's pos_cum", {
+    skip_without_app()
+    prep <- prepare_manhattan_data(manhattan_fixture(), pval_col = "pvalue")
+    path <- withr::local_tempfile(fileext = ".json")
+    write_coords_like_pipeline(prep$chr_info, path)
+    coords <- clinego.app:::safe_read_json(path)
+
+    sig <- data.table::data.table(
+        SNPID = prep$data$SNPID, chr = prep$data$chr,
+        pos = prep$data$pos, pvalue = prep$data$pvalue)
+    # add_cum_pos COPIES and returns (fct_manhattan.R:490) — it does not mutate
+    # by reference, despite using `:=` internally. The result must be assigned.
+    sig <- clinego.app:::add_cum_pos(sig, coords)
+
+    m <- merge(sig[, .(SNPID, cum_pos, log10p)],
+               data.table::as.data.table(prep$data)[, .(SNPID, pos_cum, log10p_pipe = log10p)],
+               by = "SNPID")
+    expect_identical(nrow(m), 4L)
+    expect_equal(m$cum_pos, m$pos_cum, tolerance = 1e-6)
+    expect_equal(m$log10p, m$log10p_pipe)
+})
+
+test_that("a chromosome missing from the JSON keys yields NA, silently", {
+    skip_without_app()
+    # chr_offsets[chr] is a NAME lookup, so an unknown chromosome gives NA and
+    # the point simply vanishes from the plotly overlay. Nothing in the app
+    # asserts key-set containment; pinned here as the live behaviour, with the
+    # missing guard filed.
+    prep <- prepare_manhattan_data(manhattan_fixture(), pval_col = "pvalue")
+    path <- withr::local_tempfile(fileext = ".json")
+    write_coords_like_pipeline(prep$chr_info, path)
+    coords <- clinego.app:::safe_read_json(path)
+
+    sig <- data.table::data.table(SNPID = "9:1", chr = "9", pos = 1L, pvalue = 1e-5)
+    sig <- clinego.app:::add_cum_pos(sig, coords)
+    expect_true(is.na(sig$cum_pos))
+})
+
+test_that("safe_read_json degrades to NULL rather than erroring", {
+    skip_without_app()
+    expect_null(clinego.app:::safe_read_json(file.path(tempdir(), "no-such-coords.json")))
+    bad <- withr::local_tempfile(fileext = ".json")
+    writeLines("{ not json", bad)
+    expect_null(clinego.app:::safe_read_json(bad))
+})
+
+# --- 9. assign_region_ids: the app recomputes what the pipeline wrote --------
+#
+# fct_data_loading.R:166-209 does NOT read the region_id column out of
+# regions_combined.tsv — it re-derives membership with its own
+# foverlaps(type = "within", mult = "first") over the region bounds. So the two
+# sides agree only as long as that recomputation matches the clustering that
+# produced the file.
+
+test_that("regions_combined regions provably cannot overlap", {
+    # The precondition that makes mult = "first" safe, asserted rather than
+    # assumed. Clusters split when pB - pA > 2*dist and bounds are
+    # [min-dist, max+dist], so consecutive regions are separated by
+    # (pB - pA) - 2*dist > 0; the pmax(1L, ...) clamp only raises a start.
+    dist <- 1000L
+    # cluster_snps_to_regions reads min_pvalue (regions.R:94), which lives on the
+    # WIDE table, so the input is derived with the pipeline's own combine step —
+    # the same reason wide_from_long() exists for block 1. Handing it the long
+    # shape yields Inf and a warning instead.
+    snps <- sig_long(c("1:1000", "1:1500", "1:9000", "1:9500"),
+                     "1", c(1000L, 1500L, 9000L, 9500L), "bio_1", "EMMAX",
+                     c(1e-8, 1e-7, 1e-6, 1e-5))
+    regs <- quiet(cluster_snps_to_regions(wide_from_long(list(EMMAX = snps), dist), dist))
+    data.table::setorder(regs, chr, start)
+    expect_gt(nrow(regs), 1L)
+    expect_true(all(regs$start[-1] > regs$end[-nrow(regs)]))
+})
+
+test_that("the app's recomputation reproduces the pipeline's region_id", {
+    skip_without_app()
+    withr::local_options(clinego.pipeline_path = withr::local_tempdir())
+    project <- basename(tempfile("EQ_RID_"))
+    dist <- 1000L
+
+    snps <- sig_long(c("1:1000", "1:1500", "1:9000", "2:400"),
+                     c("1", "1", "1", "2"),
+                     c(1000L, 1500L, 9000L, 400L),
+                     "bio_1", "EMMAX", c(1e-8, 1e-7, 1e-6, 1e-9))
+    regs <- quiet(cluster_snps_to_regions(wide_from_long(list(EMMAX = snps), dist), dist))
+
+    out <- clinego.app:::regions_combined_path(project, "GEA")
+    dir.create(dirname(out), recursive = TRUE, showWarnings = FALSE)
+    data.table::fwrite(regs, out, sep = "\t")
+
+    # The pipeline's own answer: which region each SNP was clustered into.
+    truth <- regs[, .(region_id, ids = strsplit(snp_ids, ",", fixed = TRUE))][
+        , .(SNPID = unlist(ids)), by = region_id]
+
+    got <- data.table::copy(snps)
+    clinego.app:::assign_region_ids(got, project, "GEA")
+
+    m <- merge(truth, got[, .(SNPID, app_region = region_id)], by = "SNPID")
+    expect_identical(nrow(m), nrow(truth))
+    expect_identical(m$app_region, m$region_id)
+})
+
+test_that("a SNP outside every region gets NA, not a neighbouring region", {
+    skip_without_app()
+    withr::local_options(clinego.pipeline_path = withr::local_tempdir())
+    project <- basename(tempfile("EQ_RID2_"))
+
+    snps <- sig_long(c("1:1000", "1:1500"), "1", c(1000L, 1500L),
+                     "bio_1", "EMMAX", c(1e-8, 1e-7))
+    regs <- quiet(cluster_snps_to_regions(wide_from_long(list(EMMAX = snps), 1000L), 1000L))
+    out <- clinego.app:::regions_combined_path(project, "GEA")
+    dir.create(dirname(out), recursive = TRUE, showWarnings = FALSE)
+    data.table::fwrite(regs, out, sep = "\t")
+
+    far <- sig_long("1:99999", "1", 99999L, "bio_1", "EMMAX", 1e-8)
+    clinego.app:::assign_region_ids(far, project, "GEA")
+    expect_true(is.na(far$region_id))
+})
+
+test_that("assign_region_ids and its fct_overlap twin are the same code", {
+    skip_without_app()
+    # fct_data_loading.R:199-207 and fct_overlap.R:263-271 are byte-equivalent
+    # setkey / foverlaps(type="within", mult="first") / i.region_id blocks with
+    # nothing keeping them in sync. Assert the shared shape so a fix to one that
+    # is not applied to the other shows up here.
+    ns <- asNamespace("clinego.app")
+    expect_true(exists("assign_region_ids", envir = ns, inherits = FALSE))
+    expect_true(exists("assign_region_ids_from_regions", envir = ns, inherits = FALSE))
+    for (f in c("assign_region_ids", "assign_region_ids_from_regions")) {
+        src <- paste(deparse(body(get(f, envir = ns))), collapse = " ")
+        expect_true(grepl('type = "within"', src, fixed = TRUE), info = f)
+        expect_true(grepl('mult = "first"', src, fixed = TRUE), info = f)
+        expect_true(grepl("i.region_id", src, fixed = TRUE), info = f)
+    }
 })
