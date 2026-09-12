@@ -107,3 +107,50 @@ test_that("load_gff_genes does not recycle attributes across genes", {
     # neighbour's.
     expect_identical(bound$ID, c("g1", NA_character_, "g3", NA_character_))
 })
+
+# ---------------------------------------------------------------------------
+# fct_snp_sets.R:100,122 — unlink() defaults to expand = TRUE, so a set name
+# containing a glob metacharacter deletes every sibling that matches it.
+# Measured: three sets (foo*, foo_bar, foobaz), one delete_snp_set("foo*"), all
+# three directories gone. The manifest is pruned by name equality only, so it
+# then lists sets whose files no longer exist.
+#
+# The name rule ^[A-Za-z0-9_.]+$ is documented at :53 and enforced nowhere in
+# the app; promote_snp_set.R:49 does enforce it pipeline-side.
+# Found 2026-09-12 while writing test-fct_snp_sets.R.
+# Filed: docs/pipeline_improvement_requests.md (2026-09-12).
+# ---------------------------------------------------------------------------
+
+test_that("delete_snp_set does not glob-expand the set name", {
+    skip("known bug: fct_snp_sets.R:100 unlink(expand = TRUE) — filed 2026-09-12")
+
+    project <- basename(tempfile("SS_GLOB_"))
+    mk <- function() {
+        d <- data.table::data.table(
+            SNPID = "1:1", chr = "1", pos = 1L, pvalue = 1e-8,
+            method = "EMMAX", trait = "bio_1", region_id = NA_character_)
+        d[, min_pvalue := pvalue][]
+    }
+    for (n in c("foo*", "foo_bar", "foobaz")) save_snp_set(project, n, mk(), list())
+
+    delete_snp_set(project, "foo*", remove_gf_results = TRUE)
+
+    # Only the named set may go.
+    expect_false(set_exists(project, "foo*"))
+    expect_true(file.exists(snp_set_path(project, "foo_bar")))
+    expect_true(file.exists(snp_set_path(project, "foobaz")))
+    expect_setequal(list_snp_sets(project)$name, c("foo_bar", "foobaz"))
+})
+
+test_that("save_snp_set rejects a name outside the documented pattern", {
+    skip("known bug: fct_snp_sets.R:53 rule is documented but unenforced — filed 2026-09-12")
+
+    # promote_snp_set.R:49 enforces ^[A-Za-z0-9_.]+$ pipeline-side, so a name the
+    # app accepts here is already one the pipeline will refuse.
+    project <- basename(tempfile("SS_NAME_"))
+    d <- data.table::data.table(
+        SNPID = "1:1", chr = "1", pos = 1L, pvalue = 1e-8,
+        method = "EMMAX", trait = "bio_1", region_id = NA_character_)
+    d[, min_pvalue := pvalue]
+    expect_error(save_snp_set(project, "foo*", d[], list()))
+})
