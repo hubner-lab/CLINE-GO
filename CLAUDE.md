@@ -622,7 +622,8 @@ marker comment at the app-install block in `Dockerfile`).
 
 ### Unit Testing
 
-Two testthat roots. **Both must be green before a merge.** One command runs them:
+Two testthat roots plus a Python root. **All three must be green before a merge.** One
+command runs them:
 
 ```bash
 ./tests/run_all.sh                                # the merge gate
@@ -630,22 +631,28 @@ Two testthat roots. **Both must be green before a merge.** One command runs them
 ```
 
 It runs every suite to completion (never stops at the first failure), prints one line per
-suite and exits non-zero if any failed. The two suites individually:
+suite and exits non-zero if any failed. The three suites individually:
 
 ```bash
-# Tier 1 — scripts/R/lib + scripts/R/utils (the shared science). ~20 s.
+# Tier 1 — scripts/R/lib + scripts/R/utils (the shared science) + Tier 6's CLI
+# wrapper smoke tests. ~60 s.
 docker run --rm --user $(id -u):$(id -g) -e USER=pipeline -v $PWD:/pipeline \
   cline-go:latest Rscript /pipeline/tests/run_tests.R
 
 # The Shiny app package. ~40 s.
 docker run --rm --user $(id -u):$(id -g) -e USER=pipeline -v $PWD:/pipeline \
   cline-go:latest Rscript -e 'setwd("/pipeline/scripts/clinego.app/tests"); source("testthat.R")'
+
+# Tier 6 — scripts/*.py + workflow/methods/. stdlib unittest, NOT pytest. <1 s.
+# -B keeps __pycache__ out of the mounted repo; -t puts tests/python on sys.path.
+docker run --rm --user $(id -u):$(id -g) -e USER=pipeline -v $PWD:/pipeline \
+  cline-go:latest python3 -B -m unittest discover -s /pipeline/tests/python -t /pipeline/tests/python
 ```
 
-Baseline as of 2026-09-10 (after Tier 5): `tests/` = **567 passing / 14 skipped**, app =
-**213 passing / 1 skipped**. `run_tests.R` exits non-zero on any failure, so it is CI-able
-as-is. (The earlier figure of 473 recorded here was stale — it predated Tier 4; the counts
-reconcile against the dossier's post-Tier-4 494 plus Tier 5's 73.)
+Baseline as of 2026-09-12 (after Tier 6): `tests/` = **620 passing / 14 skipped**, app =
+**213 passing / 1 skipped**, python = **67 tests**. `run_tests.R` exits non-zero on any
+failure, so it is CI-able as-is. (The 567 recorded here before was the post-Tier-5 figure;
+Tier 6's `test-cli-wrappers.R` adds 53.)
 
 **Tier 5 — app/pipeline equivalence** lives in
 `tests/testthat/test-equivalence-app-pipeline.R` (33 tests, 73 assertions, 4 `skip()`ped).
@@ -706,10 +713,26 @@ means deleting a `skip()` line. Never weaken a test there to match current outpu
 suite now uses the same convention — `test-fct_threshold_rules.R` carries one `skip()`ped
 correct-behaviour assertion for the qvalue-not-in-Imports defect.
 
-Still missing: **Python tests for `scripts/*.py`** (`design_adequacy.py`, `gff2topr.py`,
-`snakemake_progress_handler.py` — no Python test infrastructure exists at all; note the image
-has python3.12 + numpy + stdlib `unittest` but **no pytest**, so `unittest` needs no Dockerfile
-change), golden-file regression on SIMDATA outputs, and Shiny/pipeline equivalence checks.
+**Tier 6 — Python + CLI wrappers** landed 2026-09-12, in two places. `tests/python/`
+is a third suite (`unittest`, registered at `run_all.sh:70-78`) covering
+`design_adequacy.py`'s hand-rolled eigensolver, `gff2topr.py` (subprocess only — it has no
+`__main__` guard and `sys.exit()`s from its module body), `snakemake_progress_handler.py`,
+and the one part of `workflow/methods/` that is code rather than data: `gwas.py`'s
+comprehension filtering `GEA_METHODS` by `supports_phenotypes`. `tests/testthat/test-cli-wrappers.R`
+smoke-tests 11 of the 40 zero-function `commandArgs()` wrappers — the ones whose inputs are
+plain TSVs — asserting exit 0 and non-empty declared outputs, which is the layer Tier 1 could
+not see. **No Dockerfile change was needed**: the image already ships python3.12 + numpy +
+pandas + scipy + stdlib `unittest`, and pytest was deliberately not added (PEP 668 marker plus
+cleaned apt lists make it a layer for no gain).
+
+Six defects were filed from it, all in `docs/pipeline_improvement_requests.md`. The worst is
+that `combine_pheno_pvalues.R` / `combine_selected_snps.R` never validate `length(args)`, so an
+unquoted file-list argument shifts every positional and the script **overwrites one of its own
+inputs and exits 0**.
+
+Still missing: golden-file regression on SIMDATA outputs (see below), and smoke coverage for
+the wrappers needing a VCF / plink / LEA / EMMAX / GAPIT / WorldClim, which are integration
+runs rather than smoke tests.
 
 **On golden files specifically**: they are blocked, not merely undone. Three committed SIMDATA
 outputs are known-wrong and would be frozen as "expected" (`overlap_traits`/`overlap_snps`,
