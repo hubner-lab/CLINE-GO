@@ -256,10 +256,16 @@ fx_dbmem_diag <- function(d, name = "dbmem_diagnostics.tsv") {
     write_tsv(dt, file.path(d, name))
 }
 
-# Exactly what ld_decay_analyze.R writes (:247-250) and what write_summary.R's
-# structure branch reads back (:383-397) — one fixture for both sides, so a
-# column rename cannot pass one and fail the other silently.
-# The group == "All" & scope == "genome_wide" row is the one :385 picks out.
+# The eight columns of ld_decay_analyze.R's EMPTY skeleton (:247-250), which are
+# also what write_summary.R's structure branch reads back (:383-397) — one
+# fixture for both sides, so a column rename cannot pass one and fail the other
+# silently. The group == "All" & scope == "genome_wide" row is what :385 picks.
+#
+# NOTE the populated table has TEN columns: the per-result data.table (:183-193)
+# adds C_hat and max_dist_bp, which the empty skeleton omits. Filed. Every
+# current consumer reads only the four columns above, so it is latent, but a
+# reader that globs columns sees a different schema depending on whether the run
+# found any data.
 fx_ld_decay_table <- function(d, name = "ld_decay_half_distances.tsv") {
     write_tsv(data.table::data.table(
         group = c("All", "All", "NEG"),
@@ -271,6 +277,38 @@ fx_ld_decay_table <- function(d, name = "ld_decay_half_distances.tsv") {
         r2_intercept = c(0.62, 0.60, 0.66),
         method = c("hill_weir", "hill_weir", "loess")),
         file.path(d, name))
+}
+
+# A PopLDdecay .stat.gz as read_stat_gz() actually parses it (:39-49): gzipped,
+# WITH a header, and SIX columns renamed positionally to
+# dist_bp, mean_r2, mean_dprime, sum_r2, sum_dprime, n_pairs.
+#
+# The script's own file header (:5-6) documents FOUR columns in a different
+# order ("Dist(bp) Mean_r^2 NumberPairs Sum_r^2"). That is stale and a fixture
+# built from it dies inside setnames(). Filed. The in-function comment at
+# :33-34 is the correct one.
+#
+# n_rows spans enough distance to clear two thresholds at once: bin_stat() uses
+# bins of max(1000, ceiling(max_dist/100)) and fit_ld_curve() returns
+# "insufficient_data" below FIVE bins (:75). dist_bp == 0 rows are dropped (:50).
+fx_stat_gz <- function(d, group, chr = NULL, n_rows = 60L) {
+    nm <- if (is.null(chr)) paste0(group, ".stat.gz") else paste0(group, "_", chr, ".stat.gz")
+    p  <- file.path(d, nm)
+    dist <- seq_len(n_rows) * 1000L
+    # A decaying r^2 so the Hill-Weir nls has something to converge on.
+    mean_r2 <- 0.6 * exp(-dist / 20000) + 0.02
+    n_pairs <- rep(500L, n_rows)
+    dt <- data.table::data.table(
+        `#Dist`   = dist,
+        `Mean_r^2` = round(mean_r2, 6),
+        `Mean_D'`  = round(mean_r2 + 0.1, 6),
+        `Sum_r^2`  = round(mean_r2 * n_pairs, 4),
+        `Sum_D'`   = round((mean_r2 + 0.1) * n_pairs, 4),
+        NumberPairs = n_pairs)
+    con <- gzfile(p, "w")
+    on.exit(close(con), add = TRUE)
+    utils::write.table(dt, con, sep = "\t", quote = FALSE, row.names = FALSE)
+    p
 }
 
 # A minimal but INTERNALLY CONSISTENT {PROJECT}_results/ tree for

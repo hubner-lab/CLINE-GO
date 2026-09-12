@@ -526,6 +526,55 @@ WRAPPERS <- list(
         outputs = function(d) file.path(d, c("scree.png", "scree.tsv")),
         fails_without_input = TRUE
     ),
+    list(
+        # No .stat.gz at all. The table is still written (a header-only skeleton)
+        # and .write_placeholder_plot (:256-265, :270-273) still emits BOTH the
+        # PNG and its .svg sibling, exit 0. Cheap, and it is the branch a real
+        # run takes whenever every group is below the size threshold.
+        label   = "ld_decay_analyze.R (no input, placeholder plots)",
+        script  = "ld_decay_analyze.R",
+        build   = function(d) {
+            gw <- file.path(d, "stat_gw"); chr <- file.path(d, "stat_chr")
+            dir.create(gw, showWarnings = FALSE); dir.create(chr, showWarnings = FALSE)
+            mf <- write_tsv(data.table::data.table(group = "All", n_samples = 50L),
+                            file.path(d, "manifest.tsv"))
+            c(gw, chr, mf)
+        },
+        args    = function(d, f) c("genome_wide", f[1], f[2], f[3],
+                                   file.path(d, "chromosomes.txt"),
+                                   file.path(d, "ld_decay_half_distances.tsv"),
+                                   file.path(d, "ld_decay_gw.png"), "NULL"),
+        # The .svg sibling is derived inside the script (:262-263), not passed as
+        # an argument, so it has to be declared here explicitly.
+        outputs = function(d) file.path(d, c("ld_decay_half_distances.tsv",
+                                             "ld_decay_gw.png", "ld_decay_gw.svg")),
+        # argv[1] is a SCOPE string, not a path: a bogus value matches no branch
+        # and still writes a header-only table at exit 0.
+        fails_without_input = FALSE
+    ),
+    list(
+        label   = "ld_decay_analyze.R (real fit, both scopes)",
+        script  = "ld_decay_analyze.R",
+        build   = function(d) {
+            gw <- file.path(d, "stat_gw"); chrd <- file.path(d, "stat_chr")
+            dir.create(gw, showWarnings = FALSE); dir.create(chrd, showWarnings = FALSE)
+            fx_stat_gz(gw, "All")
+            fx_stat_gz(chrd, "All", chr = "1")
+            mf <- write_tsv(data.table::data.table(group = "All", n_samples = 50L),
+                            file.path(d, "manifest.tsv"))
+            cl <- file.path(d, "chromosomes.txt")
+            writeLines("1", cl)
+            c(gw, chrd, mf, cl)
+        },
+        args    = function(d, f) c("both", f[1], f[2], f[3], f[4],
+                                   file.path(d, "ld_decay_half_distances.tsv"),
+                                   file.path(d, "ld_decay_gw.png"),
+                                   file.path(d, "ld_decay_chr.png")),
+        outputs = function(d) file.path(d, c("ld_decay_half_distances.tsv",
+                                             "ld_decay_gw.png", "ld_decay_gw.svg",
+                                             "ld_decay_chr.png", "ld_decay_chr.svg")),
+        fails_without_input = FALSE
+    ),
     # check_invariants.R is the one wrapper that is a VALIDATOR rather than a
     # producer: it writes nothing (outputs = character(0)) and its exit status IS
     # the result. Its own header (:12-18) names the file -> checker shaping layer
