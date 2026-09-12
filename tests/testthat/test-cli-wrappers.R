@@ -526,6 +526,41 @@ WRAPPERS <- list(
         outputs = function(d) file.path(d, c("scree.png", "scree.tsv")),
         fails_without_input = TRUE
     ),
+    # mantel_test.R. Quick tier, not heavy: vegan 2.6-8 and geosphere 1.5-20 are
+    # pinned CRAN packages in the image (Dockerfile:207,123), the same category
+    # as ggplot2 — no genomics binary, no VCF, no network.
+    #
+    # BOTH rows need argv[5] and argv[6] to carry a TRAILING SLASH: the script
+    # builds every output path with paste0 (:200-204, :320-323), and it calls
+    # dir.create nowhere, so both directories must already exist. fx_inter_dir()
+    # is the builder for exactly that.
+    list(
+        # The single-site guard (:191-206). It fires BEFORE fread(ENV) and
+        # fread(CLUSTERS), so metadata alone drives it — but it still writes all
+        # three declared outputs and quits 0, which makes it a cheap check that
+        # the plot paths and the qs path are wired correctly.
+        label   = "mantel_test.R (single-site skip branch)",
+        script  = "mantel_test.R",
+        build   = function(d) c(fx_geo_triple(d, n_sites = 1L, n_per_site = 4L),
+                                fx_inter_dir(d, "plots"), fx_inter_dir(d, "inter")),
+        args    = function(d, f) c(f[1], f[2], f[3], "bio_1,bio_12", f[4], f[5]),
+        outputs = function(d) c(file.path(d, "plots", c("mantel_test.png", "mantel_test.svg")),
+                                file.path(d, "inter", "mantel_test.qs")),
+        fails_without_input = TRUE
+    ),
+    list(
+        # The full path: 8 sites x 2 samples. Below 4 sites the script stop()s,
+        # below 8 it warns — 8 is the smallest size that exercises the real
+        # Mantel/IBD/IBE computation without a warning.
+        label   = "mantel_test.R (full path, 8 sites)",
+        script  = "mantel_test.R",
+        build   = function(d) c(fx_geo_triple(d),
+                                fx_inter_dir(d, "plots"), fx_inter_dir(d, "inter")),
+        args    = function(d, f) c(f[1], f[2], f[3], "bio_1,bio_12", f[4], f[5]),
+        outputs = function(d) c(file.path(d, "plots", c("mantel_test.png", "mantel_test.svg")),
+                                file.path(d, "inter", "mantel_test.qs")),
+        fails_without_input = TRUE
+    ),
     list(
         # Eleven positionals, five TSV inputs, one output. The fixtures are built
         # to reach the PRIMARY branch of all four recommenders rather than their

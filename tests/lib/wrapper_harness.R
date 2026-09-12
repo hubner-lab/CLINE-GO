@@ -279,6 +279,55 @@ fx_ld_decay_table <- function(d, name = "ld_decay_half_distances.tsv") {
         file.path(d, name))
 }
 
+# An ALIGNED metadata / clusters / climate triple for mantel_test.R. Returns
+# c(samples, clusters, env).
+#
+# No combination of the existing fixtures can drive that script, for three
+# independent reasons — each of which is a hard stop(), not a warning:
+#   1. fx_metadata and fx_clusters both cycle NEG/TAV/GAL = 3 sites, and
+#      mantel_test.R:285-289 stop()s below 4 sites after site aggregation
+#      (3 sites give 3 pairs and no meaningful permutation test). Below 8 it
+#      only warns (:290-295), so 8 is the smallest quiet default.
+#   2. ENV is read POSITIONALLY, not joined by sample (:219-220), and
+#      :270-271 stopifnot()s that geo, env and clust all have the metadata's row
+#      count. fx_metadata(n = 12) against fx_climate_site's 8 rows fails that.
+#   3. Clusters are aligned by match() on sample with anyNA -> stop() (:231-236),
+#      so the cluster table must name every metadata sample.
+# Predictors must also vary ACROSS SITES: scale() turns a zero-variance column
+# into NaN, those get dropped, and ncol(env) == 0 is another stop() (:299-311).
+# fx_climate_site's bio_12 is deliberately invariant, so it cannot be reused here.
+fx_geo_triple <- function(d, n_sites = 8L, n_per_site = 2L, k = 3L) {
+    n <- n_sites * n_per_site
+    site <- rep(sprintf("S%02d", seq_len(n_sites)), each = n_per_site)
+    samp <- sprintf("ID%03d", seq_len(n))
+    # One coordinate pair per site, shared by that site's samples — the real
+    # shape, and what makes site aggregation meaningful.
+    lat <- rep(30.5 + seq_len(n_sites) * 0.35, each = n_per_site)
+    lon <- rep(34.5 + seq_len(n_sites) * 0.20, each = n_per_site)
+
+    samples <- write_tsv(data.table::data.table(
+        site = site, sample = samp, latitude = lat, longitude = lon),
+        file.path(d, "metadata_climate_valid.tsv"))
+
+    q <- matrix(0, nrow = n, ncol = k)
+    for (i in seq_len(n)) {
+        w <- (seq_len(k) + i) %% k + 1L
+        q[i, ] <- w / sum(w)
+    }
+    cl <- data.table::data.table(sample = samp, site = site)
+    for (j in seq_len(k)) data.table::set(cl, j = paste0("C", j), value = q[, j])
+    clusters <- write_tsv(cl, file.path(d, paste0("clusters_K", k, ".tsv")))
+
+    # Both predictors vary between sites and stay constant within one.
+    env <- write_tsv(data.table::data.table(
+        sample = samp,
+        bio_1  = rep(18 + seq_len(n_sites) * 0.8, each = n_per_site),
+        bio_12 = rep(600 - seq_len(n_sites) * 45, each = n_per_site)),
+        file.path(d, "climate_present_site.tsv"))
+
+    c(samples, clusters, env)
+}
+
 # A PopLDdecay .stat.gz as read_stat_gz() actually parses it (:39-49): gzipped,
 # WITH a header, and SIX columns renamed positionally to
 # dist_bp, mean_r2, mean_dprime, sum_r2, sum_dprime, n_pairs.
