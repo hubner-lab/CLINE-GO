@@ -622,16 +622,31 @@ marker comment at the app-install block in `Dockerfile`).
 
 ### Unit Testing
 
-Two testthat roots plus a Python root. **All three must be green before a merge.** One
-command runs them:
+Three testthat roots plus a Python root. **The default gate must be green before a merge.**
+One command runs everything:
 
 ```bash
 ./tests/run_all.sh                                # the merge gate
+./tests/run_all.sh --heavy                        # + the tool-dependent wrapper tests
 ./tests/run_all.sh --invariants SIMDATA_results   # + validate a results tree
 ```
 
+**Three gates, three DIFFERENT contracts — do not confuse them:**
+
+| gate | contract |
+|---|---|
+| default | **MUST be green.** Hermetic, no genomics tool, ~5 min. |
+| `--heavy` | **EXPECTED green.** Needs plink / LEA / EMMAX / vcftools. Separated by RUNTIME and tool dependency, NOT by correctness. Run before publishing a pipeline version. |
+| `--invariants` | **EXPECTED RED.** Every violation maps to a filed defect; a clean run is itself a failure signal. |
+
+Heavy tests **fail, never skip**, on a missing tool (`require_tools()` uses `expect_true`): inside
+the image plink/LEA/vcftools/EMMAX are all present, so absence means the image is wrong. And
+because a separate root is invisible by construction, `tests/testthat/test-heavy-tier-registry.R`
+runs in the DEFAULT gate and asserts the heavy tier's shape without running it — a deleted or
+emptied heavy file turns the quick gate red.
+
 It runs every suite to completion (never stops at the first failure), prints one line per
-suite and exits non-zero if any failed. The three suites individually:
+suite and exits non-zero if any failed. The suites individually:
 
 ```bash
 # Tier 1 — scripts/R/lib + scripts/R/utils (the shared science) + Tier 6's CLI
@@ -647,12 +662,52 @@ docker run --rm --user $(id -u):$(id -g) -e USER=pipeline -v $PWD:/pipeline \
 # -B keeps __pycache__ out of the mounted repo; -t puts tests/python on sys.path.
 docker run --rm --user $(id -u):$(id -g) -e USER=pipeline -v $PWD:/pipeline \
   cline-go:latest python3 -B -m unittest discover -s /pipeline/tests/python -t /pipeline/tests/python
+
+# The HEAVY root — opt-in, needs the genomics toolchain. ~1 min.
+docker run --rm --user $(id -u):$(id -g) -e USER=pipeline -v $PWD:/pipeline \
+  cline-go:latest Rscript /pipeline/tests/run_heavy.R
 ```
 
-Baseline as of 2026-09-12 (after Tier 6): `tests/` = **620 passing / 14 skipped**, app =
-**213 passing / 1 skipped**, python = **67 tests**. `run_tests.R` exits non-zero on any
-failure, so it is CI-able as-is. (The 567 recorded here before was the post-Tier-5 figure;
-Tier 6's `test-cli-wrappers.R` adds 53.)
+**Shared wrapper harness.** `tests/lib/wrapper_harness.R` holds the `fx_*` fixture builders and
+the subprocess runner, sourced by BOTH `tests/testthat/test-cli-wrappers.R` (quick) and
+`tests/heavy/test-heavy-wrappers.R`. Read it before adding a row. Two things there are
+load-bearing and not obvious:
+- **The cwd sandbox.** `run_wrapper(..., wd = )` runs each script in an empty throwaway dir and
+  `expect_wrapper_ok()` asserts it is still empty afterwards. This — not a `git status` check — is
+  the containment: `data/` and `*_results/` are both gitignored, so git is blind to exactly the
+  writes that matter (`generate_simdata.R:8` defaults `OUTDIR` to a relative `"data/"`).
+- **Every `INTER_DIR` fixture needs a trailing slash.** Seven scripts build their intermediate
+  path with `paste0`, not `file.path`, and work in production only because `common.smk` defines
+  `INTER` with one. `fx_inter_dir()` exists solely for this. Filed.
+
+`add_related_samples.R` and `add_pregea_sites.R` must NEVER get a spec row — they take no argv and
+rewrite the tracked SIMDATA fixtures in place. A denylist test enforces it rather than leaving it
+to review.
+
+Baseline as of 2026-09-12 (after the quick/heavy split and the Tier 1/2/6 gap closure):
+`tests/` = **934 passing / 18 skipped**, app = **417 passing / 3 skipped**, python =
+**74 tests**, heavy = **29 passing**. `run_tests.R` and `run_heavy.R` both exit non-zero on any
+failure, so both are CI-able as-is. (Previous figures: 620/14, 213/1, 67 — the jump is 18 new CLI
+wrapper rows, five new lib test files, five new app test files, and the heavy root.)
+
+**Newly covered 2026-09-12**, closing gaps that were scoped out earlier on a premise that turned
+out to be false:
+- `scripts/R/utils/{manhattan_utils,theme_clinego,emmax_core}.R` and
+  `scripts/R/lib/{enrichment,enrichment_plots}.R`. The recorded reason for skipping them
+  ("globals + /pipeline paths at source time") was wrong — all of them `sys.source()` cleanly with
+  zero symbol collisions. `emmax_core.R` is still sourced LOCALLY inside its own test file, for a
+  real reason: `test_dir()` shares one environment, and that test rebinds `EMMAX_BIN` to
+  `/bin/false` to exercise `run_emmax()`'s stop-on-nonzero contract.
+- 18 more CLI wrappers (11 → 29 of ~40), including 9 plot scripts as exit-0 + non-empty-PNG
+  smokes. The "needs a VCF/plink/LEA" classification was wrong for most of them:
+  `plot_pca_structure.R` and `plot_pregea_screeplot.R` read LEA *output text* and never call
+  `library(LEA)`.
+- `workflow/methods/` registries — but only the two assertion families that are NOT value
+  restatements (the existing docstring's objection stands for the rest): every declared script path
+  is checked against the FILESYSTEM, and capability flags must agree with the script paths they
+  imply.
+- `scripts/R/utils/logging.R` remains deliberately untested: it is dead code (zero callers
+  repo-wide, nothing sources it). Filed for deletion. A test would be its only caller.
 
 **Tier 5 — app/pipeline equivalence** lives in
 `tests/testthat/test-equivalence-app-pipeline.R` (33 tests, 73 assertions, 4 `skip()`ped).
