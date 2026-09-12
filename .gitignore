@@ -24,7 +24,8 @@ app_cache/
 *_logs/
 *.hl
 .R_libs_dev/
-workflow/methods/__pycache__/
+__pycache__/
+*.pyc
 .understand-anything/
 graphify-out/
 docs/

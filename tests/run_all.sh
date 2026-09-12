@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # One command for the whole test suite.
 #
-#   tests/run_all.sh                          # the merge gate: both unit suites
+#   tests/run_all.sh                          # the merge gate: all unit suites
 #   tests/run_all.sh --invariants SIMDATA_results     # path relative to the repo root
 #   tests/run_all.sh --image cline-go:latest
 #
@@ -67,7 +67,17 @@ run_suite "pipeline libs (tests/)" clinego_tests_libs \
 run_suite "shiny app (clinego.app)" clinego_tests_app \
     Rscript -e 'setwd("/pipeline/scripts/clinego.app/tests"); source("testthat.R")'
 
-# 3. Invariants over a real results tree — opt-in, see the header note.
+# 3. Python: scripts/*.py + workflow/methods/.
+#    stdlib unittest, deliberately not pytest: the image has python3.12 + numpy
+#    + pandas + scipy already, while pytest is absent and PEP 668
+#    (/usr/lib/python3.12/EXTERNALLY-MANAGED) plus cleaned apt lists make adding
+#    it a Dockerfile layer for no gain — nothing under test needs fixtures or
+#    parametrize. -t puts tests/python on sys.path so `import _support` resolves
+#    without an __init__.py; -B keeps __pycache__ out of the mounted repo.
+run_suite "python (tests/python/)" clinego_tests_python \
+    python3 -B -m unittest discover -s /pipeline/tests/python -t /pipeline/tests/python
+
+# 4. Invariants over a real results tree — opt-in, see the header note.
 if [[ -n "$INVARIANTS_DIR" ]]; then
     # The container sees the repo at /pipeline, so the argument must be a path
     # relative to the repo root. Accept an absolute host path too by stripping
