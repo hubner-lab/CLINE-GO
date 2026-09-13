@@ -77,7 +77,8 @@ Rebuild required after any Dockerfile or R package version change.
 
 ### Run Pipeline (SIMDATA — main testing dataset)
 ```bash
-docker run --user $(id -u):$(id -g) --rm --memory=20g -v $PWD:/pipeline cline-go:latest \
+docker run --user $(id -u):$(id -g) --rm --memory=20g -e USER=pipeline -e HOME=/tmp \
+  -v $PWD:/pipeline cline-go:latest \
   snakemake -c4 -s Snakefile --config mode=<MODE> --configfile config_SIMDATA.yaml --scheduler greedy
 ```
 
@@ -85,7 +86,8 @@ docker run --user $(id -u):$(id -g) --rm --memory=20g -v $PWD:/pipeline cline-go
 No default config file for this anymore (see Test Datasets below) — create a
 `config_<PROJECT>.yaml` naming the project after its actual VCF before running:
 ```bash
-docker run --user $(id -u):$(id -g) --rm --memory=20g -v $PWD:/pipeline cline-go:latest \
+docker run --user $(id -u):$(id -g) --rm --memory=20g -e USER=pipeline -e HOME=/tmp \
+  -v $PWD:/pipeline cline-go:latest \
   snakemake -c4 -s Snakefile --config mode=<MODE> --configfile config_<PROJECT>.yaml --scheduler greedy
 ```
 
@@ -96,9 +98,15 @@ docker run -w /pipeline --user $(id -u):$(id -g) -it -v $PWD:/pipeline cline-go 
 
 ### Dry Run (check what would execute)
 ```bash
-docker run --user $(id -u):$(id -g) --rm -v $PWD:/pipeline cline-go:latest \
+docker run --user $(id -u):$(id -g) --rm -e USER=pipeline -e HOME=/tmp -v $PWD:/pipeline cline-go:latest \
   snakemake -n -s Snakefile --config mode=<MODE> --configfile config_SIMDATA.yaml --scheduler greedy
 ```
+
+**`-e USER=pipeline -e HOME=/tmp` is required, not decorative.** `--user $(id -u):$(id -g)`
+puts the container on a uid with no `/etc/passwd` entry and Snakemake resolves the current user at
+startup, so without them every run dies before scheduling with
+`KeyError: 'getpwuid(): uid not found: 1000'`. Note also that piping `docker run` into `tail`
+reports **`tail`'s** exit status — a failed run then looks like exit 0. Redirect to a file instead.
 
 **Pipeline modes**: `processing`, `prestructure`, `structure`, `climate`, `traits`, `pregea`, `gea`, `gwas`, `gea_x_gwas`, `maladaptation`
 
@@ -684,13 +692,13 @@ load-bearing and not obvious:
 rewrite the tracked SIMDATA fixtures in place. A denylist test enforces it rather than leaving it
 to review.
 
-Baseline as of 2026-09-13 (after fixing the three HIGH app findings):
-`tests/` = **1064 passing / 19 skipped**, app = **769 passing / 3 skipped**, python =
+Baseline as of 2026-09-13 (after fixing the seven wrong-science quarantines):
+`tests/` = **1086 passing / 12 skipped**, app = **769 passing / 3 skipped**, python =
 **74 tests**, heavy = **29 passing**. `run_tests.R` and `run_heavy.R` both exit non-zero on any
-failure, so both are CI-able as-is. (Previous figures: 1051/21, 749/7, 74, 29 — the skip counts
-went DOWN because four quarantined defects were fixed and their `skip()`s deleted; the pass jump is
-the app's first end-to-end `load_gff_genes()` coverage plus the un-skipped assertions themselves.
-Before that: 934/18, 417/3, 74, 29.)
+failure, so both are CI-able as-is. (Previous figures: 1064/19, 769/3, 74, 29 — the skips dropped
+by SEVEN because that many quarantined defects were fixed and their `skip()`s deleted; see the
+invariants table below, which fell from 41 violations to 3 in the same change. Before that:
+1051/21, 749/7; and 934/18, 417/3.)
 
 **THE APP SUITE TESTS THE IMAGE, NOT THE MOUNT.** `scripts/clinego.app/tests/testthat.R` is
 `library(clinego.app)` + `test_check("clinego.app")`, so it resolves against
@@ -717,7 +725,7 @@ data.table's shallow-copy notice when a combine strategy selects nothing — pip
 `combine_sigsnps.R:166` and app `fct_combine.R:121` — and are suppressed at the two named helpers
 in `test-equivalence-app-pipeline.R` with the reason stated there, not globally.
 
-The 19 and the 3 are QUARANTINE counts. An increment that moves either is adding a `skip()`, and
+The 12 and the 3 are QUARANTINE counts. An increment that moves either is adding a `skip()`, and
 the commit must name the filing it points at; a DECREMENT means a defect was fixed and its
 correct-behaviour assertion now runs.
 
@@ -763,19 +771,22 @@ before editing:
 default gate. `scripts/check_invariants.R` validates a `{PROJECT}_results/` tree against
 `scripts/R/lib/invariants.R` — checks that must hold on ANY dataset (region/SNP consistency,
 p-values in [0,1], chromosome names never re-acquiring a `chr` prefix, sample accounting that
-closes, and cross-module referential integrity). On `SIMDATA_results` it reports 41 violations,
+closes, and cross-module referential integrity). On `SIMDATA_results` it reports 3 violations,
 **every one of them a defect already filed in `docs/pipeline_improvement_requests.md`**:
 
 | count | check | filed as |
 |---|---|---|
-| 14 | `overlap_traits_includes_own_trait` | `sig_snps.R:152` |
-| 14 | `overlap_snps_names_unknown_snp` | `sig_snps.R:159` |
-| 10 | `duplicate_column_names` | `genes_per_region_collapsed.tsv` |
 | 1 | `pairwise_table_references_unknown_trait` | stale GEAxGWAS after a `mode=gea` re-run |
 | 1 | `multiple_threshold_variants_on_disk` | RDA sig table orphaned by a threshold change |
 | 1 | `climate_predictor_count_disagrees` | `write_summary.R:362` |
 
-A run that comes back **clean is itself a failure signal** — those six are confirmed present.
+**Was 41 until 2026-09-13**, when three fixes plus a `mode=gea` + `mode=gwas` re-run cleared 38 of
+them: `overlap_traits_includes_own_trait` (14) and `overlap_snps_names_unknown_snp` (14) by the
+`sig_snps.R` subject-side fix, and `duplicate_column_names` (10) by moving `.SDcols` out of `j` in
+`genes_in_regions.R`. Fixing the library alone moves nothing — `--invariants` reads the TSVs on
+disk, so the count only falls after the modes that wrote them are re-run.
+
+A run that comes back **clean is itself a failure signal** — those three are confirmed present.
 Any check name outside that table is new and must be triaged: a real defect gets filed, a
 checker misreading a schema gets fixed. Never tune a check down to make the output green.
 
@@ -849,14 +860,25 @@ are **reimplemented** in the app, and nothing asserts the two agree.
 See the "Regression tests for scientific outputs" objective in the ADAPTOGENE pipeline dossier
 for the full tier plan.
 
-### Exon/Promoter SNP Validation — validated 2026-09-10, and it is WRONG
-`.count_snps_in_features()` (`scripts/R/lib/genes_in_regions.R:174`) builds its SNP id from
+### Exon/Promoter SNP Validation — fixed 2026-09-13
+`.count_snps_in_features()` (`scripts/R/lib/genes_in_regions.R:174`) built its SNP id from
 the plain, feature-side `s` column of `foverlaps(snps, feats)`, so `exon_snps` /
-`promoter_snps` report the **feature's start coordinate** and `exon_snp_count` /
-`promoter_snp_count` count features hit, not SNPs. Two SNPs at 120 and 130 inside a
-100-200 exon yield `1:100` and a count of 1. Invisible on SIMDATA (every cell is empty
-there). Not fixed — filed in `docs/pipeline_improvement_requests.md` and quarantined in
-`tests/testthat/test-known-bugs.R`.
+`promoter_snps` reported the **feature's start coordinate** and `exon_snp_count` /
+`promoter_snp_count` counted features hit, not SNPs. Two SNPs at 120 and 130 inside a
+100-200 exon yielded `1:100` and a count of 1. Now reads `i.s` (the SNP side), and both
+quarantined assertions in `tests/testthat/test-known-bugs.R` run.
+
+The promoter window is strand-aware in the same change: `read_gff()` keeps GFF3 field 7, and
+the window is `[gene_end, gene_end + L]` on the `-` strand, `[gene_start - L, gene_start]`
+otherwise (a gff_dt with no `strand` column is treated as `+`, so every existing caller is
+unchanged). `strand` is therefore a new column in `genes_per_region.tsv` and its collapsed
+sibling — no consumer reads those positionally, and `test-gff_parsing.R`'s two column-set
+pins were updated to match.
+
+**Still unvalidated end to end.** SIMDATA's GFF has 25 CDS features (no `exon`, so the CDS
+fallback runs) and 33 minus-strand rows, but its 350 SNPs over 5 chromosomes put nothing
+inside a CDS — every `exon_snp_count`/`promoter_snp_count` cell is still 0 after the fix.
+The unit tests are the only evidence for both the SNP-id and the strand behaviour.
 
 ## Active Obsidian Project
 - Project: ADAPTOGENE
