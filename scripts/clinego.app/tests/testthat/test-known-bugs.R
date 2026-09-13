@@ -68,23 +68,24 @@ test_that("sass is declared in Imports, since app_theme.R calls it", {
 })
 
 # ---------------------------------------------------------------------------
-# fct_data_loading.R:478,550 — parse_gff_attributes() drops empty rows, and
-# load_gff_genes() cbinds the result POSITIONALLY. A GFF whose selected feature
+# FIXED 2026-09-13; the two blocks below are retained as regression assertions
+# and are no longer skipped.
+#
+# fct_data_loading.R:480,487 — parse_gff_attributes() dropped empty rows, and
+# load_gff_genes() cbound the result POSITIONALLY (:551). A GFF whose selected feature
 # set contains any row with an empty attributes field therefore yields a gene
 # table where every gene after that row carries ANOTHER gene's attributes.
 # Measured: 3 input rows / 2 parsed recycles with a warning; 4 input rows / 2
 # parsed recycles with NO warning at all, because the lengths divide evenly.
 #
-# DISTINCT from the already-filed gene_id defect in the same function: that one
-# is regmatches() on the gene_id extraction (:533-544), this one is row loss in
-# the attribute parser plus a positional bind.
+# DISTINCT from the gene_id defect in the same function: that one was
+# regmatches() on the gene_id extraction, this one is row loss in the attribute
+# parser plus a positional bind. Both are fixed, independently.
 # Found 2026-09-12 while writing test-fct_data_loading.R.
 # Filed: docs/pipeline_improvement_requests.md (2026-09-12).
 # ---------------------------------------------------------------------------
 
 test_that("parse_gff_attributes keeps one output row per input row", {
-    skip("known bug: fct_data_loading.R:478 rbindlist drops empty lists — filed 2026-09-12")
-
     # The contract load_gff_genes()'s positional cbind silently assumes.
     got <- parse_gff_attributes(c("ID=g1", NA_character_, "ID=g3"))
     expect_identical(nrow(got), 3L)
@@ -92,8 +93,6 @@ test_that("parse_gff_attributes keeps one output row per input row", {
 })
 
 test_that("load_gff_genes does not recycle attributes across genes", {
-    skip("known bug: fct_data_loading.R:550 positional cbind over a shorter table — filed 2026-09-12")
-
     # Written against the helper rather than the loader so it needs no GFF on
     # disk: this is exactly the bind load_gff_genes performs.
     dt <- data.table::data.table(
@@ -109,21 +108,26 @@ test_that("load_gff_genes does not recycle attributes across genes", {
 })
 
 # ---------------------------------------------------------------------------
+# FIXED 2026-09-13; both blocks below are retained as regression assertions and
+# are no longer skipped.
+#
 # fct_snp_sets.R:100,122 — unlink() defaults to expand = TRUE, so a set name
-# containing a glob metacharacter deletes every sibling that matches it.
+# containing a glob metacharacter deleted every sibling that matched it.
 # Measured: three sets (foo*, foo_bar, foobaz), one delete_snp_set("foo*"), all
 # three directories gone. The manifest is pruned by name equality only, so it
-# then lists sets whose files no longer exist.
+# then listed sets whose files no longer existed.
 #
-# The name rule ^[A-Za-z0-9_.]+$ is documented at :53 and enforced nowhere in
-# the app; promote_snp_set.R:49 does enforce it pipeline-side.
+# TWO HALVES, both needed. expand = FALSE on both unlink() calls is the half
+# that protects names ALREADY on disk; validating the name in save_snp_set()
+# is the half that stops new ones. The rule ^[A-Za-z0-9_.]+$ is documented at
+# :53 and was enforced only in the UI caller (mod_gea.R:466 feedback, :491 hard
+# gate) — the library contract itself was unguarded, which is how the measured
+# case above was produced, by calling save_snp_set() directly.
+# promote_snp_set.R:49 enforces it pipeline-side.
 # Found 2026-09-12 while writing test-fct_snp_sets.R.
-# Filed: docs/pipeline_improvement_requests.md (2026-09-12).
 # ---------------------------------------------------------------------------
 
 test_that("delete_snp_set does not glob-expand the set name", {
-    skip("known bug: fct_snp_sets.R:100 unlink(expand = TRUE) — filed 2026-09-12")
-
     project <- basename(tempfile("SS_GLOB_"))
     mk <- function() {
         d <- data.table::data.table(
@@ -131,22 +135,30 @@ test_that("delete_snp_set does not glob-expand the set name", {
             method = "EMMAX", trait = "bio_1", region_id = NA_character_)
         d[, min_pvalue := pvalue][]
     }
-    for (n in c("foo*", "foo_bar", "foobaz")) save_snp_set(project, n, mk(), list())
+    for (n in c("foo_bar", "foobaz")) save_snp_set(project, n, mk(), list())
+
+    # The glob-named set is created BY HAND, not through save_snp_set(), which
+    # now refuses the name. That is deliberate: this block covers the
+    # retroactive half of the fix — a set stored under such a name before the
+    # validation existed, or written by anything other than this app, must still
+    # not take its siblings with it.
+    glob_dir <- file.path(snp_sets_dir(project), "foo*")
+    dir.create(glob_dir, recursive = TRUE, showWarnings = FALSE)
+    data.table::fwrite(mk()[, .(SNPID, chr, pos, min_pvalue)],
+                       file.path(glob_dir, "selected_snps.tsv"), sep = "\t")
 
     delete_snp_set(project, "foo*", remove_gf_results = TRUE)
 
     # Only the named set may go.
-    expect_false(set_exists(project, "foo*"))
+    expect_false(dir.exists(glob_dir))
     expect_true(file.exists(snp_set_path(project, "foo_bar")))
     expect_true(file.exists(snp_set_path(project, "foobaz")))
     expect_setequal(list_snp_sets(project)$name, c("foo_bar", "foobaz"))
 })
 
 test_that("save_snp_set rejects a name outside the documented pattern", {
-    skip("known bug: fct_snp_sets.R:53 rule is documented but unenforced — filed 2026-09-12")
-
     # promote_snp_set.R:49 enforces ^[A-Za-z0-9_.]+$ pipeline-side, so a name the
-    # app accepts here is already one the pipeline will refuse.
+    # app accepts here would already be one the pipeline refuses.
     project <- basename(tempfile("SS_NAME_"))
     d <- data.table::data.table(
         SNPID = "1:1", chr = "1", pos = 1L, pvalue = 1e-8,

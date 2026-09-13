@@ -39,7 +39,8 @@ test_that(".onLoad actually put the shared functions in the package namespace", 
     # essential — exists() would otherwise find these via the search path in a
     # session that happened to attach them.
     ns <- asNamespace("clinego.app")
-    for (fn in c("compute_pval_threshold", "cluster_snps_to_regions")) {
+    for (fn in c("compute_pval_threshold", "cluster_snps_to_regions",
+                 "extract_gene_id")) {
         expect_true(exists(fn, envir = ns, inherits = FALSE),
                     info = paste0(fn, " is not in the clinego.app namespace — ",
                                   "zzz.R's load_shared_libs() did not deliver it"))

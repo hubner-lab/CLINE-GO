@@ -56,6 +56,16 @@ set_exists <- function(project, name) {
 #' @return Invisible integer: number of unique SNPs written.
 #' @noRd
 save_snp_set <- function(project, name, sigsnps_dt, params_list) {
+    # Enforce the documented rule HERE, not only in the UI caller. mod_gea.R:491
+    # gates the modal, but the store is also written by direct calls, and a name
+    # carrying a glob metacharacter is a deletion hazard for its siblings
+    # (see delete_snp_set below). promote_snp_set.R:49 refuses the same pattern
+    # pipeline-side, so an unvalidated name here is one the pipeline rejects.
+    if (!is.character(name) || length(name) != 1L || is.na(name) ||
+        !grepl("^[A-Za-z0-9_.]+$", name)) {
+        stop("SNP set name must match ^[A-Za-z0-9_.]+$, got: ", name)
+    }
+
     dir <- file.path(snp_sets_dir(project), name)
     dir.create(dir, recursive = TRUE, showWarnings = FALSE)
 
@@ -95,9 +105,16 @@ save_snp_set <- function(project, name, sigsnps_dt, params_list) {
 #' (both variants from spatial_correction: both). We match EXACTLY these two
 #' suffixes rather than a raw glob prefix to avoid over-deleting a set named
 #' "foo" when "foo_bar" also exists.
+#'
+#' Every unlink() here passes expand = FALSE. The default is TRUE, which treats
+#' the path as a WILDCARD: a set named "foo*" used to delete foo_bar and foobaz
+#' along with itself, while the manifest below — pruned by name equality — kept
+#' listing them. A store path is never a glob. save_snp_set() now refuses such
+#' names, but this is what protects sets already on disk.
 #' @noRd
 delete_snp_set <- function(project, name, remove_gf_results = TRUE) {
-    unlink(file.path(snp_sets_dir(project), name), recursive = TRUE, force = TRUE)
+    unlink(file.path(snp_sets_dir(project), name),
+           recursive = TRUE, force = TRUE, expand = FALSE)
 
     man  <- read_snp_sets_manifest(project)
     man  <- Filter(function(x) !identical(x$name, name), man)
@@ -108,8 +125,13 @@ delete_snp_set <- function(project, name, remove_gf_results = TRUE) {
         suffixes <- c(name,
                       paste0(name, "_spatial"),
                       paste0(name, "_nospatial"))
-        # Remove results for all registered maladaptation methods
-        all_methods <- c("gradient_forest", "geometric_offset", "rda_offset")
+        # Remove results for all registered maladaptation methods. Must stay in
+        # step with workflow/methods/maladaptation.py — the output directories
+        # are keyed by REGISTRY KEY, not by engine (common.smk:1382-1389), so
+        # rda_offset_corrected has its own tree despite sharing rda_offset's
+        # script. Asserted by tests/testthat/test-equivalence-app-pipeline.R,
+        # which greps for this assignment: keep it on one line.
+        all_methods <- c("gradient_forest", "geometric_offset", "rda_offset", "rda_offset_corrected")
         for (method in all_methods) {
             for (base in c(
                 mod_path(project, MOD_MALAD, "plots",  method),
@@ -119,7 +141,8 @@ delete_snp_set <- function(project, name, remove_gf_results = TRUE) {
                 for (suf in suffixes) {
                     target <- file.path(base, suf)
                     if (file.exists(target) || dir.exists(target))
-                        unlink(target, recursive = TRUE, force = TRUE)
+                        unlink(target, recursive = TRUE, force = TRUE,
+                               expand = FALSE)
                 }
             }
         }

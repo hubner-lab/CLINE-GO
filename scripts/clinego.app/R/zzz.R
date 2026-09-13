@@ -38,7 +38,8 @@
 #' @noRd
 CLINEGO_SHARED_LIBS <- c(
     "/pipeline/scripts/R/lib/regions.R",         # cluster_snps_to_regions() etc.
-    "/pipeline/scripts/R/utils/pval_threshold.R" # compute_pval_threshold() etc.
+    "/pipeline/scripts/R/utils/pval_threshold.R",# compute_pval_threshold() etc.
+    "/pipeline/scripts/R/lib/gff_parsing.R"      # extract_gene_id() etc.
 )
 
 #' Source the shared libraries into an environment.

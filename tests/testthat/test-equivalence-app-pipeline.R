@@ -349,34 +349,28 @@ test_that("the app extends the gene window upstream only, like the pipeline's pr
     expect_false(9000L %in% a$start)
 })
 
-test_that("KNOWN DIVERGENCE: the app's gene_id fallback is dead code", {
-    # CORRECT behaviour, deliberately not made to pass.
-    #
-    # fct_data_loading.R:533-544 builds gene_id with
+test_that("the app derives gene_id the way the pipeline does, on every shape", {
+    # FIXED 2026-09-13. The app used to build gene_id with
     # regmatches(regexpr("(?<=Parent=)...")), which returns ONLY THE ELEMENTS THAT
-    # MATCHED rather than one entry per row. So `id` is shorter than nrow(dt),
-    # `na_idx <- !nzchar(id)` (:536) never aligns with the rows it is meant to
-    # index, and the ID= fallback at :538-540 is unreachable. The pipeline's
-    # extract_gene_id (gff_parsing.R:8-13) uses length-preserving str_extract +
-    # ifelse and is correct on every shape.
-    #
-    # SYMPTOM CORRECTED 2026-09-12, measured in-container. The 2026-09-10 filing
-    # said the mixed case "throws inside the tryCatch at :552 and returns an EMPTY
-    # table". That is only one of THREE outcomes, and not the worst:
+    # MATCHED rather than one entry per row, so `id` was shorter than nrow(dt),
+    # `na_idx <- !nzchar(id)` never aligned with the rows it indexed, and the ID=
+    # fallback was unreachable dead code. Four measured outcomes, none intended:
     #
     #   all rows have Parent=        -> gene_id is the PARENT value, never the ID=
     #   mixed, exactly ONE Parent=   -> data.table RECYCLES that single id across
     #                                   every row. Right row count, wrong ids, no
     #                                   error, nothing stale-looking. The bad one.
-    #   mixed, k>1 Parent=, k!=nrow  -> assignment refused -> empty table (as filed)
+    #   mixed, k>1 Parent=, k!=nrow  -> assignment refused -> empty table
     #   no row has Parent=           -> gene_id is NA for every row
     #
-    # The recycling case is the reason this block asserts all four shapes rather
-    # than just the empty-table one: a test that only checked nrow would PASS on
-    # the silent-corruption case.
-    # Filed 2026-09-10, corrected 2026-09-12, docs/pipeline_improvement_requests.md.
-    skip("known divergence: app load_gff_genes gene_id fallback unreachable — filed 2026-09-10")
-
+    # The recycling case is why this block asserts every shape rather than just
+    # the empty-table one: a test that only checked nrow would PASS on the
+    # silent-corruption case.
+    #
+    # The fix deleted the app's copy rather than repairing it: load_gff_genes()
+    # now calls the pipeline's extract_gene_id() (gff_parsing.R:8-13), reached
+    # through CLINEGO_SHARED_LIBS (zzz.R). So this block is now an equivalence
+    # assertion in the strict sense — one implementation, two callers.
     skip_without_app()
     # CALL SHAPE — corrected 2026-09-12, a TEST-code fix. This block previously
     # called load_gff_genes(path, "gene"), but the real signature is
@@ -387,16 +381,16 @@ test_that("KNOWN DIVERGENCE: the app's gene_id fallback is dead code", {
     # actually causes — i.e. the skip was hiding a broken test, and "un-skip and
     # watch it fail" would have proved nothing about the defect.
     #
-    # The unique project name is mandatory, not hygiene: load_cached's key here is
-    # "gff_genes_<project>" with NO fingerprint (:503-504), so it is sticky for the
-    # whole session.
+    # The unique project name is mandatory, not hygiene: see the note on the
+    # fingerprint's one-second mtime resolution below.
     root <- withr::local_tempdir()
     withr::local_options(clinego.pipeline_path = root)
     dir.create(file.path(root, "data"), recursive = TRUE, showWarnings = FALSE)
 
-    # A UNIQUE project per call is mandatory, not hygiene: load_gff_genes' cache key
-    # is "gff_genes_<project>" with NO fingerprint (fct_data_loading.R:503, filed),
-    # so it is sticky for the whole session.
+    # A UNIQUE project per call is still mandatory, not hygiene. load_gff_genes'
+    # key is fingerprinted on the GFF's mtime since 2026-09-13, but mtime has
+    # one-second resolution and these fixtures are written in the same second,
+    # so the fingerprint alone would not separate them.
     app_gene_ids <- function(lines, tag) {
         writeLines(c("##gff-version 3", lines),
                    file.path(root, "data", paste0(tag, ".gff3")))
@@ -407,28 +401,54 @@ test_that("KNOWN DIVERGENCE: the app's gene_id fallback is dead code", {
                    as.integer(stats::runif(1, 1, 1e6))), cfg))
     }
 
-    # 1. Mixed, one Parent=: currently recycles "t2" into both rows.
+    # EXPECTATIONS CORRECTED 2026-09-13, and the correction is the point of the
+    # block. Cases 1 and 2 previously expected the ID= value even on rows that
+    # carry Parent= — i.e. "ID wins" — which contradicts the rule both sides
+    # actually document and implement ("prefer Parent=, fall back to ID=",
+    # gff_parsing.R:5-7). The block was skip()ped from the day it was written, so
+    # those expectations had never run against anything. They are now the shared
+    # implementation's rule, asserted per row rather than as a set, because the
+    # defect being guarded against was a WRONG id in the RIGHT position.
+
+    # 1. Mixed, one Parent=: used to recycle "t2" into both rows.
     mixed1 <- app_gene_ids(c(
         gff_line("1", 1000, 2000, "ID=g1;Name=alpha"),
         gff_line("1", 4000, 5000, "Parent=t2;ID=g2;Name=beta")), "mixed1")
     expect_identical(nrow(mixed1), 2L)
-    expect_setequal(mixed1$gene_id, c("g1", "g2"))
+    expect_identical(mixed1$gene_id, c("g1", "t2"))
 
-    # 2. Mixed, two Parent= among three rows: currently an empty table.
+    # 2. Mixed, two Parent= among three rows: used to be an empty table.
     mixed2 <- app_gene_ids(c(
         gff_line("1", 1000, 2000, "ID=g1"),
         gff_line("1", 3000, 4000, "Parent=t2;ID=g2"),
         gff_line("1", 5000, 6000, "Parent=t3;ID=g3")), "mixed2")
     expect_identical(nrow(mixed2), 3L)
-    expect_setequal(mixed2$gene_id, c("g1", "g2", "g3"))
+    expect_identical(mixed2$gene_id, c("g1", "t2", "t3"))
 
-    # 3. No Parent= anywhere: currently NA for every row.
+    # 3. No Parent= anywhere: used to be NA for every row.
     noparent <- app_gene_ids(c(
         gff_line("1", 1000, 2000, "ID=g1"),
         gff_line("1", 3000, 4000, "ID=g2")), "noparent")
     expect_identical(nrow(noparent), 2L)
     expect_false(any(is.na(noparent$gene_id)))
     expect_setequal(noparent$gene_id, c("g1", "g2"))
+
+    # 4. Every row carries Parent=. This shape was ENUMERATED in the comment but
+    # never asserted, and it is the common real-world one (feature = "mRNA", where
+    # Parent IS the gene). Parent wins over ID by design, so assert that rather
+    # than the ID= values.
+    allparent <- app_gene_ids(c(
+        gff_line("1", 1000, 2000, "Parent=t1;ID=g1"),
+        gff_line("1", 3000, 4000, "Parent=t2;ID=g2")), "allparent")
+    expect_identical(nrow(allparent), 2L)
+    expect_identical(allparent$gene_id, c("t1", "t2"))
+
+    # 5. The structural half: one implementation, not two that agree today. If
+    # the app ever grows its own copy again this goes red even when the values
+    # happen to match.
+    app_fn <- get("extract_gene_id", envir = asNamespace("clinego.app"),
+                  inherits = FALSE)
+    expect_identical(body(app_fn), body(extract_gene_id))
 })
 
 test_that("the pipeline's gene_id extraction handles all three attribute shapes", {
@@ -951,12 +971,12 @@ test_that("delete_snp_set's method list matches the maladaptation registry", {
                     grep("^\\s*[\"'][A-Za-z_]+[\"']\\s*:\\s*\\{", py, value = TRUE))
     registry <- unique(registry[nzchar(registry)])
     expect_gt(length(registry), 0L)
-    # CONFIRMED DRIFT, 2026-09-12: maladaptation.py registers FOUR methods
-    # (gradient_forest, geometric_offset, rda_offset, rda_offset_corrected) and
-    # fct_snp_sets.R:112 lists three. Deleting a SNP set therefore orphans every
-    # rda_offset_corrected result directory for that set. Filed; the assertion
-    # below is the correct behaviour and is skip()ped until the list is fixed.
-    skip("known bug: rda_offset_corrected missing from delete_snp_set's all_methods — filed 2026-09-12")
+    # DRIFT CONFIRMED 2026-09-12, FIXED 2026-09-13: maladaptation.py registers
+    # FOUR methods (gradient_forest, geometric_offset, rda_offset,
+    # rda_offset_corrected) and fct_snp_sets.R listed three, so deleting a SNP
+    # set orphaned every rda_offset_corrected result directory for it. The
+    # output dirs are KEY-named (common.smk:1382-1389), not engine-named, so the
+    # shared engine does not save them.
     for (m in registry) {
         expect_true(grepl(m, line, fixed = TRUE),
                     info = paste("maladaptation method", m,

@@ -37,10 +37,12 @@ options(clinego.pipeline_path = CLINEGO_TEST_ROOT)
 # .cache_env (fct_data_loading.R:1068) is a 200MB cachem::cache_mem reached via
 # get_app_cache() and NEVER cleared, so every load_cached()-wrapped function
 # carries state across tests within a session. Two keys are especially sharp:
-#   * load_gff_genes()      — key "gff_genes_<project>" with NO fingerprint, so it
-#                             is sticky for the whole session;
-#   * assign_region_ids()   — fingerprinted on the regions file's MTIME, so two
-#                             writes inside the same second collide.
+#   * load_gff_genes()      — fingerprinted on the GFF's MTIME since 2026-09-13
+#                             (it had NO fingerprint before, and was sticky for
+#                             the whole session);
+#   * assign_region_ids()   — fingerprinted on the regions file's MTIME.
+# Both therefore collide for two writes inside the same second, which is why the
+# unique-project discipline below still stands.
 # The standing discipline is therefore a UNIQUE `project` string per test block;
 # use this only where a genuinely cold cache is required, via
 # withr::defer(reset_app_cache()).

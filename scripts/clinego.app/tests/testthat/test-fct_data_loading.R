@@ -72,25 +72,115 @@ test_that("parse_gff_attributes returns a zero-column table for empty input", {
     expect_identical(ncol(got), 0L)
 })
 
-test_that("parse_gff_attributes DROPS empty rows instead of keeping them aligned", {
-    # Characterisation of a live defect, filed 2026-09-12. An NA or empty
-    # attribute string parses to list(), and rbindlist drops empty lists rather
-    # than emitting an all-NA row — so the result has FEWER rows than the input
-    # and no longer corresponds to it positionally.
+test_that("parse_gff_attributes keeps an empty row ALIGNED instead of dropping it", {
+    # Inverted 2026-09-13, when the defect it characterised was fixed. It used to
+    # assert nrow == 2L: an NA or empty attribute string parsed to list(), and
+    # rbindlist drops empty lists rather than emitting an all-NA row, so the
+    # result had FEWER rows than the input and no longer corresponded to it
+    # positionally. load_gff_genes() then did a POSITIONAL cbind, so the
+    # attributes recycled and every gene after an attribute-less row carried
+    # another gene's — right row count, plausible values, and for an exact
+    # multiple not even a warning.
     #
-    # load_gff_genes() then does cbind(dt[, .(gene_id, chr, start, end)],
-    # attr_dt) (:550), a POSITIONAL bind. Measured consequence: the attributes
-    # recycle, so every gene after the attribute-less row is annotated with
-    # another gene's attributes — right row count, plausible values, and for an
-    # exact multiple not even a warning.
+    # The function is now total with respect to its input, which is the contract
+    # that positional bind silently assumed all along.
     got <- parse_gff_attributes(c("ID=g1", NA_character_, "ID=g3"))
-    expect_identical(nrow(got), 2L)
-    expect_identical(got$ID, c("g1", "g3"))
+    expect_identical(nrow(got), 3L)
+    expect_identical(got$ID, c("g1", NA_character_, "g3"))
 })
 
 # ---------------------------------------------------------------- cluster_pop_summary
 
 mk_q <- function(...) data.table::data.table(...)
+
+# ---------------------------------------------------------------- load_gff_genes
+#
+# The app suite had no GFF fixture and never exercised the loader end to end —
+# which is why the recycling defects below were only ever asserted against the
+# helper, with the cbind reconstructed by hand. These go through the real
+# function: config resolution, fread, the shared extract_gene_id, the attribute
+# bind and the cache.
+
+fx_gff_project <- function(lines, envir = parent.frame()) {
+    root <- withr::local_tempdir(.local_envir = envir)
+    withr::local_options(clinego.pipeline_path = root, .local_envir = envir)
+    dir.create(file.path(root, "data"), recursive = TRUE, showWarnings = FALSE)
+    path <- file.path(root, "data", "genes.gff3")
+    writeLines(c("##gff-version 3", lines), path)
+    list(
+        # Unique per INVOCATION: the cache is never cleared, and the mtime
+        # fingerprint has one-second resolution, so neither separates two
+        # fixtures written in the same second.
+        project = basename(tempfile("GFF_")),
+        path    = path,
+        config  = list(Input = list(dir = "data", gff = "genes.gff3"),
+                       GFF   = list(feature = "gene"))
+    )
+}
+
+gff_row <- function(chr, start, end, attrs) {
+    paste(chr, "test", "gene", start, end, ".", "+", ".", attrs, sep = "\t")
+}
+
+test_that("load_gff_genes does not let a gene inherit its neighbour's attributes", {
+    # Four rows, two of them with an EMPTY attribute field: the exact shape that
+    # used to recycle without even a warning, because 2 divides 4.
+    fx <- fx_gff_project(c(
+        gff_row("1", 100, 200, "ID=g1;biotype=protein_coding;Name=ALPHA"),
+        gff_row("1", 300, 400, ""),
+        gff_row("1", 500, 600, "ID=g3;biotype=lncRNA;Name=GAMMA"),
+        gff_row("1", 700, 800, "")))
+
+    got <- load_gff_genes(fx$project, fx$config)
+
+    expect_identical(nrow(got), 4L)
+    expect_identical(got$gene_id, c("g1", NA_character_, "g3", NA_character_))
+    expect_identical(got$biotype, c("protein_coding", NA, "lncRNA", NA))
+    expect_identical(got$Name, c("ALPHA", NA, "GAMMA", NA))
+})
+
+test_that("load_gff_genes keeps ID= genes when only SOME rows carry Parent=", {
+    # The mixed shape. It used to recycle one parent id across every row when
+    # exactly one row matched, and return an empty table when k > 1 did.
+    fx <- fx_gff_project(c(
+        gff_row("1", 100, 200, "ID=g1"),
+        gff_row("1", 300, 400, "Parent=t2;ID=g2"),
+        gff_row("1", 500, 600, "Parent=t3;ID=g3")))
+
+    got <- load_gff_genes(fx$project, fx$config)
+
+    expect_identical(nrow(got), 3L)
+    # Parent wins where present, ID is the fallback — the rule gff_parsing.R
+    # documents and both sides now share.
+    expect_identical(got$gene_id, c("g1", "t2", "t3"))
+})
+
+test_that("load_gff_genes re-reads a GFF that was regenerated under the same path", {
+    # The cache key carried no fingerprint until 2026-09-13, so a pipeline
+    # re-run that rewrote the GFF was invisible for the rest of the session and
+    # the Region Explorer served stale genes with no indication.
+    fx <- fx_gff_project(gff_row("1", 100, 200, "ID=g1;Name=ALPHA"))
+
+    first <- load_gff_genes(fx$project, fx$config)
+    expect_identical(first$gene_id, "g1")
+
+    writeLines(c("##gff-version 3", gff_row("1", 100, 200, "ID=g9;Name=OMEGA")),
+               fx$path)
+    # mtime has one-second resolution; set it explicitly rather than sleeping.
+    Sys.setFileTime(fx$path, Sys.time() + 120)
+
+    second <- load_gff_genes(fx$project, fx$config)
+    expect_identical(second$gene_id, "g9")
+    expect_identical(second$Name, "OMEGA")
+})
+
+test_that("load_gff_genes returns an empty table, and says so, when the GFF is unreadable", {
+    fx <- fx_gff_project(gff_row("1", 100, 200, "ID=g1"))
+    cfg <- fx$config
+    cfg$Input$gff <- "missing.gff3"
+    # A path that does not exist is resolved before the cache and returns early.
+    expect_identical(nrow(load_gff_genes(fx$project, cfg)), 0L)
+})
 
 test_that("cluster_pop_summary assigns each sample by argmax over C1..Ck", {
     dt <- mk_q(C1 = c(0.8, 0.1, 0.2), C2 = c(0.1, 0.8, 0.3), C3 = c(0.1, 0.1, 0.5))
