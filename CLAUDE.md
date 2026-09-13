@@ -684,12 +684,32 @@ load-bearing and not obvious:
 rewrite the tracked SIMDATA fixtures in place. A denylist test enforces it rather than leaving it
 to review.
 
-Baseline as of 2026-09-12 (after closing the wrapper, app-unit and equivalence objectives):
-`tests/` = **1051 passing / 21 skipped**, app = **749 passing / 7 skipped**, python =
+Baseline as of 2026-09-13 (after fixing the three HIGH app findings):
+`tests/` = **1064 passing / 19 skipped**, app = **769 passing / 3 skipped**, python =
 **74 tests**, heavy = **29 passing**. `run_tests.R` and `run_heavy.R` both exit non-zero on any
-failure, so both are CI-able as-is. (Previous figures: 934/18, 417/3, 74, 29 — the jump is 10 new
-CLI wrapper rows over 5 scripts, 4 of them newly covered (29 -> 33 distinct scripts), seven new
-app test files, and four new equivalence blocks.)
+failure, so both are CI-able as-is. (Previous figures: 1051/21, 749/7, 74, 29 — the skip counts
+went DOWN because four quarantined defects were fixed and their `skip()`s deleted; the pass jump is
+the app's first end-to-end `load_gff_genes()` coverage plus the un-skipped assertions themselves.
+Before that: 934/18, 417/3, 74, 29.)
+
+**THE APP SUITE TESTS THE IMAGE, NOT THE MOUNT.** `scripts/clinego.app/tests/testthat.R` is
+`library(clinego.app)` + `test_check("clinego.app")`, so it resolves against
+`/usr/local/lib/R/site-library/clinego.app` — the copy baked in at `Dockerfile:176-178` — and NOT
+against `scripts/clinego.app/R/*.R` on the `-v` mount. Tier 5 has the same property (it reaches the
+app through `clinego.app:::`). **So after ANY edit under `scripts/clinego.app/R/`, `./tests/run_all.sh`
+reports on the previous build until you `docker build` again.** It goes green while testing code that
+is no longer in the repo. Two ways through it:
+- `docker build -t cline-go .` — correct, and required before trusting the gate. Note an app change
+  invalidates the COPY at `:176`, so every layer after it rebuilds (Bioconductor, gradientForest,
+  test deps): tens of minutes, not the ~11 a cached rebuild takes.
+- For the edit/test loop, install the mounted package into a throwaway lib first:
+  `R CMD INSTALL --no-docs --no-byte-compile -l /tmp/applib /pipeline/scripts/clinego.app`, then
+  `.libPaths(c("/tmp/applib", .libPaths()))` before sourcing `testthat.R`, and assert
+  `find.package("clinego.app")` actually resolves there. Do **not** use
+  `remotes::install_local()` for this — it silently skips the install when the local SHA1 has not
+  changed, leaving the target lib empty while `find.package()` still points at site-library.
+Filed in `docs/pipeline_improvement_requests.md`: the gate should do this itself, or at minimum
+assert the installed package matches the mount instead of failing as an ordinary assertion error.
 
 **The quick gate's warning baseline is ZERO**, and that is load-bearing rather than cosmetic: a
 suite carrying standing warnings is one the next real warning hides in. Two known warts emit
@@ -697,8 +717,9 @@ data.table's shallow-copy notice when a combine strategy selects nothing — pip
 `combine_sigsnps.R:166` and app `fct_combine.R:121` — and are suppressed at the two named helpers
 in `test-equivalence-app-pipeline.R` with the reason stated there, not globally.
 
-The 21 and the 7 are QUARANTINE counts. An increment that moves either is adding a `skip()`, and
-the commit must name the filing it points at.
+The 19 and the 3 are QUARANTINE counts. An increment that moves either is adding a `skip()`, and
+the commit must name the filing it points at; a DECREMENT means a defect was fixed and its
+correct-behaviour assertion now runs.
 
 **Newly covered 2026-09-12**, closing gaps that were scoped out earlier on a premise that turned
 out to be false:
