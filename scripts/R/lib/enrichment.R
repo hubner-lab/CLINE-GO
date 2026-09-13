@@ -67,8 +67,26 @@ get_go_descriptions <- function(go_ids) {
     if (requireNamespace("GO.db", quietly = TRUE)) {
         message("INFO: Using GO.db for term descriptions")
         library(GO.db)
+        # select() HARD-ERRORS when none of the keys resolve, which killed the whole
+        # enrichment rule for a GFF whose go_field held a typo or an obsolete term.
+        # Validate first and let unresolvable ids be their own name — the same
+        # degradation the "GO.db not available" branch below already performs.
+        as_own_name <- function(ids) {
+            data.frame(term = ids, name = ids, stringsAsFactors = FALSE)
+        }
+        valid <- intersect(go_ids, AnnotationDbi::keys(GO.db, keytype = "GOID"))
+        if (length(valid) == 0L) {
+            message(paste0("WARNING: none of the ", length(go_ids),
+                           " GO ids resolve in GO.db — using GO IDs as descriptions"))
+            return(as_own_name(go_ids))
+        }
+        if (length(valid) < length(go_ids)) {
+            message(paste0("WARNING: ", length(go_ids) - length(valid), " of ",
+                           length(go_ids), " GO ids do not resolve in GO.db — ",
+                           "those keep their GO ID as the description"))
+        }
         go_terms <- AnnotationDbi::select(GO.db,
-            keys    = go_ids,
+            keys    = valid,
             columns = c("GOID", "TERM"),
             keytype = "GOID"
         )
@@ -77,6 +95,10 @@ get_go_descriptions <- function(go_ids) {
             name = go_terms$TERM,
             stringsAsFactors = FALSE
         )
+        unresolved <- setdiff(go_ids, term2name$term)
+        if (length(unresolved) > 0L) {
+            term2name <- rbind(term2name, as_own_name(unresolved))
+        }
         term2name$name[is.na(term2name$name)] <- term2name$term[is.na(term2name$name)]
         return(term2name)
     }

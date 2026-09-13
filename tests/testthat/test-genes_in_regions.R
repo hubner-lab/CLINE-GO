@@ -95,6 +95,20 @@ test_that("the key columns lead and the GFF attribute columns follow", {
                        "exon_snp_count", "promoter_snp_count"))
 })
 
+# `.SDcols` is an argument of `[.data.table`, not an element of j. Passed inside
+# the c(...) that builds j it became a plain list element, .SD silently defaulted
+# to EVERY non-by column, and the collapsed table re-emitted five columns a second
+# time plus six .SDcols1..6 columns holding the vector itself. That is the whole
+# of the `10 duplicate_column_names` violations --invariants reports.
+test_that("genes_collapsed has unique column names and no .SDcols junk", {
+    r <- quiet(find_genes_for_regions(regions("R1", "1", 1000, 5000),
+                                      gff("g1", "1", 1500, 3000), "unused"))
+    cn <- colnames(r$genes_collapsed)
+    expect_identical(anyDuplicated(cn), 0L)
+    expect_false(any(grepl("^\\.SDcols", cn)))
+    expect_true("Name" %in% cn)   # the attribute column .SDcols was meant to carry
+})
+
 test_that("genes_collapsed is sorted by chr then gene_start", {
     regs <- regions(c("R1", "R2"), c("2", "1"), c(1000, 1000), c(9000, 9000))
     gfft <- rbind(gff("gB", "2", 2000, 3000), gff("gA", "1", 5000, 6000))

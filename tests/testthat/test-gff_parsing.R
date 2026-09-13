@@ -107,16 +107,36 @@ test_that("read_gff infers attribute names from the FIRST matching row only", {
     # separate() expands `description` in place, so the attribute columns land
     # where it was and gene_id (added before the split) trails them.
     expect_identical(colnames(g),
-                     c("chr", "start", "end", "ID", "Name", "gene_id"))
+                     c("chr", "start", "end", "strand", "ID", "Name", "gene_id"))
     expect_false("Note" %in% colnames(g))
 })
 
-test_that("read_gff on a missing feature type warns and returns the 4-column empty frame", {
+test_that("read_gff on a missing feature type warns and returns the empty frame", {
     path <- write_gff(gff_line("1", "gene", 100, 200, "ID=gene1;Name=alpha"))
     g <- expect_message(read_gff(path, "tRNA"), "No features of type")
     expect_identical(nrow(g), 0L)
     # Schema differs from the populated case: no attribute columns at all.
-    expect_identical(colnames(g), c("chr", "start", "end", "gene_id"))
+    expect_identical(colnames(g), c("chr", "start", "end", "strand", "gene_id"))
+})
+
+# GFF3 field 7 is kept because the promoter window depends on it: on the - strand
+# the transcription start is gene_end, not gene_start (genes_in_regions.R).
+test_that("read_gff keeps GFF3 field 7 verbatim", {
+    path <- write_gff(c(
+        gff_line("1", "gene", 100, 200, "ID=gene1", strand = "+"),
+        gff_line("1", "gene", 300, 400, "ID=gene2", strand = "-"),
+        gff_line("1", "gene", 500, 600, "ID=gene3", strand = ".")
+    ))
+    g <- quiet(read_gff(path, "gene"))
+    expect_identical(g$strand, c("+", "-", "."))
+})
+
+test_that("an attribute literally named 'strand' does not shadow field 7", {
+    path <- write_gff(gff_line("1", "gene", 100, 200, "ID=gene1;strand=bogus",
+                               strand = "-"))
+    g <- quiet(read_gff(path, "gene"))
+    expect_identical(g$strand, "-")
+    expect_identical(g$strand_attr, "bogus")
 })
 
 test_that("read_gff preserves a non-numeric chromosome name verbatim", {

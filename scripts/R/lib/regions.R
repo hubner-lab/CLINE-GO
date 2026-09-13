@@ -43,8 +43,13 @@ cluster_snps_to_regions <- function(sig_snps, dist_spec, trait_label = NULL) {
     sig_snps <- data.table::copy(sig_snps)
     sig_snps[, chr := as.character(chr)]
     sig_snps[, pos := as.integer(pos)]
-    if (!"min_pvalue" %in% colnames(sig_snps))
+    if (!"min_pvalue" %in% colnames(sig_snps)) {
+        # Almost always the wide-vs-long shape trap: the LONG sig-SNP table has no
+        # min_pvalue column, so every region would report an empty p-value. Say it
+        # out loud — this used to surface only as min()'s -Inf warning.
+        message("WARNING: sig_snps has no min_pvalue column; every region will report NA")
         sig_snps[, min_pvalue := NA_real_]
+    }
 
     method_cols <- setdiff(colnames(sig_snps), c("SNPID", "chr", "pos", "min_pvalue"))
 
@@ -91,7 +96,8 @@ cluster_snps_to_regions <- function(sig_snps, dist_spec, trait_label = NULL) {
                 snp_count  = nrow(grp),
                 snp_ids    = paste(grp$SNPID, collapse = ","),
                 methods    = paste(sort(unique(active_methods)), collapse = ","),
-                min_pvalue = min(grp$min_pvalue, na.rm = TRUE)
+                min_pvalue = if (all(is.na(grp$min_pvalue))) NA_real_
+                             else min(grp$min_pvalue, na.rm = TRUE)
             )
         })
     })

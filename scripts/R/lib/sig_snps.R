@@ -149,14 +149,17 @@ annotate_cross_trait_overlaps <- function(sig_snps, distance) {
         by.y = c("chr", "s", "e"),
         type = "any", mult = "all", nomatch = NA)
 
+    # After foverlaps(query, subj): plain cols = subj (the NEIGHBOUR), i.* = query
+    # (the source row). nomatch = NA leaves the SUBJECT side NA, so the no-match
+    # guard must test the plain column.
     # Filter: only other-trait matches (same SNPID but different trait is NOT other-trait)
-    ov <- ov[!is.na(i.SNPID) & trait != i.trait]
+    ov <- ov[!is.na(SNPID) & trait != i.trait]
 
     if (nrow(ov) > 0) {
         # Aggregate per source row
         ov_agg <- ov[, .(
-            overlap_traits = paste(sort(unique(i.trait)),  collapse = ","),
-            overlap_snps   = paste(sort(unique(paste0(chr, ":", i.s))), collapse = ",")
+            overlap_traits = paste(sort(unique(trait)),  collapse = ","),
+            overlap_snps   = paste(sort(unique(paste0(chr, ":", s))), collapse = ",")
         ), by = "row_i"]
 
         for (idx in seq_len(nrow(ov_agg))) {

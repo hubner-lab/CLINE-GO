@@ -89,12 +89,26 @@ find_genes_for_regions <- function(regions_dt, gff_dt, gff_path,
             snps, exon_gff[gene_id %in% unique_gene_ids], col_name = "exon"
         )
 
-        # Promoter SNPs: [gene_start - promoter_length, gene_start]
-        promoter_dt <- genes[gene_id %in% unique_gene_ids,
-                             .(chr,
-                               start   = pmax(1L, as.integer(start) - promoter_length),
-                               end     = as.integer(start),
-                               gene_id)]
+        # Promoter SNPs: upstream of the TRANSCRIPTION START, which is gene_start
+        # on the + strand and gene_end on the -. A gff_dt with no strand column,
+        # or a '.' strand, is treated as + — the previous, strand-blind behaviour.
+        gene_rows <- genes[gene_id %in% unique_gene_ids]
+        g_strand <- if ("strand" %in% colnames(gene_rows)) {
+            as.character(gene_rows$strand)
+        } else {
+            rep(NA_character_, nrow(gene_rows))
+        }
+        on_minus <- !is.na(g_strand) & g_strand == "-"
+        promoter_dt <- data.table::data.table(
+            chr     = gene_rows$chr,
+            start   = data.table::fifelse(
+                on_minus, as.integer(gene_rows$end),
+                pmax(1L, as.integer(gene_rows$start) - promoter_length)),
+            end     = data.table::fifelse(
+                on_minus, as.integer(gene_rows$end) + promoter_length,
+                as.integer(gene_rows$start)),
+            gene_id = gene_rows$gene_id
+        )
         promoter_counts <- .count_snps_in_features(snps, promoter_dt, col_name = "promoter")
 
         genes_per_region <- merge(genes_per_region, exon_counts,    by = "gene_id", all.x = TRUE)
@@ -131,9 +145,8 @@ find_genes_for_regions <- function(regions_dt, gff_dt, gff_path,
         .(promoter_snps      = paste(sort(unique(promoter_snps[promoter_snps != ""])), collapse = ",")),
         .(exon_snp_count     = max(exon_snp_count)),
         .(promoter_snp_count = max(promoter_snp_count)),
-        lapply(.SD, function(x) paste(sort(unique(x[!is.na(x)])), collapse = ",")),
-        .SDcols = collapse_cols
-    ), by = c("gene_id", "chr", "gene_start", "gene_end")]
+        lapply(.SD, function(x) paste(sort(unique(x[!is.na(x)])), collapse = ","))
+    ), by = c("gene_id", "chr", "gene_start", "gene_end"), .SDcols = collapse_cols]
 
     data.table::setorder(genes_collapsed, chr, gene_start)
 
@@ -170,7 +183,9 @@ find_genes_for_regions <- function(regions_dt, gff_dt, gff_path,
 
     if (is.null(ov) || nrow(ov) == 0L) return(empty_result)
 
-    ov[, snp_id := paste0(chr, ":", s)]
+    # x = snps, y = feats, so after foverlaps the SNP position is i.s and the
+    # plain s is the FEATURE start. The id must name the SNP.
+    ov[, snp_id := paste0(chr, ":", i.s)]
     result <- ov[, .(snps = paste(sort(unique(snp_id)), collapse = ",")), by = "gene_id"]
     data.table::setnames(result, "snps", snps_col)
     result

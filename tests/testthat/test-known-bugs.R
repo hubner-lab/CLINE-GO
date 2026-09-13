@@ -17,7 +17,6 @@
 # ---------------------------------------------------------------------------
 
 test_that("overlap_traits names the OTHER trait, not the row's own", {
-    skip("known bug: sig_snps.R:152 uses i.trait (query side) — filed 2026-09-10")
 
     dt <- data.table::data.table(
         SNPID = c("1:100", "1:110"), chr = "1", pos = c(100L, 110L),
@@ -29,7 +28,6 @@ test_that("overlap_traits names the OTHER trait, not the row's own", {
 })
 
 test_that("overlap_snps gives the NEIGHBOUR's chr:pos, not pos minus distance", {
-    skip("known bug: sig_snps.R:159 uses i.s (window start) — filed 2026-09-10")
 
     dt <- data.table::data.table(
         SNPID = c("1:100", "1:110"), chr = "1", pos = c(100L, 110L),
@@ -38,6 +36,23 @@ test_that("overlap_snps gives the NEIGHBOUR's chr:pos, not pos minus distance", 
     r <- annotate_cross_trait_overlaps(dt, 1000L)
     expect_identical(r[trait == "bio_1"]$overlap_snps, "1:110")
     expect_identical(r[trait == "bio_2"]$overlap_snps, "1:100")
+})
+
+# Pinned deliberately, not incidental: when one position is significant under two
+# traits it IS its own cross-trait neighbour, so overlap_snps names the row's own
+# chr:pos. Correct (the position really does overlap under another trait) and
+# invisible to the invariant checkers, which only ask whether the SNP exists. The
+# two-position fixture above cannot discriminate this case.
+test_that("a position significant under two traits names its own chr:pos", {
+    dt <- data.table::data.table(
+        SNPID = c("1:100", "1:100"), chr = "1", pos = c(100L, 100L),
+        pvalue = 1e-8, pval_threshold = 1e-6, trait = c("bio_1", "bio_2")
+    )
+    r <- annotate_cross_trait_overlaps(dt, 1000L)
+    expect_identical(r[trait == "bio_1"]$overlap_snps,   "1:100")
+    expect_identical(r[trait == "bio_1"]$overlap_traits, "bio_2")
+    expect_identical(r[trait == "bio_2"]$overlap_snps,   "1:100")
+    expect_identical(r[trait == "bio_2"]$overlap_traits, "bio_1")
 })
 
 # ---------------------------------------------------------------------------
@@ -119,7 +134,6 @@ test_that("auto_per_chromosome does not mix rows from other groups", {
 # ---------------------------------------------------------------------------
 
 test_that("a minus-strand gene's promoter sits downstream of gene_end", {
-    skip("known bug: genes_in_regions.R:95 promoter window is strand-blind — pitched 2026-08-18")
 
     exon_path <- withr::local_tempfile(fileext = ".gff3")
     writeLines(c("##gff-version 3",
@@ -156,7 +170,6 @@ test_that("a minus-strand gene's promoter sits downstream of gene_end", {
 # ---------------------------------------------------------------------------
 
 test_that(".count_snps_in_features lists SNP positions, not feature starts", {
-    skip("known bug: genes_in_regions.R:174 uses plain `s` (feature side) — filed 2026-09-10")
 
     snps  <- data.table::data.table(chr = "1", pos = c(120L, 130L))
     feats <- data.table::data.table(chr = "1", start = 100L, end = 200L,
@@ -166,7 +179,6 @@ test_that(".count_snps_in_features lists SNP positions, not feature starts", {
 })
 
 test_that("exon_snp_count counts SNPs, not exons hit", {
-    skip("known bug: genes_in_regions.R:174 — filed 2026-09-10")
 
     exon_path <- withr::local_tempfile(fileext = ".gff3")
     writeLines(c("##gff-version 3",
@@ -189,7 +201,6 @@ test_that("exon_snp_count counts SNPs, not exons hit", {
 # ---------------------------------------------------------------------------
 
 test_that("a region with no p-values reports min_pvalue = NA, not Inf", {
-    skip("known bug: regions.R:94 min(na.rm=TRUE) yields Inf — pitched 2026-08-18")
 
     dt <- data.table::data.table(SNPID = "1:5000", chr = "1", pos = 5000L)
     r  <- suppressWarnings(cluster_snps_to_regions(dt, 1000L))
@@ -254,7 +265,6 @@ test_that("get_region_colors returns an empty vector for zero regions", {
 # ---------------------------------------------------------------------------
 
 test_that("build_term2gene_from_gff survives a GFF with unresolvable GO ids", {
-    skip("known bug: enrichment.R:69-74 select() errors on all-invalid keys — filed 2026-09-12")
 
     d <- withr::local_tempdir()
     p <- file.path(d, "annot.gff3")

@@ -35,12 +35,14 @@ read_gff <- function(gff_path, feature) {
     raw <- raw[, .(chr = as.character(V1),
                    start = as.integer(V4),
                    end   = as.integer(V5),
+                   strand = as.character(V7),
                    description = V9)]
 
     if (nrow(raw) == 0L) {
         message(paste0("WARNING: No features of type '", feature, "' in GFF"))
         return(data.table::data.table(chr = character(), start = integer(),
-                                       end = integer(), gene_id = character()))
+                                       end = integer(), strand = character(),
+                                       gene_id = character()))
     }
 
     raw[, gene_id := extract_gene_id(description)]
@@ -54,12 +56,21 @@ read_gff <- function(gff_path, feature) {
 
     message(paste0("INFO: GFF attribute fields: ", paste(fields, collapse = ", ")))
 
+    # separate() splits by POSITION, so a clashing name has to be renamed rather
+    # than dropped. The core GFF3 field keeps the name 'strand'.
+    into <- fields
+    if ("strand" %in% into) {
+        message("INFO: GFF attribute 'strand' shadows core GFF3 field 7; ",
+                "attribute kept as 'strand_attr'")
+        into[into == "strand"] <- "strand_attr"
+    }
+
     raw2 <- tidyr::separate(
-        raw, col = "description", into = fields, sep = ";",
+        raw, col = "description", into = into, sep = ";",
         fill = "right", extra = "drop"
     )
 
-    for (f in fields) {
+    for (f in into) {
         if (f %in% colnames(raw2)) {
             raw2[[f]] <- clean_attr_value(raw2[[f]])
             raw2[[f]][raw2[[f]] == "NA" | raw2[[f]] == ""] <- NA_character_
