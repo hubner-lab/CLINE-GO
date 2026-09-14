@@ -565,7 +565,10 @@ load_gff_genes <- function(project, config) {
             dt <- dt[feature == feat]
             if (nrow(dt) == 0) return(data.table::data.table())
 
-            dt[, chr   := sub("^chr", "", as.character(chr), ignore.case = TRUE)]
+            # normalize_chr() (gff_parsing.R, shared via CLINEGO_SHARED_LIBS) is the
+            # rule the pipeline applied to every chr this table is joined against:
+            # prefix off in any case AND Mt/m/x folded to plink's MT/X spelling.
+            dt[, chr   := normalize_chr(chr)]
             dt[, start := as.integer(start)]
             dt[, end   := as.integer(end)]
 

@@ -36,6 +36,7 @@ suppressPackageStartupMessages({
 })
 
 source("/pipeline/scripts/R/utils/theme_clinego.R")
+source("/pipeline/scripts/R/lib/gff_parsing.R")   # normalize_chr()
 
 args <- commandArgs(trailingOnly = TRUE)
 
@@ -255,11 +256,11 @@ setnames(dens_filt, c("CHROM", "BIN_START", "SNP_COUNT", "VARIANTS_PER_KB"))
 dens_raw[,  stage := "Raw"]
 dens_filt[, stage := "Filtered"]
 
-# Normalize chr names: raw VCF may have a "chr1"/"Chr1"/"CHR1" prefix while filtered VCF has
-# "1" (filter_vcf strips it case-insensitively; plink also recodes X/Y/MT, which stay
-# letters there via --output-chr MT — so only the prefix needs handling here)
-dens_raw[,  CHROM := sub("^chr", "", CHROM, ignore.case = TRUE)]
-dens_filt[, CHROM := sub("^chr", "", CHROM, ignore.case = TRUE)]
+# Normalize chr names: the raw VCF carries the user's spelling (chr1, Chr1, Mt) while
+# the filtered VCF went through plink --output-chr MT + filter_vcf (1, 1, MT).
+# normalize_chr() is that same rule, so both stages land on one row per chromosome.
+dens_raw[,  CHROM := normalize_chr(CHROM)]
+dens_filt[, CHROM := normalize_chr(CHROM)]
 
 dens_both <- rbind(dens_raw, dens_filt)
 # Raw on top, Filtered below: factor levels reversed so Raw is higher on y-axis
