@@ -66,7 +66,13 @@ build_term2gene_from_gff <- function(gff_path, gff_feature, go_field) {
 get_go_descriptions <- function(go_ids) {
     if (requireNamespace("GO.db", quietly = TRUE)) {
         message("INFO: Using GO.db for term descriptions")
-        library(GO.db)
+        # GO.db::GO.db, NOT library(GO.db). The attach is global and permanent:
+        # it also pulls AnnotationDbi, whose select() then MASKS dplyr::select()
+        # for everything sourced afterwards — in a pipeline where every script is
+        # sourced into one session and several use a bare select(). The test
+        # suite had to undo it by hand (test-enrichment.R's
+        # with_search_path_restored). A :: reference needs no attach at all.
+        go_db <- GO.db::GO.db
         # select() HARD-ERRORS when none of the keys resolve, which killed the whole
         # enrichment rule for a GFF whose go_field held a typo or an obsolete term.
         # Validate first and let unresolvable ids be their own name — the same
@@ -74,7 +80,7 @@ get_go_descriptions <- function(go_ids) {
         as_own_name <- function(ids) {
             data.frame(term = ids, name = ids, stringsAsFactors = FALSE)
         }
-        valid <- intersect(go_ids, AnnotationDbi::keys(GO.db, keytype = "GOID"))
+        valid <- intersect(go_ids, AnnotationDbi::keys(go_db, keytype = "GOID"))
         if (length(valid) == 0L) {
             message(paste0("WARNING: none of the ", length(go_ids),
                            " GO ids resolve in GO.db — using GO IDs as descriptions"))
@@ -85,7 +91,7 @@ get_go_descriptions <- function(go_ids) {
                            length(go_ids), " GO ids do not resolve in GO.db — ",
                            "those keep their GO ID as the description"))
         }
-        go_terms <- AnnotationDbi::select(GO.db,
+        go_terms <- AnnotationDbi::select(go_db,
             keys    = valid,
             columns = c("GOID", "TERM"),
             keytype = "GOID"

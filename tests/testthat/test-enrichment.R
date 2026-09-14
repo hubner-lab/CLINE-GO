@@ -16,10 +16,11 @@
 # (test-equivalence-app-pipeline.R:570-586). It is therefore not tested.
 #
 # SEARCH-PATH HYGIENE: build_term2gene_from_gff() reaches get_go_descriptions(),
-# which runs library(GO.db) at CALL time (:69) — a global attach that also pulls
-# AnnotationDbi, whose select() would mask dplyr::select() for every
-# alphabetically-later file in the same test_dir() run. Every test here that
-# calls the full function restores the search path afterwards.
+# which used to run library(GO.db) at CALL time — a global attach that also
+# pulled AnnotationDbi, whose select() masked dplyr::select() for every
+# alphabetically-later file in the same test_dir() run. It now reads
+# GO.db::GO.db, so nothing is attached; the guard below stays as the belt to
+# that braces, and the last test in this file asserts the search path directly.
 
 # Attach-and-restore guard. Records what was attached before the call and detaches
 # anything new, so one test cannot change name resolution for the rest of the run.
@@ -39,12 +40,12 @@ with_search_path_restored <- function(code) {
 write_go_gff <- function(d, feature = "mRNA", go_field = "Ontology",
                          entries = NULL, name = "annot.gff3") {
     if (is.null(entries)) {
-        # REAL GO ids on purpose. get_go_descriptions() (:66-80) passes them
-        # straight to AnnotationDbi::select() with no validation, and that call
-        # HARD-ERRORS when none of the keys are valid ("None of the keys entered
-        # are valid keys for 'GOID'"). Invented ids like "GO:0001" therefore make
-        # this fixture kill the function under test rather than exercise it —
-        # which is itself a filed defect, quarantined in test-known-bugs.R.
+        # REAL GO ids on purpose. get_go_descriptions() now validates its keys
+        # against keys(GO.db) before AnnotationDbi::select() — which hard-errors
+        # when NONE are valid ("None of the keys entered are valid keys for
+        # 'GOID'") — so invented ids no longer kill the function. They would
+        # exercise only the unresolvable-id degradation, not the real lookup,
+        # which is what these tests are about.
         entries <- list(
             list(id = "g1", go = "GO:0008150,GO:0003674"),
             list(id = "g2", go = "GO:0003674"),
@@ -179,4 +180,16 @@ test_that("save_enrichment_result writes the documented column order", {
     expect_identical(nrow(back), 2L)
     expect_identical(unique(back$region_id), "1_100-200")
     expect_identical(unique(back$trait), "bio_1")
+})
+
+test_that("get_go_descriptions attaches nothing to the search path", {
+    # It used to call library(GO.db) at run time, which also attaches
+    # AnnotationDbi and masks dplyr::select() for everything sourced later —
+    # in a pipeline whose scripts all source into one session. GO.db::GO.db
+    # needs no attach. Skipped rather than failed when GO.db is absent: the
+    # branch under test does not run at all then.
+    skip_if_not_installed("GO.db")
+    before <- search()
+    quiet(get_go_descriptions(c("GO:0008150", "GO:0003674")))
+    expect_identical(setdiff(search(), before), character(0))
 })

@@ -293,8 +293,6 @@ test_that("build_term2gene_from_gff survives a GFF with unresolvable GO ids", {
 # ---------------------------------------------------------------------------
 
 test_that("check_summary_counts scopes its comparison to the step it was given", {
-    skip("known bug: invariants.R:371 `step == step` self-compares the column — filed 2026-09-12")
-
     # The same metric name under two steps: exactly what write_summary.R writes.
     s <- data.table::data.table(
         step   = c("gea", "gwas"),
@@ -307,6 +305,15 @@ test_that("check_summary_counts scopes its comparison to the step it was given",
     v <- check_summary_counts(s, "gwas", list(selected_snps_total = 8L))
     expect_identical(nrow(v), 1L)
     expect_identical(v$check, "summary_count_disagrees_with_table")
+
+    # The other failure direction, and the louder one: with only ONE step in the
+    # summary, `step == step` compared THAT step's row and keyed the violation to
+    # the step the caller asked about. check_invariants.R:119 runs this once per
+    # module, so a GEA-only run reported a fabricated GWAS disagreement.
+    gea_only <- data.table::data.table(step = "gea", metric = "selected_snps_total",
+                                       value = "8")
+    expect_identical(nrow(check_summary_counts(gea_only, "gwas",
+                                               list(selected_snps_total = 999L))), 0L)
 })
 
 # ---------------------------------------------------------------------------
