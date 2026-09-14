@@ -24,11 +24,12 @@ EVAL <- file.path(ROOT, "benchmarks/mvp_eval")
 OFF  <- Sys.getenv("OFFSET_DIR", "offset11")
 OUT  <- Sys.getenv("FIG_OUT", file.path(EVAL, "figures_main"))
 source(file.path(ROOT, "scripts/R/utils/theme_clinego.R"))
+source(file.path(ROOT, "benchmarks/mvp_arm.R"))
 MINOU <- c(teal="#00798c", red="#d1495b", amber="#edae49", sage="#66a182",
            navy="#2e4057", grey="#8d96a3")
 
 man <- fread(file.path(ROOT, "benchmarks/mvp_seeds.tsv"), colClasses = c(seed="character"))
-man <- man[arm == "primary"]
+man <- mvp_prim(man)
 
 # ---- collect varpart per replicate ----------------------------------------
 vp <- rbindlist(lapply(man$seed, function(s) {
@@ -52,6 +53,7 @@ message(sprintf("varpart parsed for %d replicates", nrow(vp)))
 # ---- targets ---------------------------------------------------------------
 acc <- fread(file.path(EVAL, OFF, "phase1_seed_medians_solo.tsv"), colClasses=c(seed="character"))
 acc <- acc[method_label != "RDA-corrected" & seed %in% man$seed]
+mvp_require_rows(acc, "seed medians")
 acc <- acc[, .(v = median(-tau)), by = .(seed, marker_set)]
 tg  <- dcast(acc[marker_set %in% c("gea_best","all","adaptive")], seed ~ marker_set, value.var="v")
 setnames(tg, c("gea_best","all","adaptive"),

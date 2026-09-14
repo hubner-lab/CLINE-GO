@@ -181,3 +181,7 @@ testthat-problems.rds
 # SS-Clines block run artifacts (benchmarks/SSCLINES_RUNBOOK.md)
 logs_*.log
 benchmarks/mvp_seeds.tsv.pre_*
+
+# /done 2026-09-14: A/B no-op verification evidence for the arm-selector fix (314 MB of
+# regenerated figures). Reproducible from git HEAD + benchmarks/, not worth versioning.
+work/noopcheck/

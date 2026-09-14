@@ -33,6 +33,7 @@ suppressPackageStartupMessages({
 
 PIPELINE_ROOT <- Sys.getenv("PIPELINE_ROOT", "/pipeline")
 source(file.path(PIPELINE_ROOT, "scripts/R/utils/theme_clinego.R"))
+source(file.path(PIPELINE_ROOT, "benchmarks/mvp_arm.R"))
 
 args <- commandArgs(trailingOnly = TRUE)
 kv <- function(k, d) {
@@ -169,7 +170,28 @@ gp <- read_if("garden_performance.tsv")
 if (!is.null(gp) && nrow(gp)) {
     setDT(gp)
     landscape <- if ("type" %in% names(gp)) gp[type == "landscape"] else gp
-    if ("is_control" %in% names(landscape)) landscape <- landscape[is_control == FALSE]
+    # Which replicates this run reports. Restricting to the reported arm's seeds
+    # SUBSUMES the old `is_control == FALSE` filter -- the two degenerate controls
+    # are arm `control_degenerate`, which mvp_prim() never returns -- and, unlike
+    # it, stays correct now that the manifest holds more than one arm. Seeds are
+    # numeric-looking IDs, so fread infers integer wherever colClasses is absent;
+    # force character on both sides before any %in% or merge (CLAUDE.md).
+    man <- fread(file.path(PIPELINE_ROOT, "benchmarks/mvp_seeds.tsv"),
+                 colClasses = c(seed = "character"))
+    PRIM <- mvp_prim(man)
+    if ("seed" %in% names(landscape)) {
+        landscape[, seed := as.character(seed)]
+        landscape <- landscape[seed %in% PRIM$seed]
+        mvp_require_rows(landscape, "garden rows")
+    } else {
+        # No seed column to restrict on. Best effort: drop the degenerate controls
+        # by whichever flag the table carries. THE COLUMN IS `control` in
+        # offset09/offset11's garden_performance.tsv -- the old code tested only
+        # `is_control`, which does not exist there, so the filter was dead and the
+        # two control replicates were pooled into every fig4 median.
+        cc <- intersect(c("is_control", "control"), names(landscape))
+        if (length(cc)) landscape <- landscape[get(cc[1]) == FALSE]
+    }
     f4 <- landscape[, .(median_tau = median(tau, na.rm = TRUE), n = .N),
                     by = .(method_label, marker_set)]
     p4 <- ggplot(f4, aes(reorder(marker_set, median_tau), median_tau, fill = method_label)) +
@@ -186,16 +208,12 @@ if (!is.null(gp) && nrow(gp)) {
     # The headline: whether curating markers matters at all depends on genetic
     # architecture. Oligogenic replicates gain from curation; highly-polygenic
     # ones barely do. Averaging over architecture is what hides this.
-    man <- fread(file.path(PIPELINE_ROOT, "benchmarks/mvp_seeds.tsv"),
-                 colClasses = c(seed = "character"))
     if ("seed" %in% names(landscape)) {
-        # Seeds are numeric-looking IDs, so fread infers integer on whichever side
-        # lacks an explicit colClasses -- and an integer/character join throws.
-        # Force both to character before merging (CLAUDE.md, R script conventions).
-        landscape[, seed := as.character(seed)]
-        man[, seed := as.character(seed)]
-        L <- merge(landscape, man[, .(seed, arch_level, arm)], by = "seed", all.x = TRUE)
-        L <- L[arm == "primary" & !is.na(arch_level)]
+        # Inner join on the reported slice: `landscape` is already restricted to
+        # PRIM's seeds above, so this only attaches arch_level.
+        L <- merge(landscape, PRIM[, .(seed, arch_level)], by = "seed")
+        L <- L[!is.na(arch_level)]
+        mvp_require_rows(L, "garden rows with an architecture")
         f5 <- L[, .(median_tau = median(tau, na.rm = TRUE), n_models = .N),
                 by = .(arch_level, marker_set, method_label)]
         p5 <- ggplot(f5, aes(marker_set, median_tau, fill = method_label)) +

@@ -27,6 +27,7 @@ OFF  <- Sys.getenv("OFFSET_DIR", "offset11")
 OUT  <- Sys.getenv("FIG_OUT", file.path(EVAL, "figures_main"))
 dir.create(OUT, recursive = TRUE, showWarnings = FALSE)
 source(file.path(ROOT, "scripts/R/utils/theme_clinego.R"))
+source(file.path(ROOT, "benchmarks/mvp_arm.R"))
 
 MINOU <- c(teal = "#00798c", red = "#d1495b", amber = "#edae49",
            sage = "#66a182", navy = "#2e4057", grey = "#8d96a3")
@@ -46,10 +47,11 @@ LAB  <- c(best = "2/3 methods", intersect3 = "3/3 methods", union = "1/3 methods
           solo_rda = "RDA", solo_emmax = "EMMAX", solo_lfmm = "LFMM")
 
 man <- fread(file.path(ROOT, "benchmarks/mvp_seeds.tsv"), colClasses = c(seed = "character"))
-man <- man[arm == "primary", .(seed, arch = factor(ARCH[arch_level], levels = ARCH))]
+man <- mvp_prim(man)[, .(seed, arch = factor(ARCH[arch_level], levels = ARCH))]
 D <- fread(file.path(EVAL, OFF, "panel_pr_recomputed.tsv"), colClasses = c(seed = "character"))
 D[, background := n - n_causal - n_linked]
 D <- merge(D, man, by = "seed")
+mvp_require_rows(D, "PR rows")
 
 # Per-replicate denominators: the `all` panel IS the whole genome for that replicate.
 den <- D[set == "all", .(seed, C_tot = n_causal, L_tot = n_linked,
@@ -133,6 +135,7 @@ ACCLAB <- c(gea_best = "2/3 methods", gea_strict = "3/3 methods", gea_union = "1
 acc <- acc[marker_set %in% names(ACCLAB)]
 acc[, rule := ACCLAB[marker_set]]
 acc <- merge(acc, man, by = "seed")
+mvp_require_rows(acc, "seed medians")
 accs <- acc[, .(v = median(-tau)), by = .(rule, arch)]
 
 mets <- rbindlist(list(

@@ -93,3 +93,18 @@ mvp_prim <- function(seeds) {
     message(sprintf("manifest slice: %s -- %d replicates", mvp_arm_label(), nrow(out)))
     out
 }
+
+# Assert a scored table still has rows after being restricted to the reported
+# arm's seeds. THE FAILURE THIS CATCHES: MVP_ARM names an arm whose scored
+# tables live in a different OFFSET_DIR. mvp_prim() succeeds (the manifest holds
+# those seeds), the `seed %in% PRIM$seed` restriction then yields zero rows, and
+# a script that does not check draws an EMPTY panel instead of stopping -- the
+# same silent-wrong-answer class the hardcoded `arm == "primary"` had.
+mvp_require_rows <- function(x, what = "rows") {
+    if (nrow(x) == 0L)
+        stop(sprintf(paste0("no %s left after restricting to the reported arm [%s].\n",
+                            "  OFFSET_DIR=%s holds no scored rows for these seeds -- ",
+                            "arm and scored-table directory disagree."),
+                     what, mvp_arm_label(), Sys.getenv("OFFSET_DIR", "<unset>")))
+    invisible(x)
+}

@@ -27,6 +27,7 @@ EVAL <- file.path(ROOT, "benchmarks/mvp_eval")
 OFF  <- Sys.getenv("OFFSET_DIR", "offset11")
 OUT  <- Sys.getenv("FIG_OUT", file.path(EVAL, "figures_main"))
 source(file.path(ROOT, "scripts/R/utils/theme_clinego.R"))
+source(file.path(ROOT, "benchmarks/mvp_arm.R"))
 
 MINOU <- c(teal="#00798c", red="#d1495b", amber="#edae49", sage="#66a182",
            navy="#2e4057", grey="#8d96a3")
@@ -41,9 +42,10 @@ ARCHL <- c(oliogenic="oligogenic", `mod-polygenic`="moderately polygenic",
 S <- c(best="2/3 methods", intersect3="3/3 methods", union="1/3 methods",
        solo_rda="RDA", solo_emmax="EMMAX", solo_lfmm="LFMM")
 
-man <- fread(file.path(ROOT,"benchmarks/mvp_seeds.tsv"), colClasses=c(seed="character"))[arm=="primary"]
+man <- mvp_prim(fread(file.path(ROOT,"benchmarks/mvp_seeds.tsv"), colClasses=c(seed="character")))
 D   <- fread(file.path(EVAL,OFF,"panel_pr_recomputed.tsv"), colClasses=c(seed="character"))
 D   <- merge(D, man[, .(seed, arch = factor(ARCHL[arch_level], levels=ARCHL))], by="seed")
+mvp_require_rows(D, "PR rows")
 den <- D[set=="all", .(seed, C=n_causal, L=n_linked)]
 M   <- merge(D[set %in% names(S)], den, by="seed")
 M[, rule := factor(S[set], levels=RULES)]
