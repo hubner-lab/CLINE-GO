@@ -176,17 +176,38 @@ print(COV)
 # ---------------------------------------------------------------- check --------
 if (nzchar(CHECK)) {
     message("\n== regression check against ", CHECK, " ==")
+    # Gate outcome, accumulated across cmp_one() calls. THE TRAP THIS CLOSES: the
+    # gate used to `return(invisible())` on every non-comparison and never set an
+    # exit status, so BOTH "0 rows were compared" and "the numbers moved" printed
+    # a line and exited 0. On ssclines_b1 it printed
+    #   phase1_seed_medians_solo.tsv: ROW COUNT 3580 (ref) vs 0 (new)
+    # and carried on -- zero rows compared, reported in a shape that reads like a
+    # pass. Exit is now 0 = compared and identical, 1 = FAIL (a real regression),
+    # 2 = NOT APPLICABLE (nothing was comparable, e.g. disjoint seed sets, which
+    # is the expected state for every fresh SS-Clines block).
+    N_FAIL <- 0L; N_NA <- 0L; N_OK <- 0L
     cmp_one <- function(fn, keys) {
         old_f <- file.path(CHECK, fn)
-        if (!file.exists(old_f)) { message("  ", fn, ": absent in reference -- skipped"); return(invisible()) }
+        if (!file.exists(old_f)) {
+            message("  ", fn, ": NOT APPLICABLE -- absent in reference")
+            N_NA <<- N_NA + 1L; return(invisible())
+        }
         old <- fread(old_f, colClasses = c("seed" = "character"))
         new <- fread(file.path(OUTDIR, fn), colClasses = c("seed" = "character"))
+        n_seed_shared <- length(intersect(unique(old$seed), unique(new$seed)))
         new <- new[seed %in% old$seed]                       # reference may cover fewer seeds
         setkeyv(old, keys); setkeyv(new, keys)
+        if (nrow(new) == 0L) {
+            message(sprintf(paste0("  %s: NOT APPLICABLE -- 0 of %d reference seeds present ",
+                                   "in the new output (disjoint seed sets). NOTHING WAS COMPARED."),
+                            fn, length(unique(old$seed))))
+            N_NA <<- N_NA + 1L; return(invisible())
+        }
         if (nrow(old) != nrow(new)) {
-            message(sprintf("  %s: ROW COUNT %d (ref) vs %d (new, restricted to ref seeds)",
-                            fn, nrow(old), nrow(new)))
-            return(invisible())
+            message(sprintf(paste0("  %s: FAIL -- ROW COUNT %d (ref) vs %d (new, restricted to ",
+                                   "ref seeds); %d seeds in common"),
+                            fn, nrow(old), nrow(new), n_seed_shared))
+            N_FAIL <<- N_FAIL + 1L; return(invisible())
         }
         j <- merge(old, new, by = keys, suffixes = c(".ref", ".new"))
         vals <- setdiff(names(old), keys)
@@ -198,8 +219,32 @@ if (nzchar(CHECK)) {
             if (d > 1e-9) message(sprintf("    %s: max |diff| = %.3g", v, d))
         }
         message(sprintf("  %s: %d rows compared, max |diff| = %.3g %s",
-                        fn, nrow(j), worst, if (worst <= 1e-9) "-- IDENTICAL" else "-- DIFFERS"))
+                        fn, nrow(j), worst, if (worst <= 1e-9) "-- IDENTICAL" else "-- FAIL, DIFFERS"))
+        if (worst <= 1e-9) N_OK <<- N_OK + 1L else N_FAIL <<- N_FAIL + 1L
     }
     cmp_one("phase1_seed_medians_solo.tsv", c("seed", "marker_set", "method_label"))
     cmp_one("panel_pr_recomputed.tsv",      c("seed", "set"))
+
+    # One unambiguous verdict line, then an exit status that distinguishes the
+    # three outcomes. A caller under `set -e` now stops on a real regression and
+    # can special-case 2 ("this block shares no seeds with the reference").
+    message(sprintf("\n== gate: %d identical, %d FAIL, %d not applicable ==",
+                    N_OK, N_FAIL, N_NA))
+    if (N_FAIL > 0L) {
+        message("GATE FAILED -- the legacy numbers moved. Stop and diagnose.")
+        quit(status = 1L)
+    }
+    # ANY uncompared table exits 2, not just all of them. The two tables have
+    # different seed coverage -- panel_pr_recomputed is rebuilt for every seed it
+    # can find while phase1_seed_medians_solo follows --outdir's
+    # garden_performance -- so a block run against the legacy reference compares
+    # one and skips the other. Reporting that as PASSED is the same trap in a
+    # smaller box: a table nobody checked must never be inside a green verdict.
+    if (N_NA > 0L) {
+        message(sprintf(paste0("GATE NOT APPLICABLE -- %d of %d table(s) were never compared. ",
+                               "This is NOT a pass: that table got no regression check at all."),
+                        N_NA, N_NA + N_OK + N_FAIL))
+        quit(status = 2L)
+    }
+    message("GATE PASSED.")
 }

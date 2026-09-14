@@ -288,8 +288,26 @@ $DK run --rm --name mvp-tables-${MVP_COHORT} --user "$UIDGID" -e USER=adaptogene
     --outdir=/pipeline/$OFFSET_DIR --check=/pipeline/benchmarks/mvp_eval/offset11
 ```
 
-**Gate.** `--check` must report **max abs diff 0** against `offset11`. Non-zero means a scoring
-change leaked in and the legacy numbers moved — stop and diagnose before trusting anything new.
+**Gate.** `--check` now carries its verdict in the **exit status**, because the printed line
+used to be readable as a pass when nothing had been compared:
+
+| exit | verdict | meaning |
+|---|---|---|
+| 0 | `GATE PASSED` | tables compared, max abs diff 0 |
+| 1 | `GATE FAILED` | a scoring change leaked in and the legacy numbers moved — stop and diagnose |
+| 2 | `GATE NOT APPLICABLE` | **at least one table was never compared** — the reference shares no seeds with it |
+
+**Exit 2 is the expected result for every fresh SS-Clines block**, and it is NOT a pass. The two
+tables have different seed coverage: `panel_pr_recomputed.tsv` is rebuilt for every seed the
+script can find and so still compares against the legacy reference, while
+`phase1_seed_medians_solo.tsv` follows `--outdir`'s `garden_performance.tsv` and therefore shares
+no seeds with it. Verified on `offset12_ssclines_b1`: PR identical over 1104 rows, medians
+`0 of 90 reference seeds present`. So exit 2 here means *the medians table got no regression
+check at all* — rule that out another way (re-run `--check` against the previous block's own
+snapshot) or record the gap explicitly in the block report.
+
+Before, both outcomes printed a line and exited 0; on `ssclines_b1` it printed
+`phase1_seed_medians_solo.tsv: ROW COUNT 3580 (ref) vs 0 (new)` and continued.
 
 ## Step 12 — block report
 
