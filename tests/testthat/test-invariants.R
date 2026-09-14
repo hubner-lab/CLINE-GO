@@ -192,6 +192,33 @@ test_that("check_min_pvalue_against_sig_snps catches a selected SNP with no sig 
     expect_equal(v[check == "selected_snp_absent_from_sig_tables", key], "9:9")
 })
 
+# ── check_per_trait_region_min_pvalue ─────────────────────────────────────────
+#
+# regions_per_trait.tsv keyed per trait; the sig pool carries (SNPID, trait, pvalue).
+# 1:1 is bio_2 (1e-8) AND bio_3 (1e-6): the bio_3 region containing it must not
+# report 1e-8.
+
+per_ok <- function() dt(region_id = c("1_1-2_bio_2", "1_1-2_bio_3"),
+                        trait = c("bio_2", "bio_3"), chr = "1", start = 1L, end = 2L,
+                        snp_ids = c("1:1", "1:1,1:2"), min_pvalue = c(1e-8, 1e-6))
+
+test_that("check_per_trait_region_min_pvalue passes when every region reports its own trait's p", {
+    expect_no_violations(check_per_trait_region_min_pvalue(per_ok(), sigs_ok()))
+})
+
+test_that("check_per_trait_region_min_pvalue catches another trait's p leaking into a region", {
+    r <- per_ok(); r[2L, min_pvalue := 1e-8]   # bio_2's p on the bio_3 region (audit SC3)
+    v <- check_per_trait_region_min_pvalue(r, sigs_ok())
+    expect_equal(v$check, "per_trait_region_min_pvalue_below_own_trait")
+    expect_equal(v$key, "1_1-2_bio_3")
+})
+
+test_that("check_per_trait_region_min_pvalue ignores regions whose SNPs have no own-trait rows", {
+    r <- rbind(per_ok(), dt(region_id = "2_5-5_bio_9", trait = "bio_9", chr = "2",
+                            start = 5L, end = 5L, snp_ids = "2:5", min_pvalue = 1e-3))
+    expect_no_violations(check_per_trait_region_min_pvalue(r, sigs_ok()))
+})
+
 test_that("check_min_pvalue_against_sig_snps tolerates pooling several adjust variants", {
     # The same (SNPID, trait, method) carries the same p at every threshold, and
     # a looser threshold only adds rows with LARGER p — so pooling cannot lower

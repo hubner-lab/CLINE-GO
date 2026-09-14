@@ -153,8 +153,34 @@ WRAPPERS <- list(
             paste(a, b)
         },
         args    = function(d, files) c(files, "Union", "10000", "bio_1,bio_2",
-                                       file.path(d, "selected_snps.tsv")),
-        outputs = function(d) file.path(d, "selected_snps.tsv")
+                                       file.path(d, "selected_snps.tsv"),
+                                       file.path(d, "selected_snps_per_trait.tsv")),
+        outputs = function(d) file.path(d, c("selected_snps.tsv",
+                                             "selected_snps_per_trait.tsv"))
+    ),
+    list(
+        # The real pipeline shape: the WIDE selected_snps.tsv plus its per-trait
+        # companion (the row above exercises the "no min_pvalue column" branch
+        # with a long table; this one exercises the trait-scoped min_pvalue path).
+        label   = "create_regions.R (wide selected_snps + per-trait p-values)",
+        script  = "create_regions.R",
+        build   = function(d) {
+            a <- file.path(d, "EMMAX", "sig.tsv"); b <- file.path(d, "LFMM", "sig.tsv")
+            fx_sig_snps(a, "EMMAX"); fx_sig_snps(b, "LFMM")
+            wide <- file.path(d, "selected_snps.tsv")
+            per  <- file.path(d, "selected_snps_per_trait.tsv")
+            res  <- run_wrapper("combine_selected_snps.R",
+                                c(paste(a, b), "Union", "10000", "bio_1,bio_2", wide, per))
+            stopifnot(res$status == 0L)
+            c(wide, per)
+        },
+        args    = function(d, f) c(f[1], "10000",
+                                   file.path(d, "regions_per_trait.tsv"),
+                                   file.path(d, "regions_combined.tsv"),
+                                   "NULL", "0.2", "All", f[2]),
+        outputs = function(d) file.path(d, c("regions_per_trait.tsv",
+                                             "regions_combined.tsv")),
+        fails_without_input = TRUE
     ),
     list(
         label   = "combine_pheno_pvalues.R",
@@ -273,6 +299,29 @@ WRAPPERS <- list(
                                    f[1], f[2], f[3]),
         outputs = function(d) file.path(d, "pipeline_summary.tsv"),
         fails_without_input = FALSE
+    ),
+    list(
+        # The processing branch: nine positionals + the two optional ones this
+        # row leaves at "NULL"/"FALSE". Counts close (10 = 8 + 2 + 0 + 0).
+        label   = "write_summary.R (processing, accounting closes)",
+        script  = "write_summary.R",
+        build   = function(d) fx_processing_summary_inputs(d),
+        args    = function(d, f) c("processing", file.path(d, "pipeline_summary.tsv"),
+                                   f, "NULL", "FALSE"),
+        outputs = function(d) file.path(d, "pipeline_summary.tsv"),
+        fails_without_input = FALSE
+    ),
+    list(
+        # The keep-list is one plink --keep could not fully honour: 7 IDs
+        # while 8 passed the missingness filter. The sample-accounting identity
+        # is promoted into the script (audit 2026-09-13 B41) and MUST stop it.
+        label   = "write_summary.R (processing, accounting does not close exits 1)",
+        script  = "write_summary.R",
+        build   = function(d) fx_processing_summary_inputs(d, truncate_keep = TRUE),
+        args    = function(d, f) c("processing", file.path(d, "pipeline_summary.tsv"),
+                                   f, "NULL", "FALSE"),
+        outputs = function(d) character(0),
+        expect_status = 1L
     ),
     # write_summary.R's OTHER two modes. Same OUTPUT contract (argv[2] is the
     # only file it ever writes, read-modify-write via update_summary at :31-37),
@@ -551,7 +600,7 @@ WRAPPERS <- list(
     list(
         # The full path: 8 sites x 2 samples. Below 4 sites the script stop()s,
         # below 8 it warns — 8 is the smallest size that exercises the real
-        # Mantel/IBD/IBE computation without a warning.
+        # site-level Mantel IBD/IBE computation without a warning.
         label   = "mantel_test.R (full path, 8 sites)",
         script  = "mantel_test.R",
         build   = function(d) c(fx_geo_triple(d),
@@ -681,6 +730,63 @@ WRAPPERS <- list(
         fails_without_input = TRUE
     ),
     list(
+        # Site-level variance partition (2026-09-13): 8 sites x 2 samples, 2
+        # predictors -> residual df 5, status "ok". Vegan is in the image; the
+        # 99-permutation settings keep the row under a few seconds.
+        label   = "pregea_varpart.R (8 sites, status ok)",
+        script  = "pregea_varpart.R",
+        build   = function(d) fx_varpart_inputs(d),
+        args    = function(d, f) c(f[1:17],
+                                   file.path(d, "dbmem_selection_path.tsv"),
+                                   file.path(d, "dbmem_selected.tsv"),
+                                   file.path(d, "variance_partition.tsv"),
+                                   file.path(d, "climate_confounding.tsv"),
+                                   file.path(d, "px_per_variable.tsv"),
+                                   fx_inter_dir(d, "plots"), fx_inter_dir(d, "inter"), f[18]),
+        outputs = function(d) c(file.path(d, c("dbmem_selection_path.tsv", "dbmem_selected.tsv",
+                                               "variance_partition.tsv", "climate_confounding.tsv",
+                                               "px_per_variable.tsv")),
+                                file.path(d, "plots", c("dbmem_selection_path.png", "varpart_venn.png",
+                                                        "px_barplot.png"))),
+        fails_without_input = TRUE
+    ),
+    list(
+        # 3 sites x 2 predictors: residual df 0. Every fit is skipped, the five
+        # tables are still written with status insufficient_sites, exit 0 — the
+        # spatial Gradient Forest downstream then stops on 0 selected MEMs.
+        label   = "pregea_varpart.R (3 sites, status insufficient_sites)",
+        script  = "pregea_varpart.R",
+        build   = function(d) fx_varpart_inputs(d, n_sites = 3L),
+        args    = function(d, f) c(f[1:17],
+                                   file.path(d, "dbmem_selection_path.tsv"),
+                                   file.path(d, "dbmem_selected.tsv"),
+                                   file.path(d, "variance_partition.tsv"),
+                                   file.path(d, "climate_confounding.tsv"),
+                                   file.path(d, "px_per_variable.tsv"),
+                                   fx_inter_dir(d, "plots"), fx_inter_dir(d, "inter"), f[18]),
+        outputs = function(d) file.path(d, c("dbmem_selected.tsv", "variance_partition.tsv",
+                                             "climate_confounding.tsv", "px_per_variable.tsv")),
+        fails_without_input = FALSE
+    ),
+    list(
+        # App-launched only (no Snakemake rule). Two identical site rankings
+        # must give Kendall's W = 1, and the hand-placed ExDet cells must come
+        # out 3 novel of 6 — both asserted below in their own test, this row
+        # covers the exit code, the declared outputs and the cwd sandbox.
+        label   = "compare_offsets.R (two models, 6-cell raster)",
+        script  = "compare_offsets.R",
+        build   = function(d) fx_compare_offsets(d),
+        args    = function(d, f) c(f$cache, f$novelty,
+                                   f$a_site, f$a_map, "GF", f$b_site, f$b_map, "GO",
+                                   f$clim_site, f$pres_all, f$fut_all, "bio_1,bio_2",
+                                   f$raster, "3", "0", f$meta),
+        outputs = function(d) c(file.path(d, "cache", c("stats.json", "rank_stability.tsv",
+                                                        "site_offsets.tsv", "disagree_by_novelty.tsv",
+                                                        "nway_mean_rank.tsv", "disagree_rank.tif")),
+                                file.path(d, "novelty", c("exdet_novelty.tif", "exdet_novelty.tsv"))),
+        fails_without_input = FALSE
+    ),
+    list(
         label   = "check_invariants.R (violating tree exits 1)",
         script  = "check_invariants.R",
         build   = function(d) fx_results_tree(d, violations = TRUE),
@@ -724,6 +830,90 @@ for (spec in WRAPPERS) {
         }
     })
 }
+
+test_that("compare_offsets.R: identical rankings give Kendall W = 1 and ExDet classes match the fixture", {
+    skip_if_not(dir.exists(SCRIPTS), "scripts/ not mounted")
+    d <- withr::local_tempdir()
+    sandbox <- file.path(d, "cwd"); dir.create(sandbox)
+    f <- fx_compare_offsets(d)
+    res <- run_wrapper("compare_offsets.R",
+                       c(f$cache, f$novelty, f$a_site, f$a_map, "GF", f$b_site, f$b_map, "GO",
+                         f$clim_site, f$pres_all, f$fut_all, "bio_1,bio_2", f$raster, "3", "0", f$meta),
+                       wd = sandbox)
+    expect_identical(res$status, 0L, info = paste(res$output, collapse = "\n"))
+    st <- jsonlite::read_json(file.path(f$cache, "stats.json"))
+    # Sites in rows, models in columns: two judges who agree perfectly.
+    expect_equal(st$kendall_w, 1)
+    expect_equal(st$spearman_rho, 1)
+    expect_equal(st$n_models_nway, 2L)
+    expect_equal(st$jaccard_top_k, 1)      # top-3 of 6 sites, k < n so it is defined
+    nov <- data.table::fread(file.path(f$novelty, "exdet_novelty.tsv"))
+    expect_equal(nov$pct_cells_novel, 50.0)
+    expect_equal(nov$pct_cells_type1, 16.7)
+    expect_equal(nov$pct_cells_type2, 33.3)
+    expect_equal(nov$n_reference_sites, 6L)
+    # The band itself: cell 2 carries NT1 = -0.5 (5 is half a range below 10).
+    ex <- terra::values(terra::rast(file.path(f$novelty, "exdet_novelty.tif")))
+    expect_equal(unname(ex[2, "NT1"]), -0.5)
+    expect_true(all(ex[c(1, 5, 6), "ExDet"] >= 0 & ex[c(1, 5, 6), "ExDet"] <= 1))
+    expect_true(all(ex[c(3, 4), "ExDet"] > 1))
+
+    # Cache contract. A second run against the same novelty dir is a hit; a cache written by
+    # the pre-2026-09-13 code (raster present, TSV without the type1/type2 columns) is stale
+    # and must be recomputed — otherwise the inverted class survives the fix on disk.
+    rerun <- function() run_wrapper("compare_offsets.R",
+                       c(f$cache, f$novelty, f$a_site, f$a_map, "GF", f$b_site, f$b_map, "GO",
+                         f$clim_site, f$pres_all, f$fut_all, "bio_1,bio_2", f$raster, "3", "0", f$meta),
+                       wd = sandbox)
+    res2 <- rerun()
+    expect_identical(res2$status, 0L)
+    expect_true(any(grepl("Novelty cache hit", res2$output)))
+    data.table::fwrite(data.table::data.table(pct_cells_novel = 34.3, max_nt2 = 1, n_cells_valid = 6L),
+                       file.path(f$novelty, "exdet_novelty.tsv"), sep = "\t")
+    res3 <- rerun()
+    expect_identical(res3$status, 0L)
+    expect_true(any(grepl("Computing ExDet novelty", res3$output)))
+    nov3 <- data.table::fread(file.path(f$novelty, "exdet_novelty.tsv"))
+    expect_equal(nov3$pct_cells_novel, 50.0)
+    expect_equal(nov3$pct_cells_type1, 16.7)
+})
+
+test_that("pregea_varpart.R fits on site rows and records the design it used", {
+    skip_if_not(dir.exists(SCRIPTS), "scripts/ not mounted")
+    run_vp <- function(n_sites) {
+        d <- withr::local_tempdir(.local_envir = parent.frame())
+        sandbox <- file.path(d, "cwd"); dir.create(sandbox)
+        f <- fx_varpart_inputs(d, n_sites = n_sites)
+        outs <- file.path(d, c("dbmem_selection_path.tsv", "dbmem_selected.tsv",
+                               "variance_partition.tsv", "climate_confounding.tsv",
+                               "px_per_variable.tsv"))
+        res <- run_wrapper("pregea_varpart.R",
+                           c(f[1:17], outs, fx_inter_dir(d, "plots"), fx_inter_dir(d, "inter"), f[18]),
+                           wd = sandbox)
+        expect_identical(res$status, 0L, info = paste(res$output, collapse = "\n"))
+        list(vp = data.table::fread(outs[3]), conf = data.table::fread(outs[4]),
+             sel = data.table::fread(outs[2]), log = res$output)
+    }
+    ok <- run_vp(8L)
+    expect_true(any(grepl("unit of analysis = site: 8 sites \\(2-2 samples per site\\) from 16 samples", ok$log)))
+    expect_identical(unique(ok$vp$status), "ok")
+    expect_identical(unique(ok$vp$unit), "site")
+    expect_identical(unique(ok$vp$n_units), 8L)
+    expect_identical(unique(ok$vp$df_env), 7L)
+    expect_true("Unexplained" %in% ok$vp$component)
+    expect_true(all(c("confounded", "shared_pct", "max_unique_pct", "joint_p", "n_sites") %in% names(ok$conf)))
+    # Clamped: neither side of the confounding comparison may be reported negative.
+    if (nrow(ok$conf)) expect_true(all(c(ok$conf$shared_pct, ok$conf$max_unique_pct) >= 0))
+
+    few <- run_vp(3L)
+    expect_identical(unique(few$vp$status), "insufficient_sites")
+    expect_identical(nrow(few$vp), 1L)                       # the sentinel row carrying the status
+    expect_identical(few$vp$component, "Unexplained")
+    expect_true(is.na(few$vp$variance_pct))
+    expect_identical(few$vp$n_units, 3L)
+    expect_false(any(few$sel$selected))
+    expect_identical(nrow(few$conf), 0L)
+})
 
 test_that("no spec invokes a wrapper that rewrites the tracked fixtures", {
     # add_related_samples.R and add_pregea_sites.R take NO argv and

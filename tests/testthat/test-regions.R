@@ -205,6 +205,32 @@ test_that("build_per_trait_regions reports no cross-trait evidence when traits a
     expect_true(all(r$other_snp_count == 0L))
 })
 
+test_that("build_per_trait_regions reports each trait's OWN best p when given the per-trait table", {
+    # One SNP significant for both traits. The wide min_pvalue (1e-9) is bio_1's;
+    # bio_2's own best p at that SNP is 1e-3. Without the trait table the bio_2
+    # region would report 1e-9 (audit 2026-09-13 SC3, 2 of 6 SIMDATA GEA regions).
+    dt <- snps("1", c(10000, 10500), min_pvalue = c(1e-9, 1e-4),
+               EMMAX = c("bio_1,bio_2", "bio_2"))
+    tp <- data.table::data.table(
+        SNPID = c("1:10000", "1:10000", "1:10500"), chr = "1",
+        pos = c(10000L, 10000L, 10500L),
+        trait = c("bio_1", "bio_2", "bio_2"), min_pvalue = c(1e-9, 1e-3, 1e-4))
+    r <- suppressMessages(build_per_trait_regions(dt, 1000L, trait_pvalues = tp))
+    expect_equal(r[trait == "bio_1"]$min_pvalue, 1e-9)
+    expect_equal(r[trait == "bio_2"]$min_pvalue, 1e-4)   # min over ITS two SNPs, not 1e-9
+    # Without the table: the documented trait-agnostic behaviour, with a warning.
+    expect_message(r0 <- build_per_trait_regions(dt, 1000L), "trait-AGNOSTIC")
+    expect_equal(r0[trait == "bio_2"]$min_pvalue, 1e-9)
+})
+
+test_that("build_per_trait_regions tolerates a SNP absent from the per-trait table", {
+    dt <- snps("1", c(10000, 10500), min_pvalue = c(1e-9, 1e-4), EMMAX = c("bio_1", "bio_1"))
+    tp <- data.table::data.table(SNPID = "1:10500", chr = "1", pos = 10500L,
+                                 trait = "bio_1", min_pvalue = 1e-4)
+    expect_message(r <- build_per_trait_regions(dt, 1000L, trait_pvalues = tp), "no own-trait p-value")
+    expect_equal(r$min_pvalue, 1e-4)
+})
+
 test_that("build_per_trait_regions returns the 12-column empty table on empty input", {
     r <- build_per_trait_regions(NULL, 1000L)
     expect_identical(nrow(r), 0L)

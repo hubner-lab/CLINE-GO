@@ -50,3 +50,18 @@ test_that("the path builders follow getOption(\"clinego.pipeline_path\")", {
     expect_equal(pipeline_summary_path("P"),
                  "/tmp/somewhere-else/P_results/pipeline_summary.tsv")
 })
+
+# --- added 2026-09-13 with the audit fixes (B2/SC2 argv, SC1 diagnostics) ----
+
+test_that("metadata_climate_valid_path points at the pipeline's W['metadata_climate_valid']", {
+    withr::local_options(clinego.pipeline_path = "/pipeline")
+    expect_equal(metadata_climate_valid_path("SIMDATA"),
+                 "/pipeline/SIMDATA_results/_intermediate/samples/metadata_climate_valid.tsv")
+})
+
+test_that("gf_diagnostics_path sits beside imputation_sensitivity.tsv under the same suffix", {
+    withr::local_options(clinego.pipeline_path = "/pipeline")
+    p <- gf_diagnostics_path("SIMDATA", "top100_nospatial")
+    expect_equal(p, "/pipeline/SIMDATA_results/Maladaptation/tables/gradient_forest/top100_nospatial/gradient_forest_diagnostics.tsv")
+    expect_equal(dirname(p), dirname(gf_sensitivity_path("SIMDATA", "top100_nospatial")))
+})

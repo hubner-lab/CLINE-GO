@@ -124,6 +124,118 @@ fx_sample_list <- function(d, name, samples) {
     p
 }
 
+# Everything write_summary.R's processing branch reads (args 3-11), with the
+# sample counts chosen so the accounting identity total == after + removed +
+# het + related closes (10 = 8 + 2 + 0 + 0). `truncate_keep` shortens ONLY the
+# keep-list to the shape plink --keep leaves behind when it cannot find an ID
+# (audit 2026-09-13 B41): samples_total then reads 7 while 8 samples passed,
+# and the script must refuse to write that.
+fx_processing_summary_inputs <- function(d, truncate_keep = FALSE) {
+    vcf_lines <- c("##fileformat=VCFv4.2",
+                   "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tID001",
+                   paste0("1\t", 1:5 * 100, "\t.\tA\tG\t.\tPASS\t.\tGT\t0/1"))
+    vcf_filt <- file.path(d, "filt.vcf"); writeLines(vcf_lines, vcf_filt)
+    vcf_ld   <- file.path(d, "ld.vcf");   writeLines(vcf_lines[1:4], vcf_ld)
+    ids  <- sprintf("ID%03d", 1:10)
+    keep <- if (truncate_keep) ids[1:7] else ids
+    samples_list     <- fx_sample_list(d, "samples.list", keep)
+    samples_filtered <- fx_sample_list(d, "samples_filtered.list", ids[1:8])
+    samples_removed  <- file.path(d, "samples_removed.list")
+    writeLines(paste(ids[9:10], ids[9:10], c(0.31, 0.44)), samples_removed)
+    stats <- file.path(d, "raw_stats.txt")
+    writeLines(c("SN\t0\tnumber of SNPs:\t5", "TSTV\t0\t3\t2\t1.50"), stats)
+    filt <- write_tsv(data.table::data.table(
+                stage = c("Raw VCF", "After sample missingness filter"),
+                n_samples = c(10L, 8L), n_snps = c(5L, 5L)),
+            file.path(d, "filtering_summary.tsv"))
+    c(vcf_filt, vcf_ld, samples_list, samples_filtered, samples_removed, stats, filt)
+}
+
+# Everything compare_offsets.R reads, on a 2 x 3 raster (6 cells). Returns a
+# named list of paths. Hand-placed so the expected ExDet classes are known
+# WITHOUT re-deriving them with the script's own formulas: six reference sites
+# (bio_1 10..20, bio_2 100..180), then future cells
+#   1 (15,140) analog   2 (5,140) type 1 (bio_1 below min: NT1 = -0.5)
+#   3 (20,100) type 2   4 (10,180) type 2 (inside both ranges, Mahalanobis
+#   ratio 2.3 / 2.7 > 1 against the reference maximum)   5 (12,120) analog
+#   6 (18,170) analog  -> 50 % novel, 16.7 % type 1, 33.3 % type 2.
+# The two offset models rank the six sites identically, so Kendall's W is 1
+# by definition (the audit's B2 fixture: the transposed call gave 0).
+fx_compare_offsets <- function(d) {
+    sites <- paste0("S", 1:6)
+    meta <- data.table::data.table(
+        site = rep(sites, each = 2), sample = sprintf("ID%03d", 1:12),
+        latitude = rep(c(30.1, 30.9, 31.6, 32.2, 32.8, 33.3), each = 2),
+        longitude = rep(c(34.5, 34.8, 35.0, 35.2, 35.3, 35.5), each = 2))
+    meta_p <- write_tsv(meta, file.path(d, "metadata_climate_valid.tsv"))
+    ref_b1 <- c(10, 12, 14, 16, 18, 20); ref_b2 <- c(100, 150, 120, 180, 110, 160)
+    clim_site <- data.table::data.table(sample = meta$sample,
+        bio_1 = rep(ref_b1, each = 2), bio_2 = rep(ref_b2, each = 2))
+    clim_site_p <- write_tsv(clim_site, file.path(d, "climate_present_site.tsv"))
+    pres_all <- data.table::data.table(ID = 1:6, bio_1 = ref_b1, bio_2 = ref_b2)
+    fut_all  <- data.table::data.table(ID = 1:6,
+        bio_1 = c(15, 5, 20, 10, 12, 18), bio_2 = c(140, 140, 100, 180, 120, 170))
+    pres_all_p <- write_tsv(pres_all, file.path(d, "climate_present_all.tsv"))
+    fut_all_p  <- write_tsv(fut_all,  file.path(d, "climate_future_all.tsv"))
+    r <- terra::rast(nrows = 2, ncols = 3, xmin = 34, xmax = 37, ymin = 30, ymax = 32,
+                     crs = "EPSG:4326", vals = 1:6)
+    ras_p <- file.path(d, "present.tif")
+    terra::writeRaster(r, ras_p, overwrite = TRUE)
+    site_tbl <- function(off) data.table::data.table(
+        site = meta$site, sample = meta$sample, genetic_offset = rep(off, each = 2))
+    a_site <- write_tsv(site_tbl(c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6)), file.path(d, "a_site.tsv"))
+    b_site <- write_tsv(site_tbl(c(0.2, 0.3, 0.4, 0.5, 0.6, 0.7)), file.path(d, "b_site.tsv"))
+    a_map <- file.path(d, "a_map.tsv"); b_map <- file.path(d, "b_map.tsv")
+    writeLines(c("1\t2\t3", "4\t5\t6"), a_map)
+    writeLines(c("2\t4\t6", "8\t10\t12"), b_map)
+    list(cache = file.path(d, "cache"), novelty = file.path(d, "novelty"),
+         a_site = a_site, a_map = a_map, b_site = b_site, b_map = b_map,
+         clim_site = clim_site_p, pres_all = pres_all_p, fut_all = fut_all_p,
+         raster = ras_p, meta = meta_p)
+}
+
+# Every input of pregea_varpart.R (25 positionals, in argv order — see the
+# script header). n_sites sites x n_per_site samples, one coordinate and one
+# climate row per site (site properties, as the pipeline writes them), dbMEM
+# vectors broadcast per site the way pregea_dbmem.R emits them, a Q-matrix
+# and a LEA-shaped projections file in the same sample order. Returns the
+# argv vector minus the five output paths + plot/inter dirs, which the spec
+# row supplies. With 8 sites and 2 predictors the site-level residual df is 5
+# (status "ok"); with 3 sites it is 0 (status "insufficient_sites").
+fx_varpart_inputs <- function(d, n_sites = 8L, n_per_site = 2L, k = 3L, seed = 7L) {
+    set.seed(seed)
+    sites   <- sprintf("S%02d", seq_len(n_sites))
+    samples <- sprintf("ID%03d", seq_len(n_sites * n_per_site))
+    site_of <- rep(sites, each = n_per_site)
+    lat <- 30 + seq_len(n_sites) * 0.3; lon <- 34 + seq_len(n_sites) * 0.2
+    meta <- write_tsv(data.table::data.table(
+        site = site_of, sample = samples,
+        latitude = rep(lat, each = n_per_site), longitude = rep(lon, each = n_per_site)),
+        file.path(d, "metadata_climate_valid.tsv"))
+    clim_site <- data.table::data.table(site = sites,
+        bio_1 = round(rnorm(n_sites), 4), bio_12 = round(rnorm(n_sites), 4))
+    clim <- write_tsv(data.table::data.table(sample = samples,
+        bio_1  = clim_site$bio_1[match(site_of, sites)],
+        bio_12 = clim_site$bio_12[match(site_of, sites)]),
+        file.path(d, "climate_present_site_scaled.tsv"))
+    mem_site <- matrix(round(rnorm(n_sites * 2), 4), ncol = 2)
+    dbmem <- write_tsv(data.table::data.table(sample = samples, site = site_of,
+        MEM1 = mem_site[match(site_of, sites), 1], MEM2 = mem_site[match(site_of, sites), 2]),
+        file.path(d, "dbmem_vectors.tsv"))
+    q <- matrix(runif(length(samples) * k), ncol = k); q <- q / rowSums(q)
+    cl <- data.table::data.table(sample = samples, site = site_of)
+    for (i in seq_len(k)) cl[[paste0("C", i)]] <- round(q[, i], 4)
+    clusters <- write_tsv(cl, file.path(d, "clusters_K3.tsv"))
+    valid <- file.path(d, "climate_valid_samples.list")
+    writeLines(paste(0, samples), valid)
+    order_p <- file.path(d, "samples_order.list")
+    writeLines(samples, order_p)
+    proj <- fx_projections(d, n = length(samples), n_pc = 5)
+    eig  <- fx_eigenvalues(d, n = 5)
+    c(proj, eig, dbmem, clusters, clim, valid, order_p, "bio_1,bio_12",
+      "pcs", "0.8", "5", "2", "NULL", "0.05", "99", "99", "42", meta)
+}
+
 # --- fixtures added 2026-09-12 with the second wrapper batch ---------------
 
 # CHR/POS/MAF, the shape compute_wza.R expects (its own arg names, uppercase).
@@ -229,15 +341,22 @@ fx_inter_dir <- function(d, name = "inter") {
 # maladaptation|gea_x_gwas, and an unknown mode warns and quits 0 (:606-609).
 # The variance-partition table is args[5] INSIDE the `climate` branch (:257).
 fx_varpart <- function(d, name = "variance_partition.tsv") {
-    # comp_key() (write_summary.R:268-272) slugifies the human-readable component
-    # name, so "Climate n Structure" becomes varpart_climate_structure_R2adj.
-    # scripts/pregea_varpart.R writes this one schema for every model variant.
+    # The REAL schema pregea_varpart.R writes (verified against
+    # SIMDATA_results/climate/tables/varpart/variance_partition.tsv): percents, a
+    # p_value per unique fraction, a `group`, and "Unexplained" (not "Residual")
+    # — consumers key on that exact component name (mod_climate.R,
+    # mod_dashboard_outputs.R, write_summary.R). unit / n_units / df_env were
+    # added 2026-09-13 with the site-level fit. Before that date this fixture
+    # carried fractions, "Residual" and no p_value, so the write_summary.R row
+    # that consumes it never exercised the real keys.
     write_tsv(data.table::data.table(
-        status    = "ok",
-        model     = "3-way",
-        component = c("Climate", "Structure", "Climate ∩ Structure", "Residual"),
-        variance_pct = c(0.12, 0.31, 0.07, 0.50)),
-        file.path(d, name))
+        group        = c("Unique to one factor", "Unique to one factor",
+                         "Shared between factors", "Unexplained"),
+        component    = c("Climate", "Structure", "Climate \u2229 Structure", "Unexplained"),
+        variance_pct = c(12, 31, 7, 50),
+        p_value      = c(0.012, 0.001, NA, NA),
+        model        = "2-way (climate + structure)", status = "ok",
+        unit = "site", n_units = 8L, df_env = 7L), file.path(d, name))
 }
 
 fx_dbmem_diag <- function(d, name = "dbmem_diagnostics.tsv") {

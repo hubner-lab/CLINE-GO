@@ -140,6 +140,28 @@ test_that("one row per SNPID, and min_pvalue is the smallest across methods", {
     expect_equal(r[SNPID == "A"]$min_pvalue, 1e-8)    # EMMAX 1e-8 beats LFMM 1e-6
 })
 
+test_that("combine_sigsnps_with_traits keeps the per-(SNP, trait) minimum the wide table collapses", {
+    # C is LFMM bio_1 (1e-5) AND RDA bio_2 (1e-4): the wide min_pvalue is 1e-5 for
+    # both traits, the trait table must give bio_2 its own 1e-4 (audit 2026-09-13 SC3).
+    r <- quiet(combine_sigsnps_with_traits(three_methods(), "Union", 0L, PREDICTORS))
+    expect_named(r, c("snps", "trait_pvalues"))
+    expect_identical(colnames(r$trait_pvalues), c("SNPID", "chr", "pos", "trait", "min_pvalue"))
+    tp <- r$trait_pvalues
+    expect_identical(anyDuplicated(tp[, .(SNPID, trait)]), 0L)
+    expect_equal(tp[SNPID == "C" & trait == "bio_1"]$min_pvalue, 1e-5)
+    expect_equal(tp[SNPID == "C" & trait == "bio_2"]$min_pvalue, 1e-4)
+    expect_equal(tp[SNPID == "A" & trait == "bio_1"]$min_pvalue, 1e-8)   # min over EMMAX, LFMM
+    expect_identical(nrow(tp[SNPID == "E"]), 0L)                          # predictors filter
+    # The wide table is exactly what combine_sigsnps() returns.
+    expect_identical(r$snps, quiet(combine_sigsnps(three_methods(), "Union", 0L, PREDICTORS)))
+})
+
+test_that("combine_sigsnps_with_traits returns the empty trait schema when nothing is selected", {
+    r <- quiet_empty(combine_sigsnps_with_traits(three_methods(), "Union", 0L, "bio_77"))
+    expect_identical(nrow(r$trait_pvalues), 0L)
+    expect_identical(colnames(r$trait_pvalues), c("SNPID", "chr", "pos", "trait", "min_pvalue"))
+})
+
 test_that("rows are sorted by chr then pos", {
     r <- quiet(combine_sigsnps(three_methods(), "Union", 0L, PREDICTORS))
     expect_identical(r$SNPID, c("A", "B", "C", "D"))
