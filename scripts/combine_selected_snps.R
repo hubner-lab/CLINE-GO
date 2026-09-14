@@ -18,7 +18,10 @@ METHOD              = args[2]  # Union | Cross-method | Cross-method per-trait (
 CLUMPING_DISTANCE   = as.numeric(args[3])
 PREDICTORS_SELECTED = str_split(args[4], ',')[[1]]
 OUTPUT              = args[5]
+OUTPUT_PER_TRAIT    = if (length(args) >= 6) args[6] else "NULL"  # selected_snps_per_trait.tsv
 ################
+if (length(args) < 5 || any(is.na(args[1:5])))
+    stop("combine_selected_snps.R needs 5 positional args (+ optional per-trait output); got ", length(args))
 
 message('INFO: Combining significant SNPs')
 message(paste0('INFO: Strategy: ', METHOD))
@@ -44,8 +47,16 @@ sigSNPs_lst <- lapply(sigSNPs_vec, function(x) {
     dt
 }) %>% setNames(methods_vec)
 
-result <- combine_sigsnps(sigSNPs_lst, METHOD, CLUMPING_DISTANCE, PREDICTORS_SELECTED)
+combined <- combine_sigsnps_with_traits(sigSNPs_lst, METHOD, CLUMPING_DISTANCE, PREDICTORS_SELECTED)
 
-result %>% fwrite(OUTPUT, sep = '\t')
+combined$snps %>% fwrite(OUTPUT, sep = '\t')
 message(paste0('INFO: Saved to ', OUTPUT))
+
+# Per-(SNP, trait) minimum p — the trait-scoped companion of selected_snps.tsv's
+# trait-agnostic min_pvalue, read by create_regions.R for the per-trait region table
+# (audit 2026-09-13 SC3).
+if (OUTPUT_PER_TRAIT != "NULL") {
+    combined$trait_pvalues %>% fwrite(OUTPUT_PER_TRAIT, sep = '\t')
+    message(paste0('INFO: Saved per-trait p-values to ', OUTPUT_PER_TRAIT))
+}
 message('INFO: Complete')

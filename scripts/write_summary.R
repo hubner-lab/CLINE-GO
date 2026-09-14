@@ -170,6 +170,21 @@ if (MODE == 'processing') {
         )
     }
 
+    # The sample accounting must close: total == after + removed + het + related. It cannot
+    # when plink --keep silently dropped IDs it could not find (audit 2026-09-13 B41) —
+    # samples_total is counted from the keep-list, the other three from the .imiss. Only this
+    # one identity is promoted from the opt-in checker; the rest of
+    # check_summary_accounting() stays there (climate_predictor_count_disagrees is a filed,
+    # known-red defect of this script's structure branch).
+    source('/pipeline/scripts/R/lib/invariants.R')
+    acct <- check_summary_accounting(new_rows)
+    acct <- acct[check == 'sample_accounting_does_not_close']
+    if (nrow(acct) > 0) {
+        stop(paste0('Sample accounting does not close: ', acct$detail[1],
+                    '. A keep-list ID missing from the VCF header is the usual cause — ',
+                    'see calculate_sample_missing.log.'))
+    }
+
 } else if (MODE == 'prestructure') {
     # args: MODE OUTPUT cross_entropy_plot K_START K_END
     K_START = args[3] %>% as.numeric

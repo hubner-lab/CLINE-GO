@@ -127,9 +127,11 @@ rule climate_dbmem:
         """
 
 rule climate_varpart:
-    """Shared climate/structure/geography variance-partitioning panel.
-    scripts/pregea_varpart.R — see its header for the full port-and-correction
-    notes from rda_varpart_lasky.Rmd."""
+    """Shared climate/structure/geography variance-partitioning panel, fitted at
+    SITE level (one row per site; 2026-09-13, audit ST1 — the sample-row fit
+    pseudo-replicated each site ~N times). scripts/pregea_varpart.R — see its
+    header for the full port-and-correction notes from rda_varpart_lasky.Rmd.
+    `meta` supplies the sample -> site map the collapse needs."""
     input:
         projections = W['pca_projections'],
         eigenvalues = W['pca_eigenvalues'],
@@ -139,6 +141,7 @@ rule climate_varpart:
         climate_valid = W['climate_valid_samples'],
         samples_order = W['samples_order'],
         lfmm_pruned = W['lfmm_imp_climate'] if CLIMATE_VP_RESPONSE == 'snps' else [],
+        meta        = W['metadata_climate_valid'],
     output:
         selection  = O['climate_vp_selection'], selected = O['climate_vp_selected'],
         table      = O['climate_vp_table'], confound = O['climate_vp_confound'],
@@ -164,5 +167,5 @@ rule climate_varpart:
             {params.lfmm_arg} {params.pin} {params.r2perms} {params.varpartperms} \
             {params.seed} \
             {output.selection} {output.selected} {output.table} {output.confound} {output.px} \
-            {params.plot_dir} {params.inter_dir} > {log} 2>&1
+            {params.plot_dir} {params.inter_dir} {input.meta} > {log} 2>&1
         """

@@ -30,8 +30,31 @@
 # @param predictors     character vector: traits to include (filter step)
 # @return data.table with columns: SNPID, chr, pos, <method_cols>, min_pvalue
 #   Each method column holds comma-sep trait names for SNPs significant in that method.
+#   min_pvalue is the minimum over EVERY (method, trait) test of the SNP — the right
+#   statistic for the trait-agnostic combined regions, and the wrong one for a per-trait
+#   region (audit 2026-09-13 SC3): use combine_sigsnps_with_traits() for those.
 #   Returns empty table if no SNPs found.
 combine_sigsnps <- function(sig_snps_list, strategy, clumping_distance, predictors) {
+    .combine_core(sig_snps_list, strategy, clumping_distance, predictors)$snps
+}
+
+# Same selection, plus the per-(SNP, trait) minimum p-value the wide table collapses away.
+#
+# @return list(snps = <the combine_sigsnps() table>,
+#              trait_pvalues = data.table SNPID, chr, pos, trait, min_pvalue — one row per
+#              selected SNP x trait it is significant for, min over the METHODS that tested
+#              that trait). build_per_trait_regions() takes it so a bio_3 region reports
+#              bio_3's own best p, not a co-located bio_2 hit's.
+combine_sigsnps_with_traits <- function(sig_snps_list, strategy, clumping_distance, predictors) {
+    .combine_core(sig_snps_list, strategy, clumping_distance, predictors)
+}
+
+.empty_trait_pvalues_dt <- function() {
+    data.table::data.table(SNPID = character(), chr = character(), pos = integer(),
+                           trait = character(), min_pvalue = numeric())
+}
+
+.combine_core <- function(sig_snps_list, strategy, clumping_distance, predictors) {
     strategy        <- .normalise_strategy(strategy)
     clumping_distance <- as.integer(clumping_distance)
     methods_vec     <- names(sig_snps_list)
@@ -54,7 +77,8 @@ combine_sigsnps <- function(sig_snps_list, strategy, clumping_distance, predicto
     total_snps <- sum(vapply(sig_filtered, nrow, integer(1L)))
     if (total_snps == 0L) {
         message("WARNING: No significant SNPs in any method")
-        return(.empty_combined_snps_dt(methods_vec))
+        return(list(snps = .empty_combined_snps_dt(methods_vec),
+                    trait_pvalues = .empty_trait_pvalues_dt()))
     }
 
     # Select SNP set according to strategy
@@ -80,8 +104,15 @@ combine_sigsnps <- function(sig_snps_list, strategy, clumping_distance, predicto
 
     if (is.null(snp_rows) || nrow(snp_rows) == 0L) {
         message("WARNING: No SNPs remain after applying strategy")
-        return(.empty_combined_snps_dt(methods_vec))
+        return(list(snps = .empty_combined_snps_dt(methods_vec),
+                    trait_pvalues = .empty_trait_pvalues_dt()))
     }
+
+    # Per-(SNP, trait) minimum: snp_rows is long (one row per method x trait test that
+    # selected the SNP), so this is the trait-scoped statistic before the collapse below.
+    trait_pvalues <- snp_rows[, .(min_pvalue = min(pvalue, na.rm = TRUE)),
+                              by = c("SNPID", "chr", "pos", "trait")]
+    data.table::setorder(trait_pvalues, chr, pos, trait)
 
     # Build output: one row per SNPID, method columns hold comma-sep traits
     selected_ids <- unique(snp_rows$SNPID)
@@ -122,7 +153,7 @@ combine_sigsnps <- function(sig_snps_list, strategy, clumping_distance, predicto
         message(paste0("INFO: ", m, ": ", n_m, " SNPs with significant traits"))
     }
 
-    result
+    list(snps = result, trait_pvalues = trait_pvalues)
 }
 
 # --- internal helpers ---

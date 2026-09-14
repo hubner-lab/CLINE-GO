@@ -334,6 +334,18 @@ load_gf_sensitivity <- function(project, suffix, method = "gradient_forest") {
     }, error = function(e) list())
 }
 
+#' Load the Gradient-Forest projection diagnostics (extrap policy + outside-range shares).
+#' Same long quantity/value shape; list() when absent.
+#' @noRd
+load_gf_diagnostics <- function(project, suffix, method = "gradient_forest") {
+    p <- gf_diagnostics_path(project, suffix, method)
+    if (!file_ok(p)) return(list())
+    tryCatch({
+        dt <- data.table::fread(p, sep = "\t", header = TRUE, colClasses = "character")
+        stats::setNames(as.list(dt$value), dt$quantity)
+    }, error = function(e) list())
+}
+
 #' Load the design-adequacy table (mode=climate) as a named list of value + flag.
 #'
 #' Returns list() when mode=climate has not been run. Values stay CHARACTER (the
@@ -553,7 +565,7 @@ load_gff_genes <- function(project, config) {
             dt <- dt[feature == feat]
             if (nrow(dt) == 0) return(data.table::data.table())
 
-            dt[, chr   := sub("^chr", "", as.character(chr))]
+            dt[, chr   := sub("^chr", "", as.character(chr), ignore.case = TRUE)]
             dt[, start := as.integer(start)]
             dt[, end   := as.integer(end)]
 

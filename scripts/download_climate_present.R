@@ -189,7 +189,7 @@ message(clim_present %>% str)
 # Validate: check for samples with NA climate values (e.g. a coordinate landing on an
 # ocean/NoData raster pixel). Always excluded from climate-VALUE-dependent steps only
 # (GEA/gradient_forest/geometric_offset/Mantel) -- see filter_climate_valid_samples -- while
-# staying in GWAS/phenotype/structure/PCA/sNMF and coordinate-only plotting (IBD, piemaps).
+# staying in GWAS/phenotype/structure/PCA/sNMF and coordinate-only plotting (piemaps).
 # Never a hard stop: the user can fix coordinates or ignore it (see climate_na_excluded.tsv).
 site_values <- clim_present$SiteValues
 na_rows <- which(rowSums(is.na(site_values)) > 0)

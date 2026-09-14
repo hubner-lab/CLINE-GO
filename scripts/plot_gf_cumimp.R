@@ -30,6 +30,12 @@ gf <- qread(GF_ADAPTIVE_PATH)
 has_random <- GF_RANDOM_PATH != 'NULL'
 if (has_random) {
   gf_random <- qread(GF_RANDOM_PATH)
+  # A list sentinel (status empty_forest) means no random SNP had a positive R^2 — there is
+  # no neutral curve to draw; the adaptive curves are plotted alone.
+  if (!inherits(gf_random, 'gradientForest')) {
+    message('INFO: random model is a sentinel (', gf_random$status, '): ', gf_random$reason, ' — neutral curves omitted')
+    has_random <- FALSE
+  }
 }
 
 gList <- lapply(PREDICTORS_SELECTED, function(bio) {

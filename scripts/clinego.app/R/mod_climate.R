@@ -146,9 +146,27 @@ mod_climate_server <- function(id, project_data) {
             if (nrow(dt) == 0 || !all(c("component", "variance_pct") %in% names(dt))) return(NULL)
             unexp <- dt[dt$component == "Unexplained", ]
             if (nrow(unexp) == 0) return(NULL)
-            unexplained_pct <- unexp$variance_pct[1]
+            unexplained_pct <- suppressWarnings(as.numeric(unexp$variance_pct[1]))
+            status <- if ("status" %in% names(dt)) as.character(dt$status[1]) else "ok"
+            n_units <- if ("n_units" %in% names(dt)) dt$n_units[1] else NA
+            if (is.na(unexplained_pct)) {
+                # pregea_varpart.R writes a sentinel row (NA) when the design cannot
+                # support the fit (e.g. status insufficient_sites: fewer sites than
+                # climate predictors + 2), so the status is the whole message.
+                return(htmltools::div(
+                    class = "d-flex justify-content-end mb-2",
+                    filter_note(
+                        paste0("variance partition unavailable (", status, ")"),
+                        htmltools::p("The partition is fitted on one row per sampling site (",
+                                     if (!is.na(n_units)) paste0(n_units, " sites") else "n sites",
+                                     "). With fewer sites than climate predictors + 2 the residual ",
+                                     "degrees of freedom are 0 and no adjusted R\u00b2 or permutation ",
+                                     "p-value is defined, so nothing is fitted — status: ", status, "."),
+                        class = "bg-secondary")))
+            }
             explained_pct   <- 100 - unexplained_pct
             model <- if ("model" %in% names(dt) && nrow(dt) > 0) dt$model[1] else NA_character_
+            if (!is.na(n_units)) model <- paste0(model, " on ", n_units, " sites")
 
             htmltools::div(
                 class = "d-flex justify-content-end mb-2",

@@ -213,7 +213,7 @@ HELP_NOTES <- list(
         config = "Piemap.alpha, .show_labels, .pie_scale, Map.zoom_extent"
     ),
     compare_novelty = list(
-        desc   = "ExDet climate-novelty surface (NT1 univariate, NT2 multivariate) — where future climate leaves the training range and offset extrapolation is least reliable.",
+        desc   = "ExDet climate-novelty surface (Mesgaran et al. 2014): NT1 < 0 = outside the univariate training range, NT2 > 1 = a predictor combination outside the reference hull. Novel cells are where offset extrapolation is least reliable.",
         config = "Future.ssp, .year, .models"
     ),
     compare_disagree = list(

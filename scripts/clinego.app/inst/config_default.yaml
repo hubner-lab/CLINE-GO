@@ -90,7 +90,7 @@ Traits:
 # POPULATION STATS
 #-----------------------------------------------------------------------------
 Population:
-  calc_stats: false                # Calculate Tajima's D, Pi, AMOVA, IBD (requires >=3 samples/pop)
+  calc_stats: false                # Calculate Tajima's D, Pi, AMOVA (requires >=3 samples/pop)
   window_size: 3000000             # Window size in bp for Tajima's D and Pi diversity
   custom_trait_file: "NULL"        # Custom trait file for piemap sizing (site + trait columns)
 
@@ -205,6 +205,9 @@ Maladaptation:
       cor_threshold: '0.5'
       spatial_correction: 'with'       # Include spatial variables: with/without
       random_model: true               # Also build neutral model for comparison
+      extrap: true                     # Beyond the training climate range: true = linear continuation
+                                       # (gradientForest default), false = plateau at the range limit.
+                                       # gradient_forest_diagnostics.tsv reports the share of cells outside it.
     geometric_offset:
       scale: true                      # Standardise climate predictors before fitting LFMM2
       k: ''                            # Number of LFMM2 latent factors; blank = sNMF k_best

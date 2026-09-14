@@ -66,7 +66,7 @@ rule tped_gea:
     log: f"{LOGDIR}gea/tped_assoc.log"
     shell:
         """
-        plink --vcf {input.vcf} --allow-extra-chr --recode12 transpose \
+        plink --vcf {input.vcf} --allow-extra-chr --output-chr MT --recode12 transpose \
             --output-missing-genotype 0 --out {params.prefix} > {log} 2>&1
         awk '{{split($1,a,"_"); split($2,b,"_"); if(a[1]==b[1]){{$1=a[1];$2=a[1]}} print}}' \
             {output.tfam} > {params.prefix}_tmp.tfam && mv {params.prefix}_tmp.tfam {output.tfam}
@@ -99,7 +99,7 @@ if "EMMAX" in GEA_OTHER_CONFIGS:
         log: f"{LOGDIR}gea/subset_vcf_gea_climate.log"
         shell:
             """
-            plink --vcf {input.vcf} --keep {input.samples} --const-fid 0 --allow-extra-chr \
+            plink --vcf {input.vcf} --keep {input.samples} --const-fid 0 --allow-extra-chr --output-chr MT \
                 --recode vcf --out {params.prefix} > {log} 2>&1
             sed -i '/^#CHROM/s/\\t0_/\\t/g' {output}
             """
@@ -112,7 +112,7 @@ if "EMMAX" in GEA_OTHER_CONFIGS:
         log: f"{LOGDIR}gea/tped_gea_climate.log"
         shell:
             """
-            plink --vcf {input.vcf} --allow-extra-chr --recode12 transpose \
+            plink --vcf {input.vcf} --allow-extra-chr --output-chr MT --recode12 transpose \
                 --output-missing-genotype 0 --out {params.prefix} > {log} 2>&1
             awk '{{split($1,a,"_"); split($2,b,"_"); if(a[1]==b[1]){{$1=a[1];$2=a[1]}} print}}' \
                 {output.tfam} > {params.prefix}_tmp.tfam && mv {params.prefix}_tmp.tfam {output.tfam}

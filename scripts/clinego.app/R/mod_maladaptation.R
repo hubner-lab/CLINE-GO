@@ -187,11 +187,27 @@ mod_maladaptation_server <- function(id, project_data, snp_sets_trigger = NULL) 
                                       "spatial_correction", default = "with")
                 rand    <- config_get(cfg, "Maladaptation", "methods", "gradient_forest",
                                       "random_model", default = TRUE)
+                # The projection's own record beats the config: gradient_forest_diagnostics.tsv
+                # says what extrap= the offset on disk was computed with, and how much of the
+                # map lies outside the training climate range (where that setting matters).
+                gdiag  <- load_gf_diagnostics(pd$name, suf, method)
+                extrap <- if (length(gdiag)) identical(toupper(gdiag[["extrap"]]), "TRUE") else
+                          isTRUE(config_get(cfg, "Maladaptation", "methods", "gradient_forest",
+                                            "extrap", default = TRUE))
+                # scenario-level rows only (per-predictor rows carry a second "__" separator)
+                pref     <- "^pct_future_cells_outside_range__"
+                fut_keys <- grep(pref, names(gdiag), value = TRUE)
+                fut_keys <- fut_keys[!grepl("__", sub(pref, "", fut_keys), fixed = TRUE)]
+                outside  <- if (length(fut_keys))
+                    paste0(max(suppressWarnings(as.numeric(unlist(gdiag[fut_keys]))), na.rm = TRUE), "% future")
+                else NULL
                 badges <- list(
                     config_badge("ntree", ntree),
                     config_badge("cor.thr", cor_thr),
                     config_badge("spatial", spatial),
-                    if (isTRUE(rand)) config_badge("random model", "yes") else NULL
+                    if (isTRUE(rand)) config_badge("random model", "yes") else NULL,
+                    config_badge("beyond range", if (extrap) "linear" else "plateau"),
+                    if (!is.null(outside)) config_badge("outside training range", outside) else NULL
                 )
             } else if (method == "geometric_offset") {
                 k     <- config_get(cfg, "Maladaptation", "methods", "geometric_offset",
@@ -500,8 +516,10 @@ mod_maladaptation_server <- function(id, project_data, snp_sets_trigger = NULL) 
 
         # Spatial-tag mismatch note
         output$compare_spatial_note <- shiny::renderUI({
-            key_a <- input$compare_model_a
-            key_b <- input$compare_model_b
+            # The selects live in renderUIs, so before they exist these inputs are NULL and
+            # nzchar(NULL) is logical(0) — `if` then errors (audit B27). Default to "".
+            key_a <- input$compare_model_a %||% ""
+            key_b <- input$compare_model_b %||% ""
             if (!nzchar(key_a) || !nzchar(key_b)) return(NULL)
             pa <- parse_model_key(key_a); pb <- parse_model_key(key_b)
             if (is.null(pa) || is.null(pb)) return(NULL)
@@ -552,13 +570,10 @@ mod_maladaptation_server <- function(id, project_data, snp_sets_trigger = NULL) 
                                "climate_present_all.tsv")
 
             # Use first future scenario in config
-            ssps <- config_get(cfg, "Future", "ssp")
-            yrs  <- config_get(cfg, "Future", "year")
-            ssp  <- if (length(ssps) > 0) ssps[[1]] else "585"
-            yr   <- if (length(yrs)  > 0) yrs[[1]]  else "2080"
+            scen <- compare_scenario_label(cfg)
             env_af <- mod_path(project_data()$name, MOD_CLIMATE, "tables", "future",
-                               paste0("climate_future_year", yr, "_ssp", ssp, "_all.tsv"))
-            scen_label <- paste0("ssp", ssp, "_", yr)
+                               paste0("climate_future_year", scen$year, "_ssp", scen$ssp, "_all.tsv"))
+            scen_label <- scen$label
 
             # Canonical present-climate rasterstack = spatial template for ExDet/disagree rasters.
             # All predictor bands, aligned to climate_present_all.tsv cell IDs.
@@ -696,7 +711,7 @@ mod_maladaptation_server <- function(id, project_data, snp_sets_trigger = NULL) 
             stats <- compare_stats(); if (is.null(stats)) return(NULL)
             pd <- project_data()
             key_a <- input$compare_model_a; key_b <- input$compare_model_b
-            scen  <- "future"  # default; could be parameterised
+            scen  <- compare_scenario_label(pd$config)$label   # same label the launcher wrote under
             nov_p <- novelty_raster_path(pd$name, scen)
             if (!file_ok(nov_p)) {
                 return(htmltools::div(class = "text-muted small", "Novelty raster not computed yet."))
@@ -707,8 +722,10 @@ mod_maladaptation_server <- function(id, project_data, snp_sets_trigger = NULL) 
                 tryCatch({
                     dt <- data.table::fread(nov_t)
                     htmltools::div(
-                        compare_stat_box(paste0(dt$pct_cells_novel, "%"), "Novel cells (ExDet ≥ 0)"),
-                        compare_stat_box(dt$max_nt2, "Max NT2 (Mahalanobis)")
+                        compare_stat_box(paste0(dt$pct_cells_novel, "%"), "Novel cells (NT1 < 0 or NT2 > 1)"),
+                        compare_stat_box(paste0(dt$pct_cells_type1 %||% NA, "%"), "Type 1: outside univariate range"),
+                        compare_stat_box(paste0(dt$pct_cells_type2 %||% NA, "%"), "Type 2: novel combination"),
+                        compare_stat_box(dt$max_nt2, "Max NT2 (ratio to reference max)")
                     )
                 }, error = function(e) NULL)
             } else NULL
@@ -721,9 +738,11 @@ mod_maladaptation_server <- function(id, project_data, snp_sets_trigger = NULL) 
                 nov_info,
                 htmltools::p(
                     class = "small text-muted",
-                    "ExDet NT1: univariate novelty (positive = within training range). ",
-                    "NT2: multivariate combinatorial novelty (Mahalanobis to training centroid). ",
-                    "Reference = present climate at sampled sites."
+                    "ExDet (Mesgaran et al. 2014). NT1 \u2264 0: sum of univariate departures beyond the ",
+                    "training range (0 = inside on every predictor, negative = outside). ",
+                    "NT2: squared Mahalanobis distance to the training centroid divided by the largest ",
+                    "reference-site distance (> 1 = a combination outside the reference hull). ",
+                    "A cell is novel when NT1 < 0 or NT2 > 1. Reference = present climate, one row per sampled site."
                 )
             )
         })
@@ -825,7 +844,7 @@ mod_maladaptation_server <- function(id, project_data, snp_sets_trigger = NULL) 
             if (is.null(stats$kendall_w) || is.na(stats$kendall_w)) {
                 return(htmltools::div(
                     class = "text-muted small",
-                    "N-way concordance requires vegan::kendall.global (vegan package) installed in the Docker container."
+                    "Kendall's W not available for this comparison (fewer than 2 sites shared by the models, or vegan::kendall.global failed — see the compare_offsets.R log)."
                 ))
             }
             htmltools::tagList(

@@ -64,20 +64,32 @@ if (ncol(meta) >= 5) {
 }
 message("Using trait '", ifelse(is.null(first_trait), "NONE (dummy)", first_trait), "' for crosshap phenotype input")
 
-# Prepare metadata grouping
+# Prepare metadata grouping. crosshap's metadata argument is a CATEGORICAL label per
+# individual whose per-haplotype frequencies are contrasted, so a grouping must be a hard
+# assignment, never a continuous value.
 if (metadata_type == "site") {
   meta_groups <- meta[, .(ind = get(sample_col), group = get(site_col))]
-} else if (grepl("^cluster", metadata_type) && clusters_file != "NULL") {
-  clusters <- fread(clusters_file)
-  # clusters table has sample and assigned_cluster columns
-  clust_col <- grep("assigned|cluster", names(clusters), value = TRUE, ignore.case = TRUE)
-  if (length(clust_col) == 0) clust_col <- names(clusters)[ncol(clusters)]
+} else if (grepl("^cluster", metadata_type)) {
+  if (clusters_file == "NULL") stop("metadata_type '", metadata_type, "' needs a clusters table (arg 6)")
+  # clusters_K{k}.tsv is the sNMF Q-matrix: sample, site, C1..CK (extract_clusters.R). It
+  # carries ancestry PROPORTIONS only — there is no assignment column — so the assignment is
+  # derived here as the argmax over the Q columns, the same rule the app's
+  # cluster_pop_summary() uses. (Before 2026-09-13 a grep for "assigned|cluster" matched
+  # nothing and the fallback took the LAST column, C{K}: every sample became its own group,
+  # labelled by an ancestry fraction — audit B22.)
+  clusters <- fread(clusters_file, colClasses = c(sample = "character", site = "character"))
+  q_cols <- grep("^C[0-9]+$", names(clusters), value = TRUE)
+  if (length(q_cols) == 0) stop("clusters table ", clusters_file, " has no C1..CK ancestry columns")
+  if (!"sample" %in% names(clusters)) stop("clusters table ", clusters_file, " has no 'sample' column")
+  q_mat <- as.matrix(clusters[, ..q_cols])
   meta_groups <- data.table(
-    ind = clusters[[names(clusters)[grep("sample", names(clusters), ignore.case = TRUE)[1]]]],
-    group = as.character(clusters[[clust_col[1]]])
+    ind   = clusters$sample,
+    group = q_cols[max.col(q_mat, ties.method = "first")]
   )
+  message("Cluster grouping from ", length(q_cols), " Q columns: ",
+          paste(sprintf("%s=%d", names(table(meta_groups$group)), as.integer(table(meta_groups$group))), collapse = ", "))
 } else {
-  meta_groups <- meta[, .(ind = get(sample_col), group = get(site_col))]
+  stop("Unknown metadata_type '", metadata_type, "': expected 'site' or 'cluster_K<k>'")
 }
 
 # Initialize region status tracking

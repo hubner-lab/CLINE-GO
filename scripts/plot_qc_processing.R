@@ -255,9 +255,11 @@ setnames(dens_filt, c("CHROM", "BIN_START", "SNP_COUNT", "VARIANTS_PER_KB"))
 dens_raw[,  stage := "Raw"]
 dens_filt[, stage := "Filtered"]
 
-# Normalize chr names: raw VCF may have "chr1" prefix while filtered VCF has "1" (sed strips it)
-dens_raw[,  CHROM := sub("^chr", "", CHROM)]
-dens_filt[, CHROM := sub("^chr", "", CHROM)]
+# Normalize chr names: raw VCF may have a "chr1"/"Chr1"/"CHR1" prefix while filtered VCF has
+# "1" (filter_vcf strips it case-insensitively; plink also recodes X/Y/MT, which stay
+# letters there via --output-chr MT — so only the prefix needs handling here)
+dens_raw[,  CHROM := sub("^chr", "", CHROM, ignore.case = TRUE)]
+dens_filt[, CHROM := sub("^chr", "", CHROM, ignore.case = TRUE)]
 
 dens_both <- rbind(dens_raw, dens_filt)
 # Raw on top, Filtered below: factor levels reversed so Raw is higher on y-axis
@@ -309,6 +311,10 @@ message("INFO: Saved snp_density_raw.tsv and snp_density_filtered.tsv")
 n_filt_snps <- count_vcf_snps(VCF_FILT)
 n_ld_snps   <- count_vcf_snps(VCF_LD)
 
+# smiss is the post-`plink --keep` .imiss, so this equals the metadata row count only because
+# calculate_sample_missing asserts keep-list rows == .imiss rows and exits 1 otherwise
+# (audit 2026-09-13 B41); before that assertion a silently truncated keep-list made this
+# table report 100 % retention at the first step.
 n_raw_samples_in_meta <- nrow(smiss)
 n_after_sample_filter <- nrow(smiss[F_MISS <= SAMPLE_MISS_THRESH])
 n_after_het_filter    <- if (!is.null(HET_OUTLIER_SD)) sum(!merged$outlier, na.rm = TRUE) else n_after_sample_filter

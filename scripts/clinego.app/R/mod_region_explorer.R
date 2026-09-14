@@ -214,15 +214,41 @@ mod_region_explorer_server <- function(id, project_data, module = MOD_GEA,
             user_meta_type(input$hap_meta_type)
         }, ignoreInit = TRUE)
 
+        # The four scan parameters live inside output$haplotype_ui, which re-renders on the
+        # async VCF SNP-count arrival (~1 s after a region is selected), on the metadata
+        # grouping, on every scan/viz completion and on any project_data() invalidation.
+        # Without these reactiveVals every re-render reset them to saved/config values and
+        # the Run Scan handler ran with the reverted numbers (audit 2026-09-13 U1). NULL =
+        # use saved/config default; cleared on region change so a new region shows ITS
+        # saved params (CLAUDE.md "Exploratory parameter persistence").
+        user_eps_range <- shiny::reactiveVal(NULL)
+        user_mgmin     <- shiny::reactiveVal(NULL)
+        user_minhap    <- shiny::reactiveVal(NULL)
+        user_min_snps  <- shiny::reactiveVal(NULL)
+        shiny::observeEvent(input$hap_epsilon_range, user_eps_range(input$hap_epsilon_range), ignoreInit = TRUE)
+        shiny::observeEvent(input$hap_mgmin,         user_mgmin(input$hap_mgmin),             ignoreInit = TRUE)
+        shiny::observeEvent(input$hap_minhap,        user_minhap(input$hap_minhap),           ignoreInit = TRUE)
+        shiny::observeEvent(input$hap_min_snps,      user_min_snps(input$hap_min_snps),       ignoreInit = TRUE)
+        shiny::observeEvent(selected_region_id(), {
+            user_eps_range(NULL); user_mgmin(NULL); user_minhap(NULL); user_min_snps(NULL)
+        }, ignoreInit = TRUE)
+
         # ── Haplotype tag for this module ──────────────────────────────────────
+        # Config default for the metadata grouping, mapped onto the dropdown's value space:
+        # the schema stores "site" | "cluster", the dropdown offers "site" | "cluster_K{k_best}"
+        # (the scan script keys on the "^cluster" prefix and the app on the full tag).
+        cfg_meta_type <- function(pd) {
+            v <- config_get(pd$config, "haplotype", "scan", "metadata_type", default = "site")
+            if (identical(v, "cluster")) paste0("cluster_K", pd$k_best) else v
+        }
+
         # expected_hap_tag: derived from user's chosen metadata type (or config default).
         # Stable across renderUI re-renders because it uses user_meta_type() not disk state.
         expected_hap_tag <- shiny::reactive({
             src <- .module_to_hap_source(module)
             if (is.null(src)) return(NULL)
             pd   <- project_data()
-            meta <- user_meta_type() %||%
-                    config_get(pd$config, "haplotype", "scan", "metadata_type", default = "site")
+            meta <- user_meta_type() %||% cfg_meta_type(pd)
             paste0(meta, "_", src)
         })
 
@@ -842,16 +868,16 @@ mod_region_explorer_server <- function(id, project_data, module = MOD_GEA,
             cfg_mgmin  <- config_get(pd$config, "haplotype", "scan", "min_group_size",  default = 50L)
             cfg_minhap <- config_get(pd$config, "haplotype", "scan", "min_haplotype_size", default = 15L)
             cfg_minsnp <- config_get(pd$config, "haplotype", "scan", "min_snps", default = 3L)
-            cfg_meta   <- config_get(pd$config, "haplotype", "scan", "metadata_type", default = "site")
+            cfg_meta   <- cfg_meta_type(pd)
 
             # Saved params from previous computations for this region (source of truth for defaults + badges)
             saved_scan <- get_region_param(region_params(), module, rid, "hap_scan")
             saved_viz  <- get_region_param(region_params(), module, rid, "hap_viz")
             # Use saved params as defaults; fall back to config defaults for new regions
-            use_range  <- saved_scan$epsilon_range %||% cfg_range
-            use_mgmin  <- saved_scan$mgmin         %||% cfg_mgmin
-            use_minhap <- saved_scan$minhap        %||% cfg_minhap
-            use_minsnp <- saved_scan$min_snps      %||% cfg_minsnp
+            use_range  <- user_eps_range() %||% saved_scan$epsilon_range %||% cfg_range
+            use_mgmin  <- user_mgmin()     %||% saved_scan$mgmin         %||% cfg_mgmin
+            use_minhap <- user_minhap()    %||% saved_scan$minhap        %||% cfg_minhap
+            use_minsnp <- user_min_snps()  %||% saved_scan$min_snps      %||% cfg_minsnp
             use_meta   <- saved_scan$meta_type     %||% cfg_meta
 
             # ── Sub-box 1: Scan ──────────────────────────────────────────────
@@ -1351,22 +1377,27 @@ mod_region_explorer_server <- function(id, project_data, module = MOD_GEA,
         # ── Reset scan params to config defaults ───────────────────────────────
         shiny::observeEvent(input$reset_scan_defaults, {
             pd <- project_data()
-            shiny::updateTextInput(session, "hap_epsilon_range",
-                value = paste(config_get(pd$config, "haplotype", "scan",
-                                          "epsilon_range", default = "0.3,0.5,0.7,0.9"),
-                              collapse = ","))
-            shiny::updateNumericInput(session, "hap_mgmin",
-                value = as.integer(config_get(pd$config, "haplotype", "scan",
-                                               "min_group_size", default = 50L)))
-            shiny::updateNumericInput(session, "hap_minhap",
-                value = as.integer(config_get(pd$config, "haplotype", "scan",
-                                               "min_haplotype_size", default = 15L)))
-            shiny::updateNumericInput(session, "hap_min_snps",
-                value = as.integer(config_get(pd$config, "haplotype", "scan",
-                                               "min_snps", default = 3L)))
-            shiny::updateSelectInput(session, "hap_meta_type",
-                selected = config_get(pd$config, "haplotype", "scan",
-                                       "metadata_type", default = "site"))
+            cfg_range  <- paste(config_get(pd$config, "haplotype", "scan",
+                                           "epsilon_range", default = "0.3,0.5,0.7,0.9"),
+                                collapse = ",")
+            cfg_mgmin  <- as.integer(config_get(pd$config, "haplotype", "scan",
+                                                "min_group_size", default = 50L))
+            cfg_minhap <- as.integer(config_get(pd$config, "haplotype", "scan",
+                                                "min_haplotype_size", default = 15L))
+            cfg_minsnp <- as.integer(config_get(pd$config, "haplotype", "scan",
+                                                "min_snps", default = 3L))
+            cfg_meta   <- cfg_meta_type(pd)
+            shiny::updateTextInput(session, "hap_epsilon_range", value = cfg_range)
+            shiny::updateNumericInput(session, "hap_mgmin",     value = cfg_mgmin)
+            shiny::updateNumericInput(session, "hap_minhap",    value = cfg_minhap)
+            shiny::updateNumericInput(session, "hap_min_snps",  value = cfg_minsnp)
+            shiny::updateSelectInput(session, "hap_meta_type",  selected = cfg_meta)
+            # The persisted user values must agree with what was just pushed, otherwise the
+            # next re-render (which reads them first) puts the pre-reset numbers straight
+            # back. Config values, not NULL: NULL would fall through to saved_scan.
+            user_eps_range(cfg_range); user_mgmin(cfg_mgmin)
+            user_minhap(cfg_minhap);   user_min_snps(cfg_minsnp)
+            user_meta_type(cfg_meta)
         })
 
         # ── Return value for parent module ─────────────────────────────────────

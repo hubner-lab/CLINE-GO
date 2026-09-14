@@ -126,19 +126,10 @@ rule pi_diversity:
             {output} {params.inter_dir} > {log} 2>&1
         """
 
-rule ibd:
-    """Calculate isolation by distance between populations.
-    Uses metadata_climate.tsv (coord-valid samples only, see filter_coord_samples)."""
-    input:  clusters = clusters_table(K_BEST), meta = W['metadata_climate']
-    output: raw = O['ibd_raw'], pairs = O['ibd_pairs']
-    params: tables_dir = f"{MOD_STRUCT}tables/pop_stats/"
-    log:    f"{LOGDIR}structure/ibd.log"
-    threads: CPU
-    shell:
-        """
-        Rscript /pipeline/scripts/ibd.R \
-            {input.clusters} {input.meta} {threads} {params.tables_dir} > {log} 2>&1
-        """
+# `rule ibd` (scripts/ibd.R, ibd_raw.tsv / ibd_pairs.tsv) was removed 2026-09-13: a
+# per-site-pair Mantel test with a two-valued geographic matrix is a differentiation
+# contrast, not an isolation-by-distance test, and it silently dropped any site with a
+# coordinate-missing sample (audit B3/SC5). IBD/IBE is mantel_test below, at site level.
 
 rule mantel_test:
     """Perform Mantel test for IBD/IBE, at SITE level (mantel_test.R collapses

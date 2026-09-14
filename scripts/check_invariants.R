@@ -168,6 +168,7 @@ for (mod in MODULES) {
                                    table_name = file.path(mod, "methods", basename(f))))
         if (all(c("SNPID", "pvalue") %in% names(tb))) {
             sig_pool[[f]] <- tb[, .(SNPID = as.character(SNPID),
+                                    trait  = if ("trait" %in% names(tb)) as.character(trait) else NA_character_,
                                     pvalue = suppressWarnings(as.numeric(pvalue)))]
         }
         m <- basename(dirname(f))
@@ -179,6 +180,10 @@ for (mod in MODULES) {
     if (!is.null(sel) && length(sig_pool) > 0) {
         add(check_min_pvalue_against_sig_snps(sel, rbindlist(sig_pool, use.names = TRUE),
                                               paste0(mod, "/selected_snps.tsv")))
+    }
+    if (!is.null(per) && length(sig_pool) > 0) {
+        add(check_per_trait_region_min_pvalue(per, rbindlist(sig_pool, use.names = TRUE),
+                                              paste0(mod, "/regions_per_trait.tsv")))
     }
     # DELIBERATELY NOT CHECKED: summary's sig_snps_{method} against the sig
     # tables. The summary counts the ONE threshold the config selected, while

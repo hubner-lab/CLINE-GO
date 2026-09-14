@@ -22,6 +22,19 @@
 # STRUCTURE TABLE is the sNMF Q-matrix (C1..CK, LAST column dropped for
 # compositional singularity) — explicitly NOT the LEA PCs used as the
 # response, which would make X_struct = Y tautological.
+#
+# UNIT OF ANALYSIS IS THE SITE (2026-09-13, audit ST1). Climate and dbMEM are
+# site properties: every sample of a site carries the identical predictor row.
+# Fitting varpart / ordiR2step / anova.cca on the per-sample table therefore
+# replicated each site ~N times — free permutations shuffled 46 rows whose only
+# 9 distinct predictor rows are not exchangeable, and Ezekiel's adjusted R2 used
+# n = 46 where the design has 8 environmental d.f. — so the p-values were
+# anti-conservative by construction and the confounding verdict was set by the
+# sample count per site. pregea_dbmem.R already collapses to site centroids for
+# exactly this reason and then broadcasts; here every block (Y, climate, Q,
+# MEMs) is collapsed back to one row per site (mean over the site's samples —
+# the value itself for the site-constant predictors) BEFORE any fit, so
+# n = n_sites everywhere below. Same remedy mantel_test.R applied to Mantel.
 
 suppressPackageStartupMessages({
     library(data.table)
@@ -72,7 +85,10 @@ OUT_CONFOUND_TSV <- args[21]                 # climate_confounding.tsv (was OUT_
 OUT_PX_TSV       <- args[22]
 PLOT_DIR         <- args[23]
 INTER_DIR        <- args[24]
+METADATA_VALID   <- args[25]                 # metadata_climate_valid.tsv: the sample -> site map
 ################################################################################
+if (length(args) < 25 || is.na(METADATA_VALID) || !file.exists(METADATA_VALID))
+    stop("preGEA varpart: arg 25 (metadata_climate_valid.tsv) missing or not found")
 # NOTE: SEL_PERMUTATIONS (old arg 16, "ordir2step_permutations" config key) was
 # dropped here — it was assigned but never referenced (ordiR2step's own
 # R2permutations control comes from R2_PERMUTATIONS above, arg 15). Removed
@@ -110,6 +126,11 @@ n_samples <- nrow(Y)
 climate_dt <- fread(CLIMATE, sep = "\t", header = TRUE)
 X_clim <- as.data.frame(climate_dt[, ..predictor_names])
 if (nrow(X_clim) != n_samples) stop("preGEA varpart: climate/response row mismatch (", nrow(X_clim), " vs ", n_samples, ")")
+# Y is positional (SAMPLES_ORDER filtered to the climate-valid ids), X_clim is the file's
+# own order, and the tables below are match()ed to climate_valid_ids. All three agree only
+# because filter_climate_valid_samples.R preserves VCF order — assert it rather than rely on it.
+if ("sample" %in% names(climate_dt) && !identical(as.character(climate_dt$sample), climate_valid_ids))
+    stop("preGEA varpart: ", basename(CLIMATE), " sample order differs from ", basename(CLIMATE_VALID))
 rownames(X_clim) <- climate_dt$sample %||% seq_len(n_samples)
 
 ################################################################################
@@ -135,13 +156,61 @@ mem_cols <- grep("^MEM\\d+$", names(dbmem_dt), value = TRUE)
 dbmem_status <- if (length(mem_cols) == 0) "no_spatial_vectors" else "ok"
 
 X_geo_sel <- NULL
+X_geo_full <- NULL
 selection_dt <- data.table(step = integer(), variable = character(),
                            r2_adj_cumulative = numeric(), r2_adj_full_ceiling = numeric())
 selected_dt <- data.table(mem = character(), selected = logical())
-
 if (dbmem_status == "ok") {
     dbmem_dt <- dbmem_dt[match(climate_valid_ids, sample)]
+    if (anyNA(dbmem_dt$sample)) stop("preGEA varpart: dbMEM table is missing climate-valid samples")
     X_geo_full <- as.data.frame(dbmem_dt[, ..mem_cols])
+}
+
+################################################################################
+# 4a. Collapse every block to ONE ROW PER SITE (see the header). From here on
+#     n = n_sites: forward selection, Px, varpart and every permutation test
+#     run on the site table.
+################################################################################
+meta_valid <- fread(METADATA_VALID, colClasses = c(site = "character", sample = "character"))
+site_vec   <- meta_valid$site[match(climate_valid_ids, meta_valid$sample)]
+if (anyNA(site_vec))
+    stop("preGEA varpart: ", sum(is.na(site_vec)), " climate-valid sample(s) have no row in ", basename(METADATA_VALID))
+site_levels <- unique(site_vec)              # first-appearance order, kept for every block
+n_sites     <- length(site_levels)
+site_n      <- as.integer(table(site_vec)[site_levels])
+agg_mean <- function(m) {
+    m <- as.matrix(m)
+    out <- rowsum(m, site_vec, reorder = FALSE) / site_n
+    rownames(out) <- site_levels
+    out
+}
+within_site_spread <- function(m) {  # max |x - site mean| over the block; 0 for a site property
+    m <- as.matrix(m); if (ncol(m) == 0) return(0)
+    max(abs(m - agg_mean(m)[match(site_vec, site_levels), , drop = FALSE]), na.rm = TRUE)
+}
+clim_spread <- within_site_spread(X_clim)
+if (clim_spread > 1e-8)
+    message(sprintf("WARNING: climate predictors vary WITHIN sites (max |x - site mean| = %.3g): the site mean is used", clim_spread))
+
+Y        <- agg_mean(Y)
+X_clim   <- as.data.frame(agg_mean(X_clim))
+if (!is.null(X_struct))   X_struct   <- as.data.frame(agg_mean(X_struct))
+if (!is.null(X_geo_full)) X_geo_full <- as.data.frame(agg_mean(X_geo_full))
+
+n_pred   <- length(predictor_names)
+df_env   <- n_sites - 1L                     # environmental d.f. (design_adequacy.py: n_sites - 1)
+resid_df <- n_sites - n_pred - 1L            # site-level residual d.f. of the climate model
+message(sprintf("INFO: unit of analysis = site: %d sites (%d-%d samples per site) from %d samples; environmental df = %d, climate-model residual df = %d",
+                n_sites, min(site_n), max(site_n), n_samples, df_env, resid_df))
+insufficient_sites <- resid_df <= 0
+if (insufficient_sites) {
+    message(sprintf("WARNING: %d sites cannot support %d climate predictors (residual df %d <= 0): every fit below is skipped, status = insufficient_sites",
+                    n_sites, n_pred, resid_df))
+} else if (resid_df < 3) {
+    message(sprintf("WARNING: climate-model residual df = %d (< 3): adjusted R2 and permutation p-values are barely informative at this design", resid_df))
+}
+
+if (dbmem_status == "ok" && !insufficient_sites) {
     full_fit <- tryCatch(rda(as.formula(paste("Y ~", paste(mem_cols, collapse = " + "))), data = X_geo_full),
                          error = function(e) NULL)
     full_ceiling <- if (!is.null(full_fit)) suppressWarnings(RsquareAdj(full_fit)$adj.r.squared) else NA_real_
@@ -157,8 +226,19 @@ if (dbmem_status == "ok") {
         if (!is.null(step_res)) selected_names <- attr(terms(step_res), "term.labels")
     }
     if (length(selected_names) == 0) {
-        message("WARNING: forward selection chose 0 MEMs; falling back to all ", length(mem_cols), " MEM(s).")
-        selected_names <- mem_cols
+        # Nothing passed Blanchet's double stopping rule. The spatial Gradient Forest
+        # downstream needs >= 1 MEM (it stops on an empty selection), so keep the single
+        # axis with the largest marginal adjusted R2 — the smallest non-empty spatial
+        # correction. Falling back to ALL MEMs (the rule before 2026-09-13) saturated the
+        # 3-table partition at site level: 3 climate + 2 Q + 3 MEM predictors on 9 sites
+        # left 0 residual df and every fraction NA.
+        marg <- vapply(mem_cols, function(m) {
+            f <- tryCatch(rda(as.formula(paste("Y ~", m)), data = X_geo_full), error = function(e) NULL)
+            if (is.null(f)) -Inf else suppressWarnings(RsquareAdj(f)$adj.r.squared)
+        }, numeric(1))
+        selected_names <- mem_cols[which.max(marg)]
+        message("WARNING: forward selection chose 0 MEMs; keeping the single best axis ", selected_names,
+                " (marginal adj. R2 = ", signif(max(marg), 3), ") so the spatial correction is not empty.")
     }
 
     cum_terms <- character(0)
@@ -175,6 +255,11 @@ if (dbmem_status == "ok") {
     selected_dt <- data.table(mem = mem_cols, selected = mem_cols %in% selected_names)
     X_geo_sel <- X_geo_full[, selected_names, drop = FALSE]
     message("INFO: dbMEM forward selection: ", length(selected_names), "/", length(mem_cols), " MEM(s) selected")
+} else if (dbmem_status == "ok") {
+    # insufficient sites: nothing is selected, so a spatial Gradient Forest (which reads
+    # dbmem_selected.tsv and stops on 0 selected) refuses loudly instead of fitting.
+    selected_dt <- data.table(mem = mem_cols, selected = FALSE)
+    message("INFO: dbMEM forward selection skipped (insufficient sites) — no MEM selected")
 } else {
     message("INFO: dbMEM status=", dbmem_status, " — geography fraction unavailable, running climate-vs-structure only")
 }
@@ -199,8 +284,9 @@ compute_Px <- function(rda_obj, X) {
     data.table(variable = colnames(Xs), Px = Px, Px_pct = 100 * Px, rank = rank(-Px, ties.method = "min"))
 }
 
-rda_B <- tryCatch(rda(as.formula(paste("Y ~", paste(predictor_names, collapse = " + "))), data = X_clim),
-                  error = function(e) NULL)
+rda_B <- if (insufficient_sites) NULL else
+    tryCatch(rda(as.formula(paste("Y ~", paste(predictor_names, collapse = " + "))), data = X_clim),
+             error = function(e) NULL)
 px_rows <- list()
 if (!is.null(rda_B)) {
     px_b <- compute_Px(rda_B, X_clim)
@@ -294,15 +380,29 @@ add_tree_row <- function(region_key, value, p = NA_real_) {
         variance_pct = 100 * value, p_value = p)
 }
 
-have_struct <- !is.null(X_struct) && ncol(X_struct) > 0
-have_geo    <- !is.null(X_geo_sel) && ncol(X_geo_sel) > 0
-status      <- if (!have_geo) "no_spatial_vectors" else if (!have_struct) "no_structure_table" else "ok"
+have_struct <- !insufficient_sites && !is.null(X_struct) && ncol(X_struct) > 0
+have_geo    <- !insufficient_sites && !is.null(X_geo_sel) && ncol(X_geo_sel) > 0
+status      <- if (insufficient_sites) "insufficient_sites" else if (!have_geo) "no_spatial_vectors" else if (!have_struct) "no_structure_table" else "ok"
 model_label <- NA_character_
-confound_dt <- data.table(confounded = logical(), shared_pct = numeric(), max_unique_pct = numeric())
+confound_dt <- data.table(confounded = logical(), shared_pct = numeric(), max_unique_pct = numeric(),
+                          joint_p = numeric(), n_sites = integer())
 
 # 2-table climate-vs-geography — the dedicated confounding check, ALWAYS
 # computed when geography is available. Also doubles as the MAIN tree when
 # structure is unavailable (structure_table="none") — same fit, no wasted work.
+df_2way <- function(...) n_sites - sum(vapply(list(...), ncol, integer(1))) - 1L
+if (have_geo && df_2way(X_clim, X_geo_sel) < 1L) {
+    message(sprintf("WARNING: climate + geography 2-table saturated (%d sites, residual df %d): confounding check skipped",
+                    n_sites, df_2way(X_clim, X_geo_sel)))
+    have_geo <- FALSE
+    if (status == "ok") status <- "geography_saturated"
+}
+if (have_struct && df_2way(X_clim, X_struct) < 1L) {
+    message(sprintf("WARNING: climate + structure 2-table saturated (%d sites, residual df %d): structure dropped",
+                    n_sites, df_2way(X_clim, X_struct)))
+    have_struct <- FALSE
+    if (status == "ok") status <- "structure_saturated"
+}
 if (have_geo) {
     vp2 <- tryCatch(varpart(Y, X_clim, X_geo_sel), error = function(e) { message("WARNING: 2-table varpart failed: ", e$message); NULL })
     if (!is.null(vp2)) {
@@ -320,11 +420,24 @@ if (have_geo) {
         p_clim <- compute_p(rda_clim_u); p_geo <- compute_p(rda_geo_u)
 
         if (is.finite(shared_2) && is.finite(clim_unique) && is.finite(geo_unique)) {
-            max_unique <- max(clim_unique, geo_unique, na.rm = TRUE)
-            confounded <- shared_2 > max_unique
-            confound_dt <- data.table(confounded = confounded, shared_pct = 100 * shared_2, max_unique_pct = 100 * max_unique)
-            if (confounded) message("WARNING: climate-geography CONFOUNDED — shared (", round(shared_2, 4),
-                                    ") exceeds the largest unique fraction (", round(max_unique, 4), ")")
+            # Adjusted fractions are routinely negative (read as 0 — Peres-Neto et al. 2006);
+            # comparing raw negatives let "shared 2 % > unique -0.06 %" flag confounding
+            # when climate + geography together explained ~1 % of Y. So: clamp both sides at 0
+            # and require the JOINT climate + geography model to be significant first —
+            # a partition of nothing cannot be confounded.
+            rda_joint <- tryCatch(rda(Y, cbind(X_clim, X_geo_sel)), error = function(e) NULL)
+            joint_p   <- compute_p(rda_joint)
+            max_unique <- max(0, clim_unique, geo_unique, na.rm = TRUE)
+            shared_2c  <- max(0, shared_2)
+            confounded <- is.finite(joint_p) && joint_p < 0.05 && shared_2c > max_unique
+            confound_dt <- data.table(confounded = confounded, shared_pct = 100 * shared_2c,
+                                      max_unique_pct = 100 * max_unique, joint_p = joint_p,
+                                      n_sites = n_sites)
+            if (confounded) message("WARNING: climate-geography CONFOUNDED — shared (", round(shared_2c, 4),
+                                    ") exceeds the largest unique fraction (", round(max_unique, 4),
+                                    "), joint model p = ", signif(joint_p, 3))
+            else message("INFO: climate-geography not confounded (shared ", round(shared_2c, 4),
+                         ", max unique ", round(max_unique, 4), ", joint model p = ", signif(joint_p, 3), ")")
         }
 
         if (!have_struct) {
@@ -337,8 +450,17 @@ if (have_geo) {
     }
 }
 
-# 3-table: climate / structure / geography, when both auxiliary tables exist
-if (have_struct && have_geo) {
+# 3-table: climate / structure / geography, when both auxiliary tables exist AND the site
+# design leaves residual df for it (n_sites - all predictors - 1 >= 1); otherwise the 2-table
+# climate + structure partition below is the main tree (geography still appears in
+# climate_confounding.tsv from the dedicated 2-table fit above).
+n_pred_3way <- ncol(X_clim) + (if (have_struct) ncol(X_struct) else 0L) + (if (have_geo) ncol(X_geo_sel) else 0L)
+df_3way     <- n_sites - n_pred_3way - 1L
+saturated_3way <- have_struct && have_geo && df_3way < 1L
+if (saturated_3way)
+    message(sprintf("WARNING: 3-table partition saturated at site level (%d sites, %d predictors, residual df %d): reporting the climate + structure 2-table instead",
+                    n_sites, n_pred_3way, df_3way))
+if (have_struct && have_geo && !saturated_3way) {
     vp3 <- tryCatch(varpart(Y, X_clim, X_struct, X_geo_sel), error = function(e) { message("WARNING: 3-table varpart failed: ", e$message); NULL })
     if (!is.null(vp3)) {
         fr3 <- vp3$part$indfract
@@ -360,8 +482,8 @@ if (have_struct && have_geo) {
         add_tree_row("unexplained", get_fr3("h"))
         model_label <- "3-way (climate + structure + geography)"
     }
-} else if (have_struct && !have_geo) {
-    # Degenerate-input fallback (dbmem status != ok): climate-vs-structure 2-table instead.
+} else if (have_struct && (!have_geo || saturated_3way)) {
+    # Fallback: climate-vs-structure 2-table (dbmem status != ok, or the 3-table is saturated).
     vp2s <- tryCatch(varpart(Y, X_clim, X_struct), error = function(e) NULL)
     if (!is.null(vp2s)) {
         frs <- vp2s$part$indfract
@@ -375,7 +497,7 @@ if (have_struct && have_geo) {
         add_tree_row("structure_u", struct_unique_s, compute_p(rda_str_s))
         add_tree_row("clim_struct", shared_s)
         add_tree_row("unexplained", resid_s)
-        model_label <- "2-way (climate + structure)"
+        model_label <- if (saturated_3way) sprintf("2-way (climate + structure; 3-way saturated at %d sites)", n_sites) else "2-way (climate + structure)"
     }
 } else if (!have_struct && !have_geo) {
     # Last resort: neither structure nor geography available — climate alone.
@@ -391,13 +513,19 @@ if (have_struct && have_geo) {
 }
 
 tree_dt <- if (length(tree_rows) > 0) rbindlist(tree_rows) else data.table(
-    region_key = character(), group = character(), component = character(), variance_pct = numeric(), p_value = numeric())
-tree_dt[, `:=`(model = model_label, status = status)]
+    # One sentinel row so the status (and the design it was judged on) reaches the
+    # summary and the app; consumers key on component == "Unexplained" and treat an
+    # NA variance_pct as "unavailable".
+    region_key = "unexplained", group = GROUP_OF[["unexplained"]], component = COMPONENT[["unexplained"]],
+    variance_pct = NA_real_, p_value = NA_real_)
+tree_dt[, `:=`(model = model_label, status = status,
+               unit = "site", n_units = n_sites, df_env = df_env)]
 
 # `region_key` is an internal plotting aid (which predictor-table region a
 # row is — see the Venn plot below); the on-disk table stays the clean,
-# human-readable schema only.
-fwrite(tree_dt[, .(group, component, variance_pct, p_value, model, status)], OUT_VARPART_TSV, sep = "\t", quote = FALSE)
+# human-readable schema only. unit / n_units / df_env record the design every
+# fraction and p-value above was computed on.
+fwrite(tree_dt[, .(group, component, variance_pct, p_value, model, status, unit, n_units, df_env)], OUT_VARPART_TSV, sep = "\t", quote = FALSE)
 fwrite(confound_dt, OUT_CONFOUND_TSV, sep = "\t", quote = FALSE)
 message("INFO: Wrote variance partition (", nrow(tree_dt), " rows, status=", status,
        ", model=", model_label %||% "none", ") and confounding check (", nrow(confound_dt), " row)")

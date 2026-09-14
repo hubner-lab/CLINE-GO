@@ -236,10 +236,13 @@ if (SPATIAL_CORRECTION == 'with') {
   # block keeps the same row count as snp_subset. dbMEMs are built from coordinates, which
   # are identical within a site, so the site mean is the site's value.
   if (RESPONSE_UNIT == 'site_frequency') {
-    mem_scores <- as.data.frame(t(vapply(
+    # rbind of per-site rows, NOT t(vapply(...)): with exactly ONE selected MEM vapply
+    # returns a plain vector, t() turns it into a 1 x n_sites matrix and the predictor
+    # block came out as n_sites columns named NA (2026-09-14, seen on SIMDATA once the
+    # site-level forward selection kept MEM2 alone).
+    mem_scores <- as.data.frame(do.call(rbind, lapply(
       site_rows,
-      function(ix) colMeans(mem_scores[ix, , drop = FALSE]),
-      numeric(ncol(mem_scores))
+      function(ix) colMeans(mem_scores[ix, , drop = FALSE])
     )))
     colnames(mem_scores) <- selected_mems
   }
@@ -256,13 +259,31 @@ message(paste0('INFO: Predictor variables: ', paste(predictor_vars, collapse = '
 message(paste0('INFO: Response variables (SNPs): ', ncol(snp_subset)))
 
 # Run Gradient Forest
-gf <- gradientForest(input_matrix,
-                     predictor.vars = predictor_vars,
-                     response.vars = colnames(snp_subset),
-                     ntree = NTREE,
-                     maxLevel = maxLevel,
-                     trace = TRUE,
-                     corr.threshold = COR_THRESHOLD)
+gf <- tryCatch(
+  gradientForest(input_matrix,
+                 predictor.vars = predictor_vars,
+                 response.vars = colnames(snp_subset),
+                 ntree = NTREE,
+                 maxLevel = maxLevel,
+                 trace = TRUE,
+                 corr.threshold = COR_THRESHOLD),
+  error = function(e) e)
+if (inherits(gf, 'error')) {
+  empty_forest <- grepl('No species models provided a positive R', conditionMessage(gf))
+  if (MODEL_TYPE == 'random' && empty_forest) {
+    # The neutral control explaining nothing is the EXPECTED outcome of the control, not a
+    # failure of the run: no random SNP had a positive R^2 against these predictors. Write
+    # the same sentinel the frequency model uses so the plots can say so and the mode goes on.
+    msg <- sprintf('no random SNP had a positive R^2 against %d predictors — the neutral model is empty (this is the null behaving as a null)',
+                   length(predictor_vars))
+    message('WARNING: Gradient Forest random model: ', msg)
+    qsave(list(status = 'empty_forest', reason = msg,
+               n_snps = ncol(snp_subset), n_sites = length(unique(samples$site))), OUTPUT)
+    message('INFO: wrote empty-forest sentinel to: ', OUTPUT)
+    quit(save = 'no', status = 0)
+  }
+  stop(conditionMessage(gf))
+}
 
 # Save model
 qsave(gf, OUTPUT)

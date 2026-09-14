@@ -37,6 +37,9 @@ CLIM_FUTURE     <- args[4]
 PREDICTORS      <- trimws(str_split(args[5], ',')[[1]])
 SAMPLES         <- args[6]
 OUTPUT          <- args[7]
+# Same extrapolation policy as gradient_forest_offset.R (Maladaptation.methods.gradient_forest.extrap):
+# the two fits are compared under the projection the pipeline actually uses.
+EXTRAP          <- if (length(args) >= 8) toupper(args[8]) == 'TRUE' else TRUE
 
 # ── Thresholds ──────────────────────────────────────────────────────────────────────────
 # RHO_PASS: conventional "strong agreement" bar for a rank correlation.
@@ -112,8 +115,8 @@ if (n_sites < MIN_SITES) {
 }
 
 offset_of <- function(model) {
-    tp <- predict(model, as.data.frame(EP[, ..PREDICTORS]))
-    tf <- predict(model, as.data.frame(EF[, ..PREDICTORS]))
+    tp <- predict(model, as.data.frame(EP[, ..PREDICTORS]), extrap = EXTRAP)
+    tf <- predict(model, as.data.frame(EF[, ..PREDICTORS]), extrap = EXTRAP)
     sqrt(rowSums((tf - tp)^2))
 }
 off_imp  <- tryCatch(offset_of(gi), error = function(e) NULL)

@@ -111,6 +111,7 @@ Maladaptation:
       cor_threshold: 0.5
       spatial_correction: both
       random_model: yes
+      extrap: true
     geometric_offset:
       scale: yes
       k: 3.0

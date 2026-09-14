@@ -114,15 +114,28 @@ cluster_snps_to_regions <- function(sig_snps, dist_spec, trait_label = NULL) {
 # @param sig_snps   combined selected-SNPs table (from combine_selected_snps.R):
 #                   SNPID, chr, pos, min_pvalue, <method_cols>
 # @param dist_spec  scalar or named-vector distance (from resolve_clumping_distance)
+# @param trait_pvalues  optional data.table SNPID, trait, min_pvalue (selected_snps_per_trait.tsv,
+#                   from combine_sigsnps_with_traits()). When given, each trait's regions
+#                   report the minimum of THAT trait's own tests. When NULL the region
+#                   inherits sig_snps$min_pvalue, which is the minimum over every trait
+#                   and method of the SNP — so a bio_3 region can report a co-located
+#                   bio_2 hit's p (audit 2026-09-13 SC3; 2 of 6 SIMDATA GEA regions).
 # @return data.table: per-trait regions with columns
 #   region_id, trait, chr, start, end, length, snp_count, snp_ids, methods,
 #   min_pvalue, other_traits, other_snp_count
-build_per_trait_regions <- function(sig_snps, dist_spec) {
+build_per_trait_regions <- function(sig_snps, dist_spec, trait_pvalues = NULL) {
     if (is.null(sig_snps) || nrow(sig_snps) == 0) return(.empty_region_dt(with_trait = TRUE))
 
     sig_snps  <- data.table::copy(sig_snps)
     sig_snps[, chr := as.character(chr)]
     method_cols <- setdiff(colnames(sig_snps), c("SNPID", "chr", "pos", "min_pvalue"))
+
+    if (is.null(trait_pvalues)) {
+        message("WARNING: no per-trait p-value table — per-trait region min_pvalue is the ",
+                "trait-AGNOSTIC SNP minimum (a region can report another trait's p; audit SC3)")
+    } else if (!all(c("SNPID", "trait", "min_pvalue") %in% colnames(trait_pvalues))) {
+        stop("trait_pvalues needs columns SNPID, trait, min_pvalue")
+    }
 
     # Extract all unique traits from method columns
     all_traits <- character(0)
@@ -140,9 +153,9 @@ build_per_trait_regions <- function(sig_snps, dist_spec) {
     message(paste0("INFO: Found ", length(all_traits), " traits: ",
                    paste(all_traits, collapse = ", ")))
 
-    per_trait_list <- lapply(all_traits, function(trait) {
-        message(paste0("INFO:   Processing trait: ", trait))
-        pattern <- paste0("(^|,)", trait, "($|,)")
+    per_trait_list <- lapply(all_traits, function(trait_name) {
+        message(paste0("INFO:   Processing trait: ", trait_name))
+        pattern <- paste0("(^|,)", trait_name, "($|,)")
 
         trait_snps <- sig_snps[0, ]
         for (m in method_cols) {
@@ -151,13 +164,25 @@ build_per_trait_regions <- function(sig_snps, dist_spec) {
         }
 
         if (nrow(trait_snps) == 0) {
-            message(paste0("INFO:     No SNPs for ", trait))
+            message(paste0("INFO:     No SNPs for ", trait_name))
             return(NULL)
         }
 
-        regions <- cluster_snps_to_regions(trait_snps, dist_spec, trait_label = trait)
+        if (!is.null(trait_pvalues)) {
+            # trait_name, not trait: inside [.data.table a bare `trait` is the COLUMN, so
+            # `trait == trait` would be all-TRUE (the NSE self-comparison class of audit B4/B19).
+            own <- trait_pvalues[trait == trait_name, .(SNPID, own_p = min_pvalue)]
+            own <- own[, .(own_p = min(own_p, na.rm = TRUE)), by = SNPID]
+            trait_snps[, min_pvalue := own$own_p[match(SNPID, own$SNPID)]]
+            n_missing <- sum(is.na(trait_snps$min_pvalue))
+            if (n_missing > 0)
+                message(paste0("WARNING:     ", n_missing, " of ", nrow(trait_snps), " ",
+                               trait_name, " SNPs have no own-trait p-value; region min_pvalue ignores them"))
+        }
+
+        regions <- cluster_snps_to_regions(trait_snps, dist_spec, trait_label = trait_name)
         if (!is.null(regions) && nrow(regions) > 0)
-            message(paste0("INFO:     Created ", nrow(regions), " regions for ", trait))
+            message(paste0("INFO:     Created ", nrow(regions), " regions for ", trait_name))
         regions
     })
 

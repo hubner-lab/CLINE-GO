@@ -412,6 +412,22 @@ if not isinstance(GF_SENSITIVITY_CHECK, bool):
         f"Maladaptation.methods.gradient_forest.sensitivity_check must be true or false; "
         f"got {GF_SENSITIVITY_CHECK!r}"
     )
+# How predict.gradientForest() treats predictor values OUTSIDE the training range when the
+# offset is projected onto the present/future rasters. TRUE (the package default, and what
+# every published GF-offset code base reached in 2026-09 runs by omission — Fitzpatrick's
+# geneticOffsetR, the Gugger tutorial) continues each turnover function as a straight line
+# at its boundary slope; FALSE clamps the predictor to the range limit, i.e. the turnover
+# function plateaus. The manual calls extrapolation "an experimental feature" with no
+# study of which kind is meaningful; Rellstab et al. 2021 ask only that novel-climate
+# predictions be flagged. So: user-controlled, default = package default, and the share
+# of cells outside the training envelope is written to gradient_forest_diagnostics.tsv
+# either way. (Three design docs claimed the pipeline plateaus; it never did — audit SC1.)
+GF_EXTRAP = _gf.get('extrap', True)
+if not isinstance(GF_EXTRAP, bool):
+    raise ValueError(
+        f"Maladaptation.methods.gradient_forest.extrap must be true (linear extrapolation, "
+        f"the gradientForest default) or false (plateau at the training range); got {GF_EXTRAP!r}"
+    )
 # Minimum observed (non-missing) calls a site must have at a SNP for that site's allele
 # frequency to be used; a SNP is dropped when ANY site falls below it.
 # Default 1 = "the site has at least one real call here". Deliberately permissive: the bar
@@ -739,9 +755,40 @@ _meta_path = os.path.join(INDIR, SAMPLES)
 try:
     with open(_meta_path) as _f:
         _meta_header = _f.readline().strip().split('\t')
+        _meta_rows = [ln.rstrip('\n').split('\t') for ln in _f if ln.strip()]
     META_HAS_PHENO = len(_meta_header) > 4
 except Exception:
+    _meta_rows = []
     META_HAS_PHENO = False
+
+# Parse-time contract for the metadata `sample` column (column 2): every downstream keep-list
+# (extract_samples, the R keep-list writers) and every join keys on it, and plink --keep drops
+# unknown IDs with exit 0. An ID with whitespace or a duplicate therefore becomes silent
+# sample loss or a mis-join, never an error — so refuse it here, before any rule runs.
+def _validate_metadata_samples(rows, path):
+    bad_ws, empty, seen, dups = [], [], set(), []
+    for i, r in enumerate(rows, start=2):
+        sid = r[1] if len(r) > 1 else ''
+        if sid == '':
+            empty.append(i)
+        elif any(c.isspace() for c in sid):
+            bad_ws.append(f"row {i}: '{sid}'")
+        if sid in seen:
+            dups.append(f"row {i}: '{sid}'")
+        seen.add(sid)
+    problems = []
+    if empty:
+        problems.append(f"empty sample id at rows {empty[:10]}")
+    if bad_ws:
+        problems.append("sample ids containing whitespace: " + ", ".join(bad_ws[:10]))
+    if dups:
+        problems.append("duplicated sample ids: " + ", ".join(dups[:10]))
+    if problems:
+        raise ValueError(
+            f"Input.metadata ({path}) column 2 must be a unique, whitespace-free sample id per row. "
+            + "; ".join(problems))
+if _meta_rows:
+    _validate_metadata_samples(_meta_rows, _meta_path)
 if GWAS_CONFIGS:
     PHENO_TRAITS = _meta_header[4:] if META_HAS_PHENO else []
     # Filter by GWAS.traits if specified in config
@@ -879,7 +926,7 @@ W = {
     # Climate-valid subset: coord-valid samples further narrowed by filter_climate_valid_samples
     # to always exclude samples whose raster extraction returned NA (e.g. ocean/NoData pixel;
     # see download_climate_present.R). Feeds every climate-VALUE-dependent rule (GEA/
-    # gradient_forest/geometric_offset/Mantel); coordinate-only rules (IBD, piemaps) stay on the
+    # gradient_forest/geometric_offset/Mantel); coordinate-only rules (piemaps) stay on the
     # wider coord_valid_samples/metadata_climate. Only applies to CLIMATE_SOURCE 'worldclim'
     # (custom climate can't produce ocean-NA by construction) — for 'custom', these alias
     # directly to the coord-valid paths so consumers don't need source-specific branching.
@@ -992,8 +1039,6 @@ O['climate_invariant']    = _ph('climate_invariant')
 O['climate_design']       = _ph('climate_design')
 O['tajima']               = _ph('tajima')
 O['pi_div']               = _ph('pi_div')
-O['ibd_raw']              = _ph('ibd_raw')
-O['ibd_pairs']            = _ph('ibd_pairs')
 O['amova']                = _ph('amova')
 O['corr_heatmap']         = _ph('corr_heatmap')
 O['mantel']               = _ph('mantel')
@@ -1119,8 +1164,6 @@ def add_kbest_paths():
     # Tables - structure_k/population stats
     O['tajima'] = f"{MOD_STRUCT}tables/pop_stats/tajima_d_by_pop.tsv"
     O['pi_div'] = f"{MOD_STRUCT}tables/pop_stats/pi_diversity_by_pop.tsv"
-    O['ibd_raw'] = f"{MOD_STRUCT}tables/pop_stats/ibd_raw.tsv"
-    O['ibd_pairs'] = f"{MOD_STRUCT}tables/pop_stats/ibd_pairs.tsv"
     O['amova'] = f"{MOD_STRUCT}tables/pop_stats/amova.tsv"
 
     # Plots - climate
@@ -1403,6 +1446,15 @@ def mala_sensitivity(method, run_label, spatial_tag):
     Shiny loader convention in fct_data_loading.R applies unchanged.
     """
     return f"{mala_table_dir(method, run_label, spatial_tag)}imputation_sensitivity.tsv"
+
+def mala_diagnostics(method, run_label, spatial_tag):
+    """Scenario-free, long (quantity, value) diagnostics of the offset projection.
+
+    {method}_diagnostics.tsv: geometric_offset_diagnostics.tsv and rda_offset_diagnostics.tsv
+    already follow this name; gradient_forest_diagnostics.tsv (2026-09-13) records the
+    `extrap` setting and the share of raster cells outside the training climate range.
+    """
+    return f"{mala_table_dir(method, run_label, spatial_tag)}{method}_diagnostics.tsv"
 
 def snp_set_dir(set_name):
     """Directory for a curated SNP set (produced by Shiny, ancestor-less source)."""
@@ -1709,6 +1761,7 @@ def assoc_out(source, key):
     """Return the per-source output path for a logical downstream key."""
     _templates = {
         "selected_snps":              "tables/selected_snps.tsv",
+        "selected_snps_per_trait":    "tables/selected_snps_per_trait.tsv",
         "regions_per_trait":          "tables/regions_per_trait.tsv",
         "regions_combined":           "tables/regions_combined.tsv",
         "genes_per_region":           "tables/genes_per_region.tsv",
@@ -2111,7 +2164,7 @@ def get_targets(mode):
 
         # Population statistics (requires >= 3 samples per population)
         if CALC_POP_STATS:
-            targets += [O['tajima'], O['pi_div'], O['ibd_raw'], O['ibd_pairs']]
+            targets += [O['tajima'], O['pi_div']]
             targets += [O['amova'], O['amova_plot']]
             if CLIMATE_ENABLED:
                 targets += [O['mantel']]
@@ -2204,6 +2257,11 @@ def get_targets(mode):
                     # NOT gated on MALA_EMIT_PLOTS (it is a table, not a plot).
                     if _mflags['builds_model'] and GF_SENSITIVITY_CHECK:
                         targets.append(mala_sensitivity(method, set_name, spatial_tag))
+                    # Projection diagnostics (GF: extrap policy + share of cells outside the
+                    # training envelope). Written by the offset rule itself, listed so a
+                    # stale tree without it re-runs the projection.
+                    if method == 'gradient_forest':
+                        targets.append(mala_diagnostics(method, set_name, spatial_tag))
                     # Offset products — one set per scenario
                     for scenario in SCENARIO_NAMES:
                         targets += [

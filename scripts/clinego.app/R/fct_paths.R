@@ -536,6 +536,15 @@ gf_sensitivity_path <- function(project, suffix, method = "gradient_forest") {
     mod_path(project, MOD_MALAD, "tables", method, suffix, "imputation_sensitivity.tsv")
 }
 
+#' Gradient-Forest projection diagnostics (long quantity/value)
+#'
+#' Written by scripts/gradient_forest_offset.R: the `extrap` policy, the training envelope
+#' per predictor and the share of raster cells outside it (present, and per future scenario).
+#' @noRd
+gf_diagnostics_path <- function(project, suffix, method = "gradient_forest") {
+    mod_path(project, MOD_MALAD, "tables", method, suffix, "gradient_forest_diagnostics.tsv")
+}
+
 #' Scenario names available for one method/SNP-set, newest layout only
 #'
 #' Offset products gained a {scenario} level when the pipeline learned to project
@@ -617,6 +626,14 @@ model_compare_dir <- function(project, key_a, key_b) {
 #' @noRd
 novelty_cache_dir <- function(project, scenario_label) {
     mod_path(project, MOD_INTER, "novelty", scenario_label)
+}
+
+#' Climate-valid metadata (site, sample, latitude, longitude, ...) — the pipeline's
+#' W['metadata_climate_valid']. The sample->site map for every site-level computation the
+#' app launches (compare_offsets.R needs it for the ExDet reference and Dutilleul coords).
+#' @noRd
+metadata_climate_valid_path <- function(project) {
+    mod_path(project, MOD_INTER, "samples", "metadata_climate_valid.tsv")
 }
 
 #' stats.json path for a model comparison

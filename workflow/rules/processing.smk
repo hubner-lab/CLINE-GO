@@ -14,7 +14,11 @@ rule extract_samples:
     input:  samples = f"{INDIR}{SAMPLES}"
     output: W['samples_list']
     log:    f"{LOGDIR}processing/extract_samples.log"
-    shell:  "tail -n +2 {input.samples} | awk '{{print 0, $2}}' > {output} 2> {log}"
+    # -F'\t' is load-bearing: the metadata is a TSV and awk's default FS splits on ANY run
+    # of blanks, so a site name with a space ("Tel Aviv") made $2 the second WORD ("Aviv"),
+    # plink --keep silently dropped every sample of that site, and the QC accounting still
+    # reported 100 % retention (audit 2026-09-13 B41).
+    shell:  "tail -n +2 {input.samples} | awk -F'\\t' '{{print 0, $2}}' > {output} 2> {log}"
 
 rule calculate_sample_missing:
     """Calculate per-sample and per-SNP missing genotype rates. Filter samples by sample_miss threshold."""
@@ -34,9 +38,22 @@ rule calculate_sample_missing:
     shell:
         """
         # Calculate per-sample and per-SNP missingness using plink
-        plink --vcf {input.vcf} --const-fid --allow-extra-chr \
+        plink --vcf {input.vcf} --const-fid --allow-extra-chr --output-chr MT \
             --set-missing-var-ids @:# --keep {input.samples} \
             --missing --out {params.prefix} > {log} 2>&1
+
+        # Every ID in the keep-list must have survived --keep. plink drops IDs it cannot find
+        # in the VCF with exit 0 ("--keep: N people remaining"), which is silent sample loss;
+        # downstream counts are all taken from the .imiss, so nothing later can notice.
+        n_keep=$(wc -l < {input.samples})
+        n_imiss=$(($(wc -l < {params.prefix}.imiss) - 1))
+        if [ "$n_keep" -ne "$n_imiss" ]; then
+            echo "ERROR: keep-list has $n_keep samples but plink --keep retained $n_imiss." >> {log}
+            echo "ERROR: metadata sample IDs not found in the VCF header:" >> {log}
+            awk 'NR==FNR {{seen[$2]=1; next}} !($2 in seen) {{print "  " $2}}' {params.prefix}.imiss {input.samples} >> {log}
+            grep -m1 -- '--keep:' {params.prefix}.log >> {log} || true
+            exit 1
+        fi
 
         # Create stats file with header (convert plink space-separated to TSV)
         echo -e "FID\tIID\tMISS_PHENO\tN_MISS\tN_GENO\tF_MISS" > {output.stats}
@@ -77,7 +94,7 @@ rule compute_het_raw:
     threads: CPU
     shell:
         """
-        plink --vcf {input.vcf} --const-fid --allow-extra-chr \
+        plink --vcf {input.vcf} --const-fid --allow-extra-chr --output-chr MT \
             --set-missing-var-ids @:# --keep {input.samples} \
             --het --out {params.prefix} > {log} 2>&1
         awk 'NR==1 {{print "FID\tIID\tO_HOM\tE_HOM\tN_NM\tF"; next}} {{print $1"\t"$2"\t"$3"\t"$4"\t"$5"\t"$6}}' \
@@ -147,12 +164,12 @@ rule compute_relatedness:
     threads: CPU
     shell:
         """
-        plink --vcf {input.vcf} --const-fid --allow-extra-chr \
+        plink --vcf {input.vcf} --const-fid --allow-extra-chr --output-chr MT \
             --set-missing-var-ids @:# --keep {input.samples} \
             --indep-pairwise {params.win} {params.step} {params.r2} \
             --out {params.prefix} > {log} 2>&1
 
-        plink --vcf {input.vcf} --const-fid --allow-extra-chr \
+        plink --vcf {input.vcf} --const-fid --allow-extra-chr --output-chr MT \
             --set-missing-var-ids @:# --keep {input.samples} \
             --extract {params.prefix}.prune.in \
             --genome --out {params.prefix} >> {log} 2>&1
@@ -230,7 +247,7 @@ rule compute_snp_freq_raw:
     threads: CPU
     shell:
         """
-        plink --vcf {input.vcf} --const-fid --allow-extra-chr \
+        plink --vcf {input.vcf} --const-fid --allow-extra-chr --output-chr MT \
             --set-missing-var-ids @:# --keep {input.samples} \
             --freq --out {params.prefix} > {log} 2>&1
         awk 'NR==1 {{print "CHR\tSNP\tA1\tA2\tMAF\tNCHROBS"; next}} {{print $1"\t"$2"\t"$3"\t"$4"\t"$5"\t"$6}}' \
@@ -290,17 +307,23 @@ rule filter_vcf:
     threads: CPU
     shell:
         """
-        plink --vcf {input.vcf} --const-fid --allow-extra-chr \
+        plink --vcf {input.vcf} --const-fid --allow-extra-chr --output-chr MT \
             --set-missing-var-ids @:# --keep {input.samples} \
             --maf {params.maf} --geno {params.miss} \
             --recode vcf --out {params.prefix} > {log} 2>&1
         sed -i '/^#CHROM/s/\t0_/\t/g' {output}
 
-        # Normalize chromosome names: strip 'chr' prefix (e.g., chr1 -> 1, chr2H -> 2H)
-        # This ensures consistency with LEA's vcf2lfmm behavior
-        sed -i 's/^chr//g' {output}
+        # Normalize chromosome names — the pipeline's contract is: `chr` prefix stripped in
+        # ANY case, X/Y/XY/MT kept as letters. plink already strips Chr/CHR/chr from the codes
+        # it recognises and, with --output-chr MT above, writes X/Y/MT as letters instead of
+        # 23/24/26; unrecognised contigs (chr2H, Chr5H) pass through verbatim, so the strip
+        # here must be case-insensitive too. Body lines only, plus the ##contig header IDs so
+        # header and body agree. scripts/normalize_gff.py applies the SAME rule to the GFF
+        # and then compares the two contig sets (audit 2026-09-13 B1).
+        sed -E -i '/^#/! s/^[Cc][Hh][Rr]//' {output}
+        sed -E -i 's/^(##contig=<ID=)[Cc][Hh][Rr]/\1/' {output}
 
-        echo "INFO: Normalized chromosome names (stripped 'chr' prefix)" >> {log}
+        echo "INFO: Normalized chromosome names (case-insensitive 'chr' strip; X/Y/MT kept as letters)" >> {log}
         """
 
 rule compute_sample_het:
@@ -312,7 +335,7 @@ rule compute_sample_het:
     threads: CPU
     shell:
         """
-        plink --vcf {input.vcf} --const-fid --allow-extra-chr \
+        plink --vcf {input.vcf} --const-fid --allow-extra-chr --output-chr MT \
             --set-missing-var-ids @:# \
             --het --out {params.prefix} > {log} 2>&1
         awk 'NR==1 {{print "FID\tIID\tO_HOM\tE_HOM\tN_NM\tF"; next}} {{print $1"\t"$2"\t"$3"\t"$4"\t"$5"\t"$6}}' \
@@ -331,7 +354,7 @@ rule compute_snp_freq_filtered:
     threads: CPU
     shell:
         """
-        plink --vcf {input.vcf} --const-fid --allow-extra-chr \
+        plink --vcf {input.vcf} --const-fid --allow-extra-chr --output-chr MT \
             --set-missing-var-ids @:# \
             --freq --make-bed --out {params.prefix} > {log} 2>&1
         awk 'NR==1 {{print "CHR\tSNP\tA1\tA2\tMAF\tNCHROBS"; next}} {{print $1"\t"$2"\t"$3"\t"$4"\t"$5"\t"$6}}' \
@@ -383,12 +406,12 @@ rule ld_prune:
     threads: CPU
     shell:
         """
-        plink --vcf {input.vcf} --const-fid --allow-extra-chr \
+        plink --vcf {input.vcf} --const-fid --allow-extra-chr --output-chr MT \
             --set-missing-var-ids @:# \
             --indep-pairwise {params.win} {params.step} {params.r2} \
             --out {params.prefix} > {log} 2>&1
 
-        plink --vcf {input.vcf} --const-fid --allow-extra-chr \
+        plink --vcf {input.vcf} --const-fid --allow-extra-chr --output-chr MT \
             --set-missing-var-ids @:# --extract {output.prune} \
             --make-bed --recode vcf \
             --out {params.prefix} >> {log} 2>&1
@@ -468,23 +491,24 @@ rule subset_lfmm_climate:
         """
 
 rule normalize_gff:
-    """Normalize GFF chromosome names by removing 'chr' prefix to match VCF.
-    Creates a normalized GFF in intermediate directory used by all downstream analysis."""
-    input:  gff = f"{INDIR}{GFF}" if GFF else []
+    """Normalize GFF chromosome names to the VCF's contract and verify the two agree.
+
+    scripts/normalize_gff.py strips the `chr` prefix case-insensitively (the same rule
+    filter_vcf applies to the VCF body), then compares the GFF seqids with the contigs
+    actually present in the FILTERED VCF: disjoint sets are a hard error, a partial
+    overlap is logged. Until 2026-09-13 only a lowercase `chr` was stripped here while
+    plink canonicalised `Chr1`/`CHR1`/`X`/`MT` on the VCF side, so a TAIR10-style or
+    animal genome got an empty annotation with exit 0 (audit B1). The filtered VCF is an
+    input purely for that check — every consumer of normalized.gff3 sits far downstream."""
+    input:
+        gff = f"{INDIR}{GFF}" if GFF else [],
+        vcf = W['vcf_filt']
     output: W['gff_normalized']
+    params: gff_arg = lambda wc, input: input.gff if GFF else 'NULL'
     log:    f"{LOGDIR}processing/normalize_gff.log"
     shell:
         """
-        if [ -f "{input.gff}" ]; then
-            # Copy GFF and normalize chromosome names (strip 'chr' prefix)
-            grep '^#' {input.gff} > {output} 2> {log}
-            grep -v '^#' {input.gff} | sed 's/^chr//g' >> {output} 2>> {log}
-            echo "INFO: Normalized GFF chromosome names (stripped 'chr' prefix)" >> {log}
-        else
-            # Create empty file if no GFF provided
-            touch {output}
-            echo "INFO: No GFF provided, created empty normalized GFF" >> {log}
-        fi
+        python3 /pipeline/scripts/normalize_gff.py {params.gff_arg} {input.vcf} {output} > {log} 2>&1
         """
 
 rule vcf_to_lfmm:

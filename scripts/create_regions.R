@@ -22,6 +22,7 @@ OUTPUT_COMBINED        = args[4]
 LD_DECAY_PATH          = if (length(args) >= 5) args[5] else "NULL"
 R2_THRESHOLD           = if (length(args) >= 6) as.numeric(args[6]) else 0.2
 LD_DECAY_GROUP         = if (length(args) >= 7) args[7] else "All"
+TRAIT_PVALUES          = if (length(args) >= 8) args[8] else "NULL"   # selected_snps_per_trait.tsv
 ################
 
 message('INFO: Creating regions from selected SNPs using single-linkage clustering')
@@ -46,9 +47,15 @@ if (nrow(snps) == 0) {
 
 message(paste0('INFO: Processing ', nrow(snps), ' SNPs'))
 
-# Per-trait regions
+# Per-trait regions. The per-(SNP, trait) p-value table is what lets a trait's region
+# report the trait's OWN best p rather than the SNP-level minimum over every trait.
+trait_pvalues <- NULL
+if (TRAIT_PVALUES != "NULL") {
+    if (!file.exists(TRAIT_PVALUES)) stop("per-trait p-value table not found: ", TRAIT_PVALUES)
+    trait_pvalues <- fread(TRAIT_PVALUES, colClasses = c(chr = "character"))
+}
 message('INFO: Creating per-trait regions...')
-per_trait <- build_per_trait_regions(snps, dist_spec)
+per_trait <- build_per_trait_regions(snps, dist_spec, trait_pvalues)
 
 if (is.null(per_trait) || nrow(per_trait) == 0) {
     message('WARNING: No per-trait regions created')

@@ -61,7 +61,10 @@ if ASSOC_SOURCES:
                 for m, a in _src(wc.source, "configs").items()
             ]
         output:
-            f"{OUTDIR}{{source}}/tables/selected_snps.tsv"
+            snps      = f"{OUTDIR}{{source}}/tables/selected_snps.tsv",
+            # per-(SNP, trait) minimum p — the trait-scoped companion of selected_snps.tsv's
+            # trait-agnostic min_pvalue; create_regions.R reads it for the per-trait table
+            per_trait = f"{OUTDIR}{{source}}/tables/selected_snps_per_trait.tsv"
         wildcard_constraints:
             source = SOURCE_REGEX
         params:
@@ -79,13 +82,14 @@ if ASSOC_SOURCES:
             """
             Rscript /pipeline/scripts/combine_selected_snps.R \
                 "{params.sigsnps_str}" "{params.method}" {params.clumping_dist} \
-                {params.predictors} {output} > {log} 2>&1
+                {params.predictors} {output.snps} {output.per_trait} > {log} 2>&1
             """
 
     rule assoc_create_regions:
         """Merge nearby significant SNPs into per-trait and combined regions."""
         input:
             selected_snps = f"{OUTDIR}{{source}}/tables/selected_snps.tsv",
+            trait_pvalues = f"{OUTDIR}{{source}}/tables/selected_snps_per_trait.tsv",
             ld_decay      = lambda wc: ld_decay_input(_src(wc.source, "clumping_distance_mode"))
         output:
             per_trait = f"{OUTDIR}{{source}}/tables/regions_per_trait.tsv",
@@ -108,7 +112,7 @@ if ASSOC_SOURCES:
                 {input.selected_snps} {params.clumping_dist} \
                 {output.per_trait} {output.combined} \
                 {params.ld_decay_path} {params.r2_threshold} \
-                {params.ld_decay_group} > {log} 2>&1
+                {params.ld_decay_group} {input.trait_pvalues} > {log} 2>&1
             """
 
     rule assoc_wza:

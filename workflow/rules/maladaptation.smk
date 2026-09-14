@@ -253,13 +253,14 @@ rule gf_sensitivity_check:
     output: mala_sensitivity('gradient_forest', '{run_label}', '{spatial_tag}')
     params:
         predictors = PREDICTORS_SELECTED,
-        samples    = W['metadata_climate_valid']
+        samples    = W['metadata_climate_valid'],
+        extrap     = 'TRUE' if GF_EXTRAP else 'FALSE'
     log: f"{LOGDIR}maladaptation/gf_sensitivity_check_{{run_label}}_{{spatial_tag}}.log"
     shell:
         """
         Rscript /pipeline/scripts/gf_sensitivity_check.R \
             {input.imputed} {input.frequency} {input.clim_present} {input.clim_future} \
-            {params.predictors} {params.samples} {output} > {log} 2>&1
+            {params.predictors} {params.samples} {output} {params.extrap} > {log} 2>&1
         """
 
 # Genetic offset calculation — all scenarios in one job.
@@ -277,10 +278,14 @@ rule gradient_forest_offset:
     output:
         raster      = expand(mala_offset_raster('gradient_forest', '{{run_label}}', '{{spatial_tag}}', '{scenario}'), scenario=SCENARIO_NAMES),
         map_values  = expand(mala_offset_map_values('gradient_forest', '{{run_label}}', '{{spatial_tag}}', '{scenario}'), scenario=SCENARIO_NAMES),
-        site_values = expand(mala_offset_site_values('gradient_forest', '{{run_label}}', '{{spatial_tag}}', '{scenario}'), scenario=SCENARIO_NAMES)
+        site_values = expand(mala_offset_site_values('gradient_forest', '{{run_label}}', '{{spatial_tag}}', '{scenario}'), scenario=SCENARIO_NAMES),
+        # Scenario-free: the extrapolation policy and the training envelope describe the
+        # projection setup, written once (per-scenario outside-range shares are rows inside).
+        diagnostics = mala_diagnostics('gradient_forest', '{run_label}', '{spatial_tag}')
     params:
         predictors = PREDICTORS_SELECTED,
         scenarios  = ','.join(SCENARIO_NAMES),
+        extrap     = 'TRUE' if GF_EXTRAP else 'FALSE',
         future_arg = lambda wc, input:  ','.join(input.future_all),
         raster_arg = lambda wc, output: ','.join(output.raster),
         map_arg    = lambda wc, output: ','.join(output.map_values),
@@ -292,7 +297,7 @@ rule gradient_forest_offset:
             {input.gf} {params.predictors} {params.future_arg} {input.present_all} \
             {input.present_raster} {input.samples} \
             {params.raster_arg} {params.map_arg} {params.site_arg} \
-            {params.scenarios} > {log} 2>&1
+            {params.scenarios} {params.extrap} {output.diagnostics} > {log} 2>&1
         """
 
 # Geometric Genetic Offset (Gain et al. 2023, MBE) — single-call rule.

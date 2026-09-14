@@ -244,6 +244,48 @@ check_min_pvalue_against_sig_snps <- function(selected, sig_rows,
     combine_violations(a, b)
 }
 
+# regions_per_trait.tsv's min_pvalue must be the minimum over the TRAIT'S OWN tests
+# of its member SNPs. Before 2026-09-13 it inherited selected_snps.tsv's trait-agnostic
+# SNP minimum, so a bio_3 region reported a co-located bio_2 hit's p (audit SC3).
+# Detected as: stated < the trait's own smallest p across its snp_ids (a stated value
+# LARGER than the own minimum is not flagged — the region may include SNPs whose
+# own-trait p is absent from the sig tables at this threshold).
+#
+# regions: regions_per_trait.tsv (region_id, trait, snp_ids, min_pvalue).
+# sig_rows: long table with SNPID, trait, pvalue pooled across methods.
+check_per_trait_region_min_pvalue <- function(regions, sig_rows,
+                                              table_name = "regions_per_trait.tsv",
+                                              tol = 1e-9) {
+    if (is.null(regions) || nrow(regions) == 0) return(no_violations())
+    if (!all(c("region_id", "trait", "snp_ids", "min_pvalue") %in% names(regions)))
+        return(no_violations())
+    if (is.null(sig_rows) || nrow(sig_rows) == 0) return(no_violations())
+    if (!all(c("SNPID", "trait", "pvalue") %in% names(sig_rows))) return(no_violations())
+
+    own <- data.table::data.table(
+        SNPID  = as.character(sig_rows$SNPID),
+        trait  = as.character(sig_rows$trait),
+        pvalue = suppressWarnings(as.numeric(sig_rows$pvalue))
+    )[!is.na(pvalue), .(own = min(pvalue)), by = c("SNPID", "trait")]
+
+    bad_key <- character(); bad_detail <- character()
+    for (i in seq_len(nrow(regions))) {
+        ids <- strsplit(as.character(regions$snp_ids[i]), ",", fixed = TRUE)[[1]]
+        o   <- own[SNPID %in% ids & trait == regions$trait[i], own]
+        if (length(o) == 0) next
+        stated <- suppressWarnings(as.numeric(regions$min_pvalue[i]))
+        if (!is.na(stated) && stated < min(o) * (1 - tol)) {
+            bad_key    <- c(bad_key, as.character(regions$region_id[i]))
+            bad_detail <- c(bad_detail,
+                paste0("trait ", regions$trait[i], " region min_pvalue = ", stated,
+                       " is below the trait's own best p over its SNPs (", min(o),
+                       ") — another trait's p-value leaked in"))
+        }
+    }
+    violation("per_trait_region_min_pvalue_below_own_trait", "error", table_name,
+              bad_key, bad_detail)
+}
+
 # The trait names a module actually produced. In selected_snps.tsv the per-method
 # columns are NAMED for methods and hold comma-separated TRAIT names as values,
 # with "" (sometimes written with literal quotes) meaning "this method had no hit

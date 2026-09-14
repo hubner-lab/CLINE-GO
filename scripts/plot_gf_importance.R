@@ -46,6 +46,19 @@ gAdapt <- ggplot(imp, aes(y = fct_reorder(name, value), x = value)) +
 
 if (has_random) {
   gf_random <- qread(GF_RANDOM_PATH)
+  # gradient_forest_model.R writes a list sentinel (status empty_forest) when no random SNP
+  # had a positive R^2 — the null explaining nothing. Show that instead of erroring.
+  if (!inherits(gf_random, 'gradientForest')) {
+    message('INFO: random model is a sentinel (', gf_random$status %||% 'unknown', '): ', gf_random$reason %||% '')
+    has_random <- FALSE
+    gNeutral_note <- ggplot() + theme_void() +
+      annotate('text', x = 0.5, y = 0.5, size = 3.5,
+               label = paste0('Neutral model empty:\nno random SNP with R\u00b2 > 0')) +
+      labs(title = 'Neutral')
+    gImp <- ggarrange(gAdapt, gNeutral_note, ncol = 2)
+  }
+}
+if (has_random) {
   imp_random <- importance(gf_random, type = 'Weighted') %>%
     enframe() %>%
     dplyr::mutate(name = as.factor(name))
@@ -58,7 +71,7 @@ if (has_random) {
     xlim(c(0, max_val))
 
   gImp <- ggarrange(gAdapt, gNeutral, ncol = 2)
-} else {
+} else if (!exists('gImp')) {
   gImp <- gAdapt
 }
 

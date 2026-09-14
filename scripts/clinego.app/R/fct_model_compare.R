@@ -52,6 +52,20 @@ model_key_to_files <- function(project, model_key) {
 }
 
 #' Build the compare_offsets.R shell call and run it.
+#' Scenario label under which compare_offsets.R caches the ExDet novelty surface
+#'
+#' One definition for the writer (the comparison launcher) and the reader (the novelty
+#' tab). Until 2026-09-13 the tab hard-coded "future" while the launcher wrote
+#' "ssp585_2061-2080", so the tab never found what the comparison had computed (audit B7).
+#' @noRd
+compare_scenario_label <- function(cfg) {
+    ssps <- config_get(cfg, "Future", "ssp")
+    yrs  <- config_get(cfg, "Future", "year")
+    ssp  <- if (length(ssps) > 0) ssps[[1]] else "585"
+    yr   <- if (length(yrs)  > 0) yrs[[1]]  else "2080"
+    list(ssp = ssp, year = yr, label = paste0("ssp", ssp, "_", yr))
+}
+
 #' Invokes Rscript synchronously (blocks until done).
 #' Returns TRUE on success, FALSE otherwise.
 #' @noRd
@@ -95,7 +109,8 @@ run_compare_offsets <- function(project, key_a, key_b,
         shQuote(pred_str),
         shQuote(raster_tif),
         as.integer(top_k),
-        "0"  # N_EXTRA = 0 (no additional models in two-model call)
+        "0",  # N_EXTRA = 0 (no additional models in two-model call)
+        shQuote(metadata_climate_valid_path(project))   # arg 16: sample->site map + coords
     )
 
     message("INFO: Running compare_offsets.R ...")

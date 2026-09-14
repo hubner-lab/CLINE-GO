@@ -4,7 +4,7 @@
 # download_climate_present.R. No-op (output == input) when climate_na_excluded.tsv is empty --
 # the common case. Samples excluded here are NOT removed from metadata.tsv/metadata_climate.tsv;
 # they remain available to GWAS/phenotype/structure/PCA/sNMF and coordinate-only plotting
-# (IBD, piemaps), which keep using the wider coord-valid set.
+# (piemaps), which keep using the wider coord-valid set.
 
 library(data.table)
 library(dplyr)
