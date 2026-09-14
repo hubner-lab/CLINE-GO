@@ -68,6 +68,49 @@ test_that("a successful qval threshold is itself one of the input p-values", {
     expect_gte(sum(ps <= res$threshold), 1L)
 })
 
+test_that("qval separates 'ran, nothing passed' from 'refused to run'", {
+    # Pure null: qvalue() converges, no q clears the cut. The threshold is NA
+    # either way, so status is the ONLY thing that tells a caller the honest hit
+    # count is 0 rather than unknown (pregea_ladder_stats.R hits_qval wrote a
+    # blank where the truth was 0 while both cases said "too_few_tests").
+    set.seed(1)
+    res <- compute_pval_threshold(runif(500, 0.2, 1), "qval", 0.05)
+    expect_identical(res$status, "no_hits")
+    expect_true(is.na(res$threshold))
+    expect_identical(res$n_tested, 500L)
+
+    refused <- expect_message(
+        compute_pval_threshold(c(0.001, 0.002, 0.5, 0.6, 0.7), "qval", 0.1),
+        "requires >=10 tests")
+    expect_identical(refused$status, "too_few_tests")
+})
+
+test_that("a crash inside the qval engine is reported as engine_error with its message", {
+    # Same NA threshold, third distinct cause. Shadowing qvalue with a thrower is
+    # the cheapest faithful stand-in for the real failure this status exists for:
+    # the function not resolving at all from a sourcing environment that never
+    # attached the package (the Shiny app's namespace).
+    env <- new.env(parent = environment())
+    env$max_pvalue_fdr <- function(...) stop("could not find function \"qvalue\"")
+    f <- compute_pval_threshold
+    environment(f) <- env
+    res <- suppressMessages(f(runif(50), "qval", 0.1))
+    expect_identical(res$status, "engine_error")
+    expect_match(res$message, "qvalue")
+    expect_true(is.na(res$threshold))
+})
+
+test_that("max_pvalue_fdr resolves qvalue with the package NOT attached", {
+    # pval_threshold.R is sys.source()d into clinego.app's namespace, where
+    # nothing attaches qvalue. parent = baseenv() gives an enclosure chain that
+    # cannot reach the search path, so this fails for a bare qvalue() call and
+    # passes only for the namespace-qualified one.
+    sealed <- new.env(parent = baseenv())
+    sys.source(file.path(.clinego_R, "utils", "pval_threshold.R"), envir = sealed)
+    ps <- p_with_signal()
+    expect_equal(sealed$max_pvalue_fdr(ps, 0.1), max_pvalue_fdr(ps, 0.1))
+})
+
 test_that("max_pvalue_fdr returns NA when nothing passes and when all input is NA", {
     expect_true(is.na(max_pvalue_fdr(rep(NA_real_, 5), 0.05)))
     expect_true(is.na(max_pvalue_fdr(numeric(0), 0.05)))

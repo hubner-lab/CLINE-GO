@@ -1,13 +1,17 @@
 # pval_threshold.R — p-value threshold computation helpers
 # Usage: source("/pipeline/scripts/R/utils/pval_threshold.R")
-# Requires: qvalue package loaded by the sourcing script
+# Requires: the qvalue package INSTALLED. It is called namespace-qualified
+#   (qvalue::qvalue) on purpose, NOT as a bare qvalue(): this file is also
+#   sys.source()d into the Shiny app's namespace by clinego.app's zzz.R, where
+#   nothing attaches qvalue, so a bare call could not resolve and every "FDR
+#   (qval)" threshold in the app came back NA with no error in the UI.
 
 # Return the maximum p-value still below the FDR threshold (NA if none pass).
 # NA values in pvalues are silently dropped before qvalue computation.
 max_pvalue_fdr <- function(pvalues, fdr) {
     pvalues <- pvalues[!is.na(pvalues)]
     if (length(pvalues) == 0) return(NA_real_)
-    qvalues_result <- qvalue(pvalues)
+    qvalues_result <- qvalue::qvalue(pvalues)
     significant_pvalues <- pvalues[qvalues_result$qvalues < fdr]
     if (length(significant_pvalues) > 0) max(significant_pvalues) else NA_real_
 }
@@ -34,10 +38,22 @@ max_pvalue_top <- function(pvalues, topN) {
 #   threshold    numeric (NA when status != "ok")
 #   n_tested     integer — number of non-NA p-values used
 #   n_na_dropped integer — number of NA entries removed
-#   status       character: "ok" | "too_few_tests" | "no_tests"
+#   status       character: "ok" | "no_hits" | "too_few_tests" | "no_tests"
+#                  | "engine_error"
+#   message      character — present only for status "engine_error"
 #
 # "too_few_tests" is returned (not a silent BH fallback) so the caller can
 # surface an actionable warning. No automatic fallback is applied.
+#
+# THE FOUR NON-"ok" STATUSES MEAN DIFFERENT THINGS AND MUST NOT BE CONFLATED:
+#   "no_hits"       the rule RAN and nothing passed. threshold is NA because the
+#                   call set is empty — the honest hit count is 0, not unknown.
+#   "too_few_tests" the rule REFUSED to run (qval under 10 tests, top N above
+#                   the number of tests, invalid custom value).
+#   "engine_error"  the rule CRASHED; $message carries why.
+#   "no_tests"      there were no non-NA p-values at all.
+# All four return threshold = NA, so a caller that only tests is.na() cannot
+# tell "found nothing" from "could not run" — check $status.
 #
 # THE RETURNED CUTOFF IS INCLUSIVE. Callers must select with `p <= threshold`.
 # For 'qval' and 'top' the returned value is itself a member of the intended
@@ -72,17 +88,29 @@ compute_pval_threshold <- function(pvalues, adjustment, value) {
             return(list(threshold = NA_real_, n_tested = n_tested,
                         n_na_dropped = n_na_dropped, status = "too_few_tests"))
         }
+        engine_err <- NA_character_
         t <- tryCatch(
             max_pvalue_fdr(pvalues, value),
             error = function(e) {
-                message(paste0("WARNING: qvalue() failed: ", e$message,
+                engine_err <<- conditionMessage(e)
+                message(paste0("WARNING: qvalue() failed: ", engine_err,
                                ". Use bonf or top instead."))
                 NA_real_
             }
         )
-        if (is.na(t)) {
+        if (!is.na(engine_err)) {
             return(list(threshold = NA_real_, n_tested = n_tested,
-                        n_na_dropped = n_na_dropped, status = "too_few_tests"))
+                        n_na_dropped = n_na_dropped, status = "engine_error",
+                        message = engine_err))
+        }
+        if (is.na(t)) {
+            # qvalue() ran on every test and NOTHING cleared the FDR cut. That is
+            # a RESULT (0 hits), not a refusal: reporting it as "too_few_tests"
+            # made callers write a blank where the truthful count is 0
+            # (pregea_ladder_stats.R hits_qval) and made an un-runnable rule
+            # indistinguishable from a negative one.
+            return(list(threshold = NA_real_, n_tested = n_tested,
+                        n_na_dropped = n_na_dropped, status = "no_hits"))
         }
         return(list(threshold = t, n_tested = n_tested,
                     n_na_dropped = n_na_dropped, status = "ok"))
@@ -125,7 +153,7 @@ compute_pval_threshold <- function(pvalues, adjustment, value) {
 # computation use compute_pval_threshold() instead.
 compute_qvalues_safe <- function(pvalues) {
     tryCatch(
-        qvalue(pvalues)$qvalues,
+        qvalue::qvalue(pvalues)$qvalues,
         error = function(e) {
             message(paste0("WARNING: qvalue failed (", e$message, "), using BH adjustment"))
             p.adjust(pvalues, method = 'BH')

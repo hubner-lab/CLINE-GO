@@ -258,20 +258,16 @@ test_that("compute_method_thresholds returns NA for a cell whose rule cannot res
 })
 
 test_that("compute_method_thresholds resolves the 'qval' rule when there are enough tests", {
-    # KNOWN BUG, quarantined the same way tests/testthat/test-known-bugs.R does
-    # it: this is the CORRECT behaviour, deliberately not made to pass.
-    # qvalue is not in the app's DESCRIPTION Imports and dev.R does not attach
-    # it either, so the bare qvalue() call inside max_pvalue_fdr()
-    # (scripts/R/utils/pval_threshold.R) cannot resolve from the package
-    # namespace. compute_method_thresholds() catches the resulting
-    # "could not find function \"qvalue\"" at fct_data_loading.R:1053-1056 and
-    # returns NA_real_, so every qval cell silently comes back empty even
-    # though "FDR (qval)" is offered in the UI (fct_combine.R:874).
-    # Filed 2026-09-10 in docs/pipeline_improvement_requests.md.
-    # Verified below the skip: max_pvalue_fdr() gives 9.78e-07 on this fixture
-    # when qvalue IS attached. Fixing means deleting this skip() line.
-    skip("known bug: qvalue absent from clinego.app Imports — filed 2026-09-10")
-
+    # WAS QUARANTINED (filed 2026-09-10): max_pvalue_fdr() called a BARE
+    # qvalue(), which cannot resolve from this package's namespace — nothing
+    # attaches qvalue on either run path — so every qval cell came back NA
+    # while "FDR (qval)" was offered in the UI. pval_threshold.R now calls
+    # qvalue::qvalue(), which needs the package only INSTALLED (it is:
+    # Dockerfile:197), so the rule resolves here without a DESCRIPTION Import
+    # and without an app rebuild — zzz.R sys.source()s that file off the mount.
+    # The attachment-independence itself is pinned in the pipeline root, by
+    # tests/testthat/test-pval_threshold.R ("resolves qvalue with the package
+    # NOT attached") and by test-equivalence-app-pipeline.R.
     skip_if_not(exists("compute_pval_threshold", mode = "function"),
                 "compute_pval_threshold not sourced (pval_threshold.R not on path)")
 

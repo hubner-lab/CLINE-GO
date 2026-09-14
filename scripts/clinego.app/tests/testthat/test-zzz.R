@@ -12,9 +12,10 @@
 # So the CAUSE is asserted here instead, actively and without a skip, in two
 # separately-diagnosing blocks: one says "the files are not there", the other says
 # "the files are there but the namespace did not get them". This is the same
-# instinct as the structural qvalue assertion at
-# tests/testthat/test-equivalence-app-pipeline.R:570 — when the behaviour cannot be
-# checked directly, check the thing whose breakage would hide it.
+# instinct as the attachment-independence assertion at
+# tests/testthat/test-equivalence-app-pipeline.R ("the qval rule resolves with
+# qvalue NOT attached") — when the behaviour cannot be checked directly, check the
+# thing whose breakage would hide it.
 #
 # Consequence, accepted deliberately: running this suite with no /pipeline mount
 # now produces ONE clear failure instead of a green run with silent skips. That is
