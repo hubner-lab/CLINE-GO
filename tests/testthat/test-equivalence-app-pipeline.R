@@ -656,40 +656,36 @@ test_that("too-few-tests refusal reaches the app as NA rather than a bogus cutof
     expect_true(is.na(app_threshold(pv, "qval", 0.1)))
 })
 
-test_that("qvalue is missing from the app's declared Imports (the qval defect)", {
-    skip_without_app()
-    # STRUCTURAL and attachment-independent, on purpose. helper-libs.R:14
-    # attaches qvalue, and namespace lookup falls through to the search path, so
-    # the app's qval branch WORKS under this suite while returning NA in
-    # production. A live app-vs-pipeline qval assertion would therefore pass and
-    # prove nothing. Assert the cause instead: qvalue is absent from
-    # DESCRIPTION Imports, so the bare qvalue() call in max_pvalue_fdr()
-    # (pval_threshold.R:10) cannot resolve from the package namespace and
-    # compute_method_thresholds() catches it into NA (fct_data_loading.R:1054-1057).
-    # When someone adds the Import, THIS goes red — that is the prompt to delete
-    # the skip() in the next test.
-    # Filed 2026-09-10 in docs/pipeline_improvement_requests.md.
-    imports <- packageDescription("clinego.app", fields = "Imports")
-    expect_false(grepl("\\bqvalue\\b", imports),
-                 info = "qvalue now declared — delete the skip() in the next test")
+test_that("the qval rule resolves with qvalue NOT attached (attachment-independent)", {
+    # STRUCTURAL PREDECESSOR: this test used to assert that qvalue was absent
+    # from clinego.app's DESCRIPTION Imports, as a proxy for the defect that a
+    # BARE qvalue() call in max_pvalue_fdr() cannot resolve from the app's
+    # namespace (every "FDR (qval)" cell came back NA in production while
+    # passing here, because helper-libs.R:14 attaches qvalue and namespace
+    # lookup falls through to the search path).
+    #
+    # The fix was to call it namespace-qualified (qvalue::qvalue), so the
+    # invariant to pin is no longer "is it declared" but "does it resolve with
+    # NOTHING attached". parent = baseenv() gives an enclosure chain of
+    # env -> base -> emptyenv, which CANNOT reach the search path, so this
+    # assertion is immune to the harness's own library() calls — and it holds
+    # for the app namespace by construction, since that chain is a superset.
+    lib <- file.path(.clinego_R, "utils", "pval_threshold.R")
+    sealed <- new.env(parent = baseenv())
+    sys.source(lib, envir = sealed)
+
+    pv  <- pv_fixture()
+    got <- sealed$compute_pval_threshold(pv$bio_1, "qval", 0.1)
+    expect_identical(got$status, "ok")
+    expect_equal(got$threshold, pipe_threshold(pv, "qval", 0.1))
 })
 
-test_that("KNOWN DIVERGENCE: qval agrees only because the harness attaches qvalue", {
-    # CORRECT behaviour, deliberately not made to pass. In production both app
-    # run paths return NA for every qval cell; under this suite they return the
-    # right number. Fixing the Import means deleting this skip() line AND
-    # inverting the structural assertion above.
-    #
-    # UN-SKIPPING ALONE IS NOT ENOUGH, and this is the same masking trap one
-    # level down: once un-skipped, this assertion still runs in a session where
-    # helper-libs.R:14 has attached qvalue, so it passes whether or not the
-    # Import fix actually resolves in production. Verify a fix in a session with
-    # qvalue NOT attached (or via the package path with a clean search path) —
-    # the structural assertion above is what proves the declared dependency, and
-    # this one only proves the numbers agree once it resolves.
-    # Filed 2026-09-10 in docs/pipeline_improvement_requests.md.
-    skip("known divergence: app qval works only under the test harness — filed 2026-09-10")
-
+test_that("qval agrees between app and pipeline now that it resolves at all", {
+    # Was quarantined as a KNOWN DIVERGENCE: in production both app run paths
+    # returned NA for every qval cell while this assertion passed under the
+    # harness, so it proved nothing on its own. It is kept — the agreement is
+    # still worth pinning — but the assertion that actually proves resolution is
+    # the attachment-independent one above.
     skip_without_app()
     pv <- pv_fixture()
     expect_equal(app_threshold(pv, "qval", 0.1), pipe_threshold(pv, "qval", 0.1))

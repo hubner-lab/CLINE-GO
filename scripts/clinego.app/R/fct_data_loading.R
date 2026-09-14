@@ -1087,9 +1087,23 @@ compute_method_thresholds <- function(pvalues_list, type, value, overrides = lis
             pvec <- pv_dt[[tr]]
             result <- tryCatch(
                 compute_pval_threshold(pvec, rule$type, rule$value),
-                error = function(e) list(status = "error", threshold = NA_real_)
+                # Keep the message. A rule that CANNOT RUN and a rule that RAN
+                # and found nothing both return NA here, so a discarded reason
+                # made a broken threshold look like a real negative — exactly
+                # how the missing qvalue resolution stayed invisible for weeks.
+                error = function(e) list(status = "error", threshold = NA_real_,
+                                         message = conditionMessage(e))
             )
             key <- paste0(tr, "::", m)
+            if (!identical(result$status, "ok") && !identical(result$status, "no_hits")) {
+                # message(), not warning(): the app suite keeps a zero-warning
+                # baseline and its existing threshold tests wrap this call in
+                # suppressMessages().
+                message(sprintf(
+                    "WARNING: threshold rule %s/%s could not be computed for %s (status=%s%s)",
+                    rule$type, as.character(rule$value), key, result$status,
+                    if (!is.null(result$message)) paste0(": ", result$message) else ""))
+            }
             out[[key]] <- if (identical(result$status, "ok")) result$threshold else NA_real_
         }
     }

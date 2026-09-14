@@ -107,8 +107,16 @@ stats_one_trait <- function(pvec, trait_name) {
     # member of the call set under 'qval' (see its header). A strict '<' made
     # hits_qval one short (plus ties) on every rung, which biased the rung
     # comparison the preGEA recommender reads.
-    hits_bonf <- if (identical(bonf_res$status, "ok")) sum(p_for_hits <= bonf_res$threshold, na.rm = TRUE) else NA_integer_
-    hits_qval <- if (identical(qval_res$status, "ok")) sum(p_for_hits <= qval_res$threshold, na.rm = TRUE) else NA_integer_
+    # status "no_hits" means the rule RAN and nothing passed: the truthful count
+    # is 0, not a blank. Only a refusal ("too_few_tests"), a crash
+    # ("engine_error") or an empty input ("no_tests") is genuinely unknown.
+    hits_of <- function(res) {
+        if (identical(res$status, "ok"))      return(sum(p_for_hits <= res$threshold, na.rm = TRUE))
+        if (identical(res$status, "no_hits")) return(0L)
+        NA_integer_
+    }
+    hits_bonf <- hits_of(bonf_res)
+    hits_qval <- hits_of(qval_res)
 
     # Histogram shape — computed on RAW p (not GC-corrected): the point is
     # diagnosing the rung's null behavior, which GC-correction would mask.
