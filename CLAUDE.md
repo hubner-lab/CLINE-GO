@@ -707,7 +707,10 @@ failure, so both are CI-able as-is. (Previous figures: 1086/12, 769/3, 74, 29 �
 are new rows for `compare_offsets.R`, `pregea_varpart.R` ×2, `write_summary.R (processing)` ×2,
 `create_regions.R` with the per-trait table, the B1 plink+sed contract row in the heavy tier,
 `tests/python/test_normalize_gff.py`, and app tests for `compare_scenario_label()` /
-`load_gf_diagnostics()` / two path builders. Before that: 1064/19, 769/3, 74, 29 — the skips dropped
+`load_gf_diagnostics()` / two path builders. `nightagent/be06e3` (same day) then closed the
+`check_summary_counts` quarantine and replaced the exon-SNP cap: measured on its own branch as
++12 passing and skips 12 -> 11, so expect **~1229 / 11** on the merged tree — not yet measured
+together. Before that: 1064/19, 769/3, 74, 29 — the skips dropped
 by SEVEN because that many quarantined defects were fixed and their `skip()`s deleted; see the
 invariants table below, which fell from 41 violations to 3 in the same change. Before that:
 1051/21, 749/7; and 934/18, 417/3.)
@@ -737,7 +740,7 @@ data.table's shallow-copy notice when a combine strategy selects nothing — pip
 `combine_sigsnps.R:166` and app `fct_combine.R:121` — and are suppressed at the two named helpers
 in `test-equivalence-app-pipeline.R` with the reason stated there, not globally.
 
-The 12 and the 3 are QUARANTINE counts. An increment that moves either is adding a `skip()`, and
+The 11 and the 3 are QUARANTINE counts. An increment that moves either is adding a `skip()`, and
 the commit must name the filing it points at; a DECREMENT means a defect was fixed and its
 correct-behaviour assertion now runs.
 
@@ -806,6 +809,21 @@ disk, so the count only falls after the modes that wrote them are re-run.
 A run that comes back **clean is itself a failure signal** — those two are confirmed present.
 Any check name outside that table is new and must be triaged: a real defect gets filed, a
 checker misreading a schema gets fixed. Never tune a check down to make the output green.
+
+**The count may move on the next `--invariants` run, and not because the tree changed.**
+`check_summary_counts()` ignored its `step` argument until 2026-09-14 (`step == step` inside the
+data.table `i` is column-vs-column, always TRUE), so with both GEA and GWAS in
+`pipeline_summary.tsv` the match was length 2 and every count check `next`ed out unrun, while with
+only one module present the OTHER module's row was compared and the violation was keyed to the
+step that was asked for. Now that the filter works, `summary_count_disagrees_with_table` fires
+for the first time — treat anything new it reports as an untriaged finding, not as a regression
+from this fix. In the same change the `exon_snp_count <= regions$snp_count` cap was **removed**,
+not weakened: `exon_snp_count` is counted over the whole VCF
+(`find_genes_around_regions.R:56`) while `snp_count` counts a cluster of SIGNIFICANT SNPs
+(`regions.R:96`), so on any dataset with real exon coverage the cap reported ordinary data as an
+error. It never fired only because SIMDATA hits no CDS. Two checks that follow from the row
+itself replace it — `gene_snp_count_disagrees_with_ids` (error) and `exon_snp_outside_gene`
+(warn).
 
 The checkers are pure (data.tables in, a violations data.table out) and unit-tested against
 hand-built fixtures in `tests/testthat/test-invariants.R` — each one paired: a clean fixture

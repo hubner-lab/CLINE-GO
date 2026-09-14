@@ -331,9 +331,12 @@ test_that("check_summary_counts compares a stated count with the real table", {
 # ── check_genes_table ─────────────────────────────────────────────────────────
 
 genes_ok <- function() dt(region_id = c("1_100-200", "1_100-200"),
-                          gene_id = c("g1", "g2"),
+                          gene_id = c("g1", "g2"), chr = c("1", "1"),
                           gene_start = c(110L, 150L), gene_end = c(120L, 160L),
-                          exon_snp_count = c(1L, 0L))
+                          exon_snp_count = c(1L, 0L),
+                          exon_snps = c("1:115", ""),
+                          promoter_snp_count = c(0L, 0L),
+                          promoter_snps = c("", ""))
 
 test_that("check_genes_table passes a well-formed table", {
     expect_no_violations(check_genes_table(genes_ok(), regions_ok()))
@@ -351,12 +354,32 @@ test_that("check_genes_table catches a gene pointing at a region that does not e
     expect_true("gene_references_unknown_region" %in% v$check)
 })
 
-test_that("check_genes_table catches exon_snp_count exceeding the region's SNP count", {
-    # This is the shape genes_in_regions.R:174 produces on real data: it counts
-    # features hit, which can exceed the SNPs actually present.
-    g <- genes_ok(); g[1L, exon_snp_count := 9L]   # region 1_100-200 holds 2 SNPs
+test_that("check_genes_table does NOT cap exon SNPs by the region's significant-SNP count", {
+    # exon_snp_count is counted over the WHOLE VCF (find_genes_around_regions.R:56)
+    # while regions$snp_count counts SIGNIFICANT SNPs only (regions.R:96), so
+    # exon_snp_count > snp_count is ordinary data, not a violation. The old cap
+    # reported it as an error and never fired only because SIMDATA hits no CDS.
+    g <- genes_ok()
+    g[1L, `:=`(exon_snp_count = 5L, exon_snps = "1:111,1:113,1:115,1:117,1:119")]
+    expect_no_violations(check_genes_table(g, regions_ok()))   # region holds 2 sig SNPs
+})
+
+test_that("check_genes_table catches a SNP count that disagrees with its id list", {
+    g <- genes_ok(); g[1L, exon_snp_count := 9L]   # exon_snps lists exactly 1
     v <- check_genes_table(g, regions_ok())
-    expect_true("gene_snp_count_exceeds_region" %in% v$check)
+    expect_true("gene_snp_count_disagrees_with_ids" %in% v$check)
+})
+
+test_that("check_genes_table catches an exon SNP outside the gene it is attributed to", {
+    # The shape a feature-side id produces: the id is the EXON's start
+    # coordinate rather than the SNP's position (genes_in_regions.R:174).
+    g <- genes_ok(); g[1L, exon_snps := "1:90"]
+    v <- check_genes_table(g, regions_ok())
+    expect_true("exon_snp_outside_gene" %in% v$check)
+    expect_identical(v[check == "exon_snp_outside_gene", severity], "warn")
+
+    g2 <- genes_ok(); g2[1L, exon_snps := "2:115"]   # right position, wrong chromosome
+    expect_true("exon_snp_outside_gene" %in% check_genes_table(g2, regions_ok())$check)
 })
 
 # ── check_offsets_table ───────────────────────────────────────────────────────

@@ -403,18 +403,25 @@ check_summary_accounting <- function(summary_dt) {
 }
 
 # A summary metric that states a row count must match the table it summarises.
-check_summary_counts <- function(summary_dt, step, expected) {
+# `step_`, NOT `step`: inside a data.table j/i expression a column of the same
+# name SHADOWS the parameter, so `step == step` is column == column — TRUE for
+# every row. The step filter then does nothing, and both failure directions are
+# silent: with GEA and GWAS both in the summary the match is length 2 and `next`
+# skips the check entirely, while with only one of them present the OTHER
+# module's row is compared and the violation is keyed to the step that was
+# asked for. The sibling at :319 already writes it the safe way.
+check_summary_counts <- function(summary_dt, step_, expected) {
     if (is.null(summary_dt) || nrow(summary_dt) == 0 || length(expected) == 0) {
         return(no_violations())
     }
     s <- data.table::copy(summary_dt)
     key <- character(0); det <- character(0)
     for (metric_ in names(expected)) {
-        v <- s[step == step & metric == metric_, value]
+        v <- s[step == step_ & metric == metric_, value]
         if (length(v) != 1L) next
         stated <- suppressWarnings(as.numeric(v[[1L]]))
         if (is.na(stated) || stated == expected[[metric_]]) next
-        key <- c(key, paste0(step, "/", metric_))
+        key <- c(key, paste0(step_, "/", metric_))
         det <- c(det, paste0("summary says ", stated, ", the table has ", expected[[metric_]]))
     }
     violation("summary_count_disagrees_with_table", "error", "pipeline_summary.tsv", key, det)
@@ -443,21 +450,63 @@ check_genes_table <- function(genes, regions = NULL, table_name = "genes_per_reg
                                 unknown, "region_id is absent from the region table")
     }
 
-    # exon_snp_count can never exceed the number of SNPs in the region. This is
-    # what genes_in_regions.R:174 violates on real data (it counts features hit,
-    # not SNPs); every cell is empty on SIMDATA, so it is a real-data check.
-    if (!is.null(regions) && "snp_count" %in% names(regions) &&
-        "region_id" %in% names(regions)) {
-        snp_by_region <- stats::setNames(as.integer(regions$snp_count),
-                                         as.character(regions$region_id))
-        for (cn in intersect(c("exon_snp_count", "promoter_snp_count"), names(g))) {
-            cnt <- suppressWarnings(as.integer(g[[cn]]))
-            cap <- snp_by_region[as.character(g$region_id)]
-            bad_i <- which(!is.na(cnt) & !is.na(cap) & cnt > cap)
-            out[[cn]] <- violation("gene_snp_count_exceeds_region", "error", table_name,
-                                   g$region_id[bad_i],
-                                   paste0(cn, " = ", cnt[bad_i], " for gene ", g$gene_id[bad_i],
-                                          " but the region holds only ", cap[bad_i], " SNPs"))
+    # NOT capped by regions$snp_count. The two count different populations:
+    # exon_snp_count comes from genes_in_regions.R's allsnps_dt, which is the
+    # WHOLE VCF (find_genes_around_regions.R:56), while regions$snp_count is
+    # nrow() of a cluster of SIGNIFICANT SNPs (regions.R:96). A gene with any
+    # real exon coverage exceeds its region's significant-SNP count as a matter
+    # of course, so the old cap reported ordinary data as an error. It never
+    # fired only because SIMDATA's 350 SNPs hit no CDS and every cell is 0.
+    #
+    # What IS checkable from these two tables, without assuming which SNP set
+    # produced the column:
+    #   * the count agrees with the id list it is supposed to summarise, and
+    #   * an exon SNP sits on the gene's own chromosome, inside its own span.
+    # Both are the id/count confusion class the cap was aiming at (a column
+    # built from the FEATURE side rather than the SNP side, fixed in
+    # genes_in_regions.R:174) — reached directly instead of by proxy.
+    #
+    # The count-vs-ids check holds for genes_per_region.tsv ONLY. The collapsed
+    # sibling takes exon_snp_count = max() over a gene's rows but exon_snps as
+    # the UNION of their id lists, so count != length is normal output there.
+    # check_invariants.R feeds this function genes_per_region.tsv alone — keep
+    # it that way, or bail on a collapsed table_name before this block.
+    .snp_ids <- function(x) {
+        if (is.na(x) || !nzchar(x)) return(character(0))
+        strsplit(x, ",", fixed = TRUE)[[1L]]
+    }
+    for (cn in c("exon", "promoter")) {
+        cnt_col <- paste0(cn, "_snp_count"); ids_col <- paste0(cn, "_snps")
+        if (!all(c(cnt_col, ids_col) %in% names(g))) next
+        cnt  <- suppressWarnings(as.integer(g[[cnt_col]]))
+        n_id <- vapply(g[[ids_col]], function(x) length(.snp_ids(x)), integer(1L),
+                       USE.NAMES = FALSE)
+        bad_i <- which(!is.na(cnt) & cnt != n_id)
+        out[[cnt_col]] <- violation("gene_snp_count_disagrees_with_ids", "error", table_name,
+                                    g$gene_id[bad_i],
+                                    paste0(cnt_col, " = ", cnt[bad_i], " but ", ids_col,
+                                           " lists ", n_id[bad_i], " SNP id(s)"))
+    }
+
+    # An exon SNP outside the gene it is attributed to. "warn", not "error":
+    # a GFF whose isoforms share a gene_id after suffix stripping can legally
+    # put an exon of one isoform outside the span of the mRNA row that was kept.
+    if ("exon_snps" %in% names(g) &&
+        all(c("chr", "gene_start", "gene_end") %in% names(g))) {
+        have <- which(!is.na(g$exon_snps) & nzchar(g$exon_snps))
+        if (length(have) > 0L) {
+            idl   <- strsplit(g$exon_snps[have], ",", fixed = TRUE)
+            gi    <- rep(have, lengths(idl))
+            flat  <- unlist(idl, use.names = FALSE)
+            chr_i <- sub(":.*$", "", flat)
+            pos_i <- suppressWarnings(as.integer(sub("^.*:", "", flat)))
+            bad_i <- which(chr_i != as.character(g$chr[gi]) | is.na(pos_i) |
+                           pos_i < g$gene_start[gi] | pos_i > g$gene_end[gi])
+            out$exon_span <- violation("exon_snp_outside_gene", "warn", table_name,
+                                       g$gene_id[gi][bad_i],
+                                       paste0("exon SNP ", flat[bad_i], " is outside ",
+                                              g$chr[gi][bad_i], ":", g$gene_start[gi][bad_i],
+                                              "-", g$gene_end[gi][bad_i]))
         }
     }
     do.call(combine_violations, unname(out))
