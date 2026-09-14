@@ -54,7 +54,12 @@ if ASSOC_SOURCES:
             """
 
     rule assoc_combine_selected_snps:
-        """Combine significant SNPs from all methods for a given source."""
+        """Combine significant SNPs from all methods for a given source.
+
+        Every argument the script reads positionally is quoted: it checks for 5-6
+        argv entries, so an unquoted value that is empty or carries a space (a
+        trait column named "disease score" reaches {params.predictors} verbatim)
+        would shift the positionals and be refused at exit 1."""
         input:
             sigsnps = lambda wc: [
                 f"{OUTDIR}{wc.source}/tables/methods/{m}/{m}_pvalues_K{K_BEST}_sig_snps_{a}.tsv"
@@ -82,7 +87,7 @@ if ASSOC_SOURCES:
             """
             Rscript /pipeline/scripts/combine_selected_snps.R \
                 "{params.sigsnps_str}" "{params.method}" {params.clumping_dist} \
-                {params.predictors} {output.snps} {output.per_trait} > {log} 2>&1
+                "{params.predictors}" {output.snps} {output.per_trait} > {log} 2>&1
             """
 
     rule assoc_create_regions:

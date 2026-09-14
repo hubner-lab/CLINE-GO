@@ -21,13 +21,19 @@ import re
 import sys
 
 _CHR_PREFIX = re.compile(r"^chr", re.IGNORECASE)
-_ALIASES = {"M": "MT", "chrM": "MT"}
+# The five codes plink recognises, keyed by UPPER case: plink parses them
+# case-insensitively (Mt, mt, x all count) and --output-chr MT writes them back
+# as X / Y / XY / MT. A plant annotation spelling the mitochondrion `Mt` (TAIR
+# style) would otherwise sit on `Mt` while its own VCF came out as `MT`, and the
+# join would silently lose that one contig. Everything else — Pt, 2H, Un,
+# scaffold_1 — plink keeps verbatim, and so does this.
+_PLINK_CODES = {"X": "X", "Y": "Y", "XY": "XY", "M": "MT", "MT": "MT"}
 
 
 def canonical(name: str) -> str:
     """The pipeline's canonical chromosome name for a raw contig name."""
     name = _CHR_PREFIX.sub("", name)
-    return _ALIASES.get(name, name)
+    return _PLINK_CODES.get(name.upper(), name)
 
 
 def vcf_contigs(path: str) -> set:

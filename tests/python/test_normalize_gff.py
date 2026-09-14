@@ -34,9 +34,23 @@ class CanonicalCase(unittest.TestCase):
         self.assertEqual(mod.canonical("chrM"), "MT")
         self.assertEqual(mod.canonical("MT"), "MT")
 
+    def test_plink_codes_fold_case_like_plink_does(self):
+        # plink parses X/Y/XY/M/MT case-insensitively and --output-chr MT writes
+        # them back upper-case, so a TAIR-style `Mt` in the GFF must land on the
+        # `MT` its own VCF came out as (measured, plink v1.90b7.2).
+        for raw, want in [("Mt", "MT"), ("mt", "MT"), ("m", "MT"), ("chrMt", "MT"),
+                          ("x", "X"), ("y", "Y"), ("xy", "XY"), ("Xy", "XY")]:
+            self.assertEqual(mod.canonical(raw), want, raw)
+
     def test_x_y_stay_letters(self):
         self.assertEqual(mod.canonical("X"), "X")
         self.assertEqual(mod.canonical("Y"), "Y")
+
+    def test_unrecognised_contigs_kept_verbatim(self):
+        # plink --allow-extra-chr keeps anything outside its five codes as is —
+        # a plastid `Pt` in particular must NOT be touched.
+        for raw in ["Pt", "pt", "Un", "scaffold_1", "LG3", "2H"]:
+            self.assertEqual(mod.canonical(raw), raw, raw)
 
 
 class NormalizeGffCase(unittest.TestCase):

@@ -175,3 +175,23 @@ test_that("read_gff_exons returns an empty table when neither exon nor CDS exist
     e <- quiet(read_gff_exons(path))
     expect_identical(nrow(e), 0L)
 })
+
+# --- normalize_chr ---------------------------------------------------------
+
+test_that("normalize_chr matches the pipeline's chromosome-name contract", {
+    # The R twin of scripts/normalize_gff.py canonical(): what filter_vcf +
+    # plink --output-chr MT emit for the same raw names (measured, plink
+    # v1.90b7.2). The app's raw-GFF loader and the raw-VCF density table are
+    # joined against pipeline tables carrying exactly these strings.
+    expect_identical(normalize_chr(c("chr1", "Chr1", "CHR1", "1")), rep("1", 4))
+    # plink parses its five codes case-insensitively and writes them back as
+    # X / Y / XY / MT — a TAIR-style `Mt` therefore has to fold to `MT`.
+    expect_identical(normalize_chr(c("X", "x", "chrX", "Y", "XY", "M", "MT", "Mt", "chrM")),
+                     c("X", "X", "X", "Y", "XY", "MT", "MT", "MT", "MT"))
+    # Everything else is kept verbatim, prefix aside (plink --allow-extra-chr).
+    expect_identical(normalize_chr(c("2H", "chr2H", "Chr2H", "Pt", "Un", "scaffold_1")),
+                     c("2H", "2H", "2H", "Pt", "Un", "scaffold_1"))
+    # Idempotent — safe on an already-normalised name.
+    x <- c("chrX", "Chr1", "Mt", "2H")
+    expect_identical(normalize_chr(normalize_chr(x)), normalize_chr(x))
+})

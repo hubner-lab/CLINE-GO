@@ -20,8 +20,15 @@ PREDICTORS_SELECTED = str_split(args[4], ',')[[1]]
 OUTPUT              = args[5]
 OUTPUT_PER_TRAIT    = if (length(args) >= 6) args[6] else "NULL"  # selected_snps_per_trait.tsv
 ################
-if (length(args) < 5 || any(is.na(args[1:5])))
-    stop("combine_selected_snps.R needs 5 positional args (+ optional per-trait output); got ", length(args))
+# 5 or 6 arguments, the FIRST being ONE argv slot holding the whole space-separated
+# file list. An unquoted list splits into N entries and shifts every later
+# positional; with three or more files that lands here, with two it is caught by
+# the input-clobber check below. Same failure as combine_pheno_pvalues.R.
+if (!(length(args) %in% c(5L, 6L)) || any(is.na(args[1:5])))
+    stop("Usage: combine_selected_snps.R '<file1 file2 ...>' <method> <clumping_distance> ",
+         "<predictors_csv> <output> [<per_trait_output>]\n  got ", length(args),
+         " argument(s): ", paste(args, collapse = " | "),
+         "\n  The file list must be ONE quoted argument.")
 
 message('INFO: Combining significant SNPs')
 message(paste0('INFO: Strategy: ', METHOD))
@@ -29,6 +36,13 @@ message(paste0('INFO: Clumping distance: ', CLUMPING_DISTANCE))
 
 sigSNPs_vec <- str_split(SIGSNPS_FILES, ' ')[[1]]
 sigSNPs_vec <- sigSNPs_vec[sigSNPs_vec != ""]
+
+# Second line of defence: never write on top of an input, whatever the argv shape.
+clash <- intersect(normalizePath(sigSNPs_vec, mustWork = FALSE),
+                   normalizePath(c(OUTPUT, OUTPUT_PER_TRAIT), mustWork = FALSE))
+if (length(clash) > 0) {
+    stop("Refusing to overwrite an input file: ", paste(clash, collapse = ", "))
+}
 
 # Extract method names from file paths
 methods_vec <- sapply(str_split(sigSNPs_vec, '/'), function(x) x[length(x) - 1])

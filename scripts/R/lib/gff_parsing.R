@@ -12,6 +12,24 @@ extract_gene_id <- function(attr) {
     id
 }
 
+# The pipeline's canonical chromosome name for a raw contig name — the R twin of
+# scripts/normalize_gff.py `canonical()`; change both together. A leading `chr` is
+# stripped in ANY case and the five codes plink recognises are written the way
+# `plink --output-chr MT` re-emits them (X / Y / XY / MT, so `Mt` and `m` fold to
+# `MT`); every other contig (Pt, 2H, Un, scaffold_1) is kept verbatim. Idempotent.
+#
+# NOT called by read_gff(): the pipeline normalises once, in rule normalize_gff,
+# and downstream scripts take that output as-is. The callers that need it read
+# names that never went through that rule — the Shiny app's raw Input.gff loader
+# and the raw-VCF SNP-density table in plot_qc_processing.R.
+normalize_chr <- function(x) {
+    x <- sub("^chr", "", as.character(x), ignore.case = TRUE)
+    codes <- c(X = "X", Y = "Y", XY = "XY", M = "MT", MT = "MT")
+    hit <- toupper(x) %in% names(codes)
+    x[hit] <- unname(codes[toupper(x[hit])])
+    x
+}
+
 # Remove "key=" prefix from a GFF attribute value string.
 clean_attr_value <- function(x) {
     stringr::str_remove(x, "^[^=]+=")

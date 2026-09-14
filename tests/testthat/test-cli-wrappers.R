@@ -940,3 +940,60 @@ test_that("find_genes_around_regions.R actually annotates the overlapping genes"
     expect_gt(nrow(genes), 0)
     expect_true(all(c("region_id", "gene_id", "chr") %in% names(genes)))
 })
+
+test_that("an unquoted file list is refused instead of overwriting an input", {
+    # Both combine_* wrappers take the whole file list in ONE argv slot. Unquoted,
+    # it splits into N entries, every later positional shifts left, and the script
+    # used to write its combined table over one of its own INPUTS at exit 0 —
+    # invisible to Snakemake, because the damaged file is an input, not a declared
+    # output. Reproduced before the guard: "Saved combined p-values to
+    # .../p_flowering_time.tsv". Inputs are compared byte-for-byte via md5.
+    skip_if_not(dir.exists(SCRIPTS), "scripts/ not mounted")
+    skip_if_not(nzchar(Sys.which("Rscript")), "Rscript not on PATH")
+
+    d <- withr::local_tempdir()
+    n <- 30L
+    mk <- function(trait) {
+        dt <- data.table::data.table(SNPID = sprintf("s%02d", seq_len(n)),
+                                     chr = "1", pos = seq_len(n) * 100L)
+        dt[[trait]] <- stats::runif(n)
+        p <- file.path(d, paste0("p_", trait, ".tsv"))
+        write_tsv(dt, p)
+        p
+    }
+    a <- mk("height"); b <- mk("flowering_time")
+    before <- tools::md5sum(c(a, b))
+
+    # 4 argv entries instead of 3 — exactly what a missing pair of shell quotes
+    # around {params.files_str} produces.
+    res <- run_wrapper("combine_pheno_pvalues.R",
+                       c(a, b, file.path(d, "pvalues.tsv"), file.path(d, "qvalues.tsv")))
+    expect_false(identical(res$status, 0L), info = res$output)
+    expect_match(res$output, "must be ONE quoted argument")
+    expect_identical(tools::md5sum(c(a, b)), before)
+
+    # An output path that aliases an input is refused whatever the argv shape.
+    res <- run_wrapper("combine_pheno_pvalues.R",
+                       c(paste(a, b), a, file.path(d, "qvalues.tsv")))
+    expect_false(identical(res$status, 0L), info = res$output)
+    expect_match(res$output, "Refusing to overwrite an input file")
+    expect_identical(tools::md5sum(c(a, b)), before)
+
+    # And the correctly quoted call still works.
+    ok <- run_wrapper("combine_pheno_pvalues.R",
+                      c(paste(a, b), file.path(d, "pvalues.tsv"), file.path(d, "qvalues.tsv")))
+    expect_identical(ok$status, 0L, info = ok$output)
+    expect_true(file.exists(file.path(d, "pvalues.tsv")))
+
+    # combine_selected_snps.R: three unquoted files -> 7 argv entries, refused.
+    s1 <- file.path(d, "EMMAX", "sig.tsv"); s2 <- file.path(d, "LFMM", "sig.tsv")
+    s3 <- file.path(d, "RDA", "sig.tsv")
+    fx_sig_snps(s1, "EMMAX"); fx_sig_snps(s2, "LFMM"); fx_sig_snps(s3, "RDA")
+    before <- tools::md5sum(c(s1, s2, s3))
+    res <- run_wrapper("combine_selected_snps.R",
+                       c(s1, s2, s3, "Union", "10000", "bio_1,bio_2",
+                         file.path(d, "selected_snps.tsv")))
+    expect_false(identical(res$status, 0L), info = res$output)
+    expect_match(res$output, "must be ONE quoted argument")
+    expect_identical(tools::md5sum(c(s1, s2, s3)), before)
+})
