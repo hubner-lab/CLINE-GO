@@ -134,7 +134,7 @@ Climate:
 | `Climate.Varpart.response_max_pcs` | Ceiling on the number of response PCs retained regardless of variance cutoff | `20` |
 | `Climate.Varpart.response_min_pcs` | Floor on response PCs so varpart always has a multivariate Y | `2` |
 | `Climate.Varpart.structure_table` | Structure covariate X_struct: `qmatrix` (sNMF Q at `k_best`, last column dropped — Q rows sum to 1 so all K columns are collinear) or `none` (drops the structure fraction; 2-table climate-vs-geography varpart only). Q is used rather than PCs here because Y is already PCs — an ancestry-PC covariate would make X = Y, a tautology. | `"qmatrix"` |
-| `Climate.Varpart.permutations` | `varpart` `anova.cca` permutations per testable fraction | `999` |
+| `Climate.Varpart.permutations` | `varpart` `anova.cca` permutations per testable fraction. Since 2026-09-13 every block (Y, climate, Q, MEMs) is collapsed to **one row per sampling site** before any fit, so the permutation unit and Ezekiel's n are the sites (`variance_partition.tsv` records `unit`, `n_units`, `df_env = n_sites − 1`); with fewer sites than climate predictors + 2 the status is `insufficient_sites`, and a 3-way partition that would leave no residual df degrades to the climate + structure 2-way (model label says so). The confounding flag clamps negative adjusted fractions at 0 and fires only when the joint climate + geography model is significant (`joint_p` in `climate_confounding.tsv`) | `999` |
 
 The climate–geography confounding diagnostic (flagged when the shared fraction exceeds either unique fraction) is always computed — not a config switch.
 
@@ -370,6 +370,7 @@ Maladaptation:
       cor_threshold: 0.5
       spatial_correction: both
       random_model: false
+      extrap: true
   snp_sets: all
 ```
 
@@ -380,7 +381,8 @@ Gradient Forest settings are nested under `Maladaptation.methods.gradient_forest
 | `ntree` | Number of trees in Gradient Forest | `500` |
 | `cor_threshold` | Correlation threshold for variable selection | `0.5` |
 | `spatial_correction` | Include PCNM spatial variables: `"with"`, `"without"`, or `"both"` | `"both"` |
-| `random_model` | Also run a neutral (random SNP) GF model for comparison | `false` |
+| `random_model` | Also run a neutral (random SNP) GF model for comparison. When no random SNP has a positive R² the model is written as an `empty_forest` sentinel (the null behaving as a null) and the importance/cumimp plots show the adaptive model alone | `false` |
+| `extrap` | How `predict.gradientForest()` projects the offset onto raster cells whose climate lies **outside the training range**: `true` = linear continuation of each turnover function at its boundary slope (the gradientForest default, and what every published GF-offset code base runs by omission); `false` = the predictor is clamped to the range limit, so the turnover function plateaus (conservative, underestimates offset in novel climate). The manual calls extrapolation "an experimental feature"; Rellstab et al. 2021 ask that novel-climate predictions be flagged, which `gradient_forest_diagnostics.tsv` does (per-predictor training envelope, % of present / future cells outside it). Added 2026-09-13 (audit SC1) | `true` |
 
 **`Maladaptation.snp_sets`** (sibling of `methods`, not nested under `gradient_forest`): `"all"` or a list of SNP set names to run maladaptation on. SNP sets are named and saved from the GEA tab's "Save SNP set for maladaptation" action in Shiny — there is no pipeline-side `run_label`/`combine_method`/`combine_gap` selection anymore; SNP selection happens interactively before the set is saved.
 
@@ -491,7 +493,7 @@ Set `GFF.go_field: "NULL"` to skip enrichment.
 │   ├── plots/{spatial,varpart}/           # dbmem_screeplot, varpart_venn, px_barplot (mode=climate)
 │   ├── tables/present/                    # climate_present_{all,site,site_scaled}.tsv, climate_invariant_predictors.tsv
 │   ├── tables/spatial/                    # dbmem_vectors, dbmem_diagnostics (mode=climate)
-│   ├── tables/varpart/                    # variance_partition, climate_confounding, px_per_variable, dbmem_selected (mode=climate)
+│   ├── tables/varpart/                    # variance_partition (unit/n_units/df_env), climate_confounding (joint_p/n_sites), px_per_variable, dbmem_selected (mode=climate; fitted on one row per SITE since 2026-09-13)
 │   ├── tables/future/                     # climate_future_year{Y}_ssp{S}_{site,all}.tsv
 │   └── rasters/{present,future}/          # WorldClim .tif rasters
 │
@@ -500,7 +502,7 @@ Set `GFF.go_field: "NULL"` to skip enrichment.
 │   ├── plots/piemap/{tajima_d,pi_diversity}/   # trait-scaled piemaps (optional)
 │   ├── plots/pop_stats/                   # mantel_test, amova (optional)
 │   ├── plots/ld_decay/                    # ld_decay_genome_wide, per_chr, per_pop
-│   └── tables/pop_stats/                  # tajima_d_by_pop, pi_diversity_by_pop, ibd_*, amova
+│   └── tables/pop_stats/                  # tajima_d_by_pop, pi_diversity_by_pop, amova
 │
 ├── GEA/
 │   ├── GAPIT_native_output/{model}/       # raw GAPIT output files
@@ -511,7 +513,7 @@ Set `GFF.go_field: "NULL"` to skip enrichment.
 │   ├── plots/enrichment/{trait}/          # region_{id}_dotplot/emapplot/cnetplot (Shiny on-demand)
 │   └── tables/
 │       ├── methods/{method}/              # {method}_pvalues_K{k}.tsv, _sig_snps_{adjust}.tsv
-│       ├── selected_snps.tsv, regions_per_trait.tsv, regions_combined.tsv
+│       ├── selected_snps.tsv, selected_snps_per_trait.tsv, regions_per_trait.tsv, regions_combined.tsv
 │       ├── genes_per_region.tsv, genes_per_region_collapsed.tsv, genes_combined.tsv
 │       └── enrichment/{trait}/            # GO enrichment TSVs (Shiny on-demand)
 │

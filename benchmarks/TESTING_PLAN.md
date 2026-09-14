@@ -20,7 +20,7 @@ Run inside Docker with `--configfile config_arabidopsis.yaml`:
 |------|------|----------------------|-----------|
 | 1 | `processing` | filtered VCF, normalized chr names (1-5), metadata, GFF | 2-5 min |
 | 2 | `prestructure` | PCA plot, Tracy-Widom test, cross-entropy K-range plot | 30-45 min |
-| 3 | `structure` | Q-matrices at K-best, piemaps (4 climate vars), pop stats (Tajima's D, Pi, IBD, AMOVA), climate tables, density plots, correlation heatmap | 10-20 min |
+| 3 | `structure` | Q-matrices at K-best, piemaps (4 climate vars), pop stats (Tajima's D, Pi, AMOVA), climate tables, density plots, correlation heatmap | 10-20 min |
 | 4 | `gea` | EMMAX+LFMM p-values for bio_1/4/12/15, Manhattan plots, sig SNPs, regions, genes | 20-40 min |
 | 5 | `gwas` | EMMAX p-values for FT10/FT16, Manhattan plots, phenomaps (GWAS = phenotype association) | 15-30 min |
 | 6 | `gea_x_gwas` | Miami plot, pairwise collapsed SNP table, pairwise overlap table | 10-15 min |

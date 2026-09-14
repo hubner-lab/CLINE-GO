@@ -67,8 +67,8 @@ All paths are relative to `{PROJECT}_results/`.
 | `GeneticOffset_site_{sfx}.tsv` | `genetic_offset_site_{sfx}.tsv` | Maladaptation |
 | `TajimaD_byPop.tsv` | `tajima_d_by_pop.tsv` | Structure K (pop stats) |
 | `Pi_diversity_byPop.tsv` | `pi_diversity_by_pop.tsv` | Structure K (pop stats) |
-| `IBD_raw.tsv` | `ibd_raw.tsv` | Structure K (pop stats) |
-| `IBD_notIsolated.tsv` | `ibd_pairs.tsv` | Structure K (pop stats) |
+| `IBD_raw.tsv` | *(removed 2026-09-13 — per-pair Mantel was not an IBD test; see mantel_test.tsv)* | Structure K (pop stats) |
+| `IBD_notIsolated.tsv` | *(removed 2026-09-13)* | Structure K (pop stats) |
 | `AMOVA.tsv` | `amova.tsv` | Structure K (pop stats) |
 | `metadata.tsv` | `metadata.tsv` | Unchanged name, moved to `processing/tables/` |
 

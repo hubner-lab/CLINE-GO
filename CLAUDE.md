@@ -124,6 +124,13 @@ reports **`tail`'s** exit status — a failed run then looks like exit 0. Redire
 
 **Snakemake debug flags**: `-n` (dry run), `-R <rule>` (rerun rule + downstream), `--forcerun <rule>` (rerun only rule), `-F` (force all), `-p` (print shell commands)
 
+**Editing an R script does NOT make Snakemake re-run its rule.** The rerun triggers are the
+rule's inputs, params, shell text and software env — `Rscript /pipeline/scripts/x.R` is the same
+shell text whatever `x.R` now contains, so after a script fix the outputs on disk are still the
+OLD script's until you `-R <rule>` (observed 2026-09-14: a full ten-mode chain "re-ran" in 4 s
+per mode and `variance_partition.tsv` kept the pre-fix numbers). Verify a script change by
+forcing its rule, then reading the output.
+
 ## Architecture
 
 ### Key Files
@@ -155,7 +162,7 @@ Config uses nested YAML groups. Old flat `UPPER_SNAKE_CASE` keys are auto-migrat
 10. **gff** - `feature`, `gene_name`, `biotype`
 11. **enrichment** - `top_terms`, `plot_width`, `plot_height`, `cnet_label`, `top_plot_regions`
 12. **future** - `ssp`, `year`, `models`
-14. **gradient_forest** - `ntree`, `cor_threshold`, `spatial_correction` (was GF_PCNM), `run_label` (was `suffix`), `random_model`
+14. **gradient_forest** - `ntree`, `cor_threshold`, `spatial_correction` (was GF_PCNM), `run_label` (was `suffix`), `random_model`, `extrap` (2026-09-13: `true` = `predict.gradientForest`'s default linear continuation beyond the training climate range — what every published GF-offset code base runs; `false` = plateau. Recorded with the share of cells outside the training envelope in `gradient_forest_diagnostics.tsv`; the three design docs that claimed the pipeline plateaus were wrong — audit SC1)
 15. **phenotype_association** - `configs`, `missing_strategy`; inherits from `association.*` by default, override only if different
 16. **overlap** - `region_distance` (Shiny filter bar default, falls back to `max(association, phenotype_association)`); `pairwise.window_size`, `pairwise.min_snps` for pairwise trait overlap table. Overlap regions/genes/enrichment are computed interactively in Shiny — not pipeline-side.
 17. **haplotype** - `scan.regions_source`, `scan.regions_file`, `scan.top_regions`, `scan.min_snps`, `scan.min_group_size` (was MGMIN), `scan.min_haplotype_size` (was MINHAP), `scan.epsilon_range`, `scan.metadata_type`, `epsilon_selected`
@@ -177,7 +184,7 @@ Organized by **module** (matching pipeline modes). Each module owns its plots an
 │   ├── plots/{spatial,varpart}/           # dbmem_screeplot, varpart_venn (nested donut), px_barplot, dbmem_selection_path
 │   ├── tables/present/                    # climate_present_all.tsv, _site.tsv, _site_scaled.tsv, climate_invariant_predictors.tsv
 │   ├── tables/spatial/                    # dbmem_vectors.tsv, dbmem_diagnostics.tsv
-│   ├── tables/varpart/                    # variance_partition, climate_confounding, px_per_variable, dbmem_selected, dbmem_selection_path
+│   ├── tables/varpart/                    # variance_partition (+ unit/n_units/df_env — fitted on ONE ROW PER SITE since 2026-09-13, audit ST1), climate_confounding (+ joint_p/n_sites), px_per_variable, dbmem_selected, dbmem_selection_path
 │   ├── tables/future/                     # climate_future_year{Y}_ssp{S}_site.tsv, _all.tsv
 │   └── rasters/{present,future}/          # WorldClim .tif rasters (terra)
 ├── Traits/                                # mode=traits — phenotypic factor characterization, BOTH regimes
@@ -188,7 +195,7 @@ Organized by **module** (matching pipeline modes). Each module owns its plots an
 │   ├── plots/piemap/                      # piemap_{bio}.png/svg/qs + _points.png/svg/qs (clear-map companion) + zoom/
 │   ├── plots/piemap/{tajima_d,pi_diversity}/  # trait-scaled piemaps (optional)
 │   ├── plots/pop_stats/                   # mantel_test, amova (optional)
-│   └── tables/pop_stats/                  # tajima_d_by_pop, pi_diversity_by_pop, ibd_*, amova
+│   └── tables/pop_stats/                  # tajima_d_by_pop, pi_diversity_by_pop, amova
 ├── PreGEA/                                # optional, mode=pregea — grid-level plots only, no per-rung files (EXCEPT RDA per-model artifacts below)
 │   ├── plots/{structure,lfmm,emmax,rda,transfer}/
 │   ├── plots/rda/models/pc{n}/            # per-Condition()-PC: biplot.png/svg, axis_screeplot.png/svg (Shiny RDA tab selector)
@@ -204,7 +211,7 @@ Organized by **module** (matching pipeline modes). Each module owns its plots an
 │   ├── plots/enrichment/{trait}/          # region_{id}_dotplot/emapplot/cnetplot
 │   └── tables/
 │       ├── methods/{method}/              # {method}_pvalues_K{k}.tsv, _sig_snps_{adjust}.tsv
-│       ├── selected_snps.tsv, regions_per_trait.tsv, regions_combined.tsv
+│       ├── selected_snps.tsv, selected_snps_per_trait.tsv (per-(SNP, trait) min p — feeds regions_per_trait's trait-scoped min_pvalue), regions_per_trait.tsv, regions_combined.tsv
 │       ├── genes_per_region.tsv, genes_per_region_collapsed.tsv, genes_combined.tsv
 │       └── enrichment/{trait}/            # GO enrichment TSVs per region
 ├── GWAS/                                  # same structure as GEA/ + phenomap piemaps
@@ -215,7 +222,7 @@ Organized by **module** (matching pipeline modes). Each module owns its plots an
 ├── Maladaptation/
 │   ├── plots/{method}/{SUFFIX}/           # cumulative_importance, overall_importance, genetic_offset_piemap[_{tajima_d,pi_diversity,points}]
 │   │   └── zoom/{coords}/                # zoomed piemaps
-│   └── tables/{method}/{SUFFIX}/          # genetic_offset_map, genetic_offset_site
+│   └── tables/{method}/{SUFFIX}/          # genetic_offset_map, genetic_offset_site, {method}_diagnostics.tsv (gradient_forest: extrap + % cells outside the training range)
 ├── haplotype_scan/{tag}/                  # clustree plots, selected_regions.tsv, scan_status.tsv
 ├── haplotype/{tag}/                       # crosshap_viz, boxplots, haplotype piemaps, assignment/frequency tables
 ├── pipeline_summary.tsv                   # all modes append here
@@ -394,6 +401,7 @@ exists to prevent.
 - **VCF → TPED/TFAM**: `tped_assoc` rule (plink, separate from emmax.R)
 - **VCF → GD/GM**: `vcf_to_gapit_numeric.R` (numeric 0/1/2 for GAPIT)
 - **GFF3 → topr**: `gff2topr.py`
+- **GFF3 → normalized.gff3**: `normalize_gff.py` — strips `chr` case-insensitively (the same rule `filter_vcf` applies to the VCF, whose plink calls all carry `--output-chr MT` so X/Y/MT stay letters) and **fails when the GFF and the filtered VCF share no contig name** (audit B1: a `Chr1`/TAIR10-style GFF used to yield an empty annotation with exit 0)
 
 ### Key R Packages
 - **LEA** - sNMF, PCA, imputation
@@ -692,10 +700,14 @@ load-bearing and not obvious:
 rewrite the tracked SIMDATA fixtures in place. A denylist test enforces it rather than leaving it
 to review.
 
-Baseline as of 2026-09-13 (after fixing the seven wrong-science quarantines):
-`tests/` = **1086 passing / 12 skipped**, app = **769 passing / 3 skipped**, python =
-**74 tests**, heavy = **29 passing**. `run_tests.R` and `run_heavy.R` both exit non-zero on any
-failure, so both are CI-able as-is. (Previous figures: 1064/19, 769/3, 74, 29 — the skips dropped
+Baseline as of 2026-09-14 (after the 11 high-severity audit fixes):
+`tests/` = **1217 passing / 12 skipped**, app = **780 passing / 3 skipped**, python =
+**82 tests**, heavy = **37 passing**. `run_tests.R` and `run_heavy.R` both exit non-zero on any
+failure, so both are CI-able as-is. (Previous figures: 1086/12, 769/3, 74, 29 — the increments
+are new rows for `compare_offsets.R`, `pregea_varpart.R` ×2, `write_summary.R (processing)` ×2,
+`create_regions.R` with the per-trait table, the B1 plink+sed contract row in the heavy tier,
+`tests/python/test_normalize_gff.py`, and app tests for `compare_scenario_label()` /
+`load_gf_diagnostics()` / two path builders. Before that: 1064/19, 769/3, 74, 29 — the skips dropped
 by SEVEN because that many quarantined defects were fixed and their `skip()`s deleted; see the
 invariants table below, which fell from 41 violations to 3 in the same change. Before that:
 1051/21, 749/7; and 934/18, 417/3.)
@@ -771,14 +783,19 @@ before editing:
 default gate. `scripts/check_invariants.R` validates a `{PROJECT}_results/` tree against
 `scripts/R/lib/invariants.R` — checks that must hold on ANY dataset (region/SNP consistency,
 p-values in [0,1], chromosome names never re-acquiring a `chr` prefix, sample accounting that
-closes, and cross-module referential integrity). On `SIMDATA_results` it reports 3 violations,
-**every one of them a defect already filed in `docs/pipeline_improvement_requests.md`**:
+closes, cross-module referential integrity, and — since 2026-09-13 — that a per-trait region's
+`min_pvalue` is never below the trait's own best p, `per_trait_region_min_pvalue_below_own_trait`).
+On `SIMDATA_results` it reports 2 violations, **both defects already filed in
+`docs/pipeline_improvement_requests.md`**:
 
 | count | check | filed as |
 |---|---|---|
-| 1 | `pairwise_table_references_unknown_trait` | stale GEAxGWAS after a `mode=gea` re-run |
 | 1 | `multiple_threshold_variants_on_disk` | RDA sig table orphaned by a threshold change |
 | 1 | `climate_predictor_count_disagrees` | `write_summary.R:362` |
+
+**Was 3 until 2026-09-14**: `pairwise_table_references_unknown_trait` cleared because the full
+sequential re-run put `mode=gea_x_gwas` after `mode=gea` again — it was a staleness artefact, not
+a fixed defect, and it comes back whenever `mode=gea` is re-run alone.
 
 **Was 41 until 2026-09-13**, when three fixes plus a `mode=gea` + `mode=gwas` re-run cleared 38 of
 them: `overlap_traits_includes_own_trait` (14) and `overlap_snps_names_unknown_snp` (14) by the
@@ -786,7 +803,7 @@ them: `overlap_traits_includes_own_trait` (14) and `overlap_snps_names_unknown_s
 `genes_in_regions.R`. Fixing the library alone moves nothing — `--invariants` reads the TSVs on
 disk, so the count only falls after the modes that wrote them are re-run.
 
-A run that comes back **clean is itself a failure signal** — those three are confirmed present.
+A run that comes back **clean is itself a failure signal** — those two are confirmed present.
 Any check name outside that table is new and must be triaged: a real defect gets filed, a
 checker misreading a schema gets fixed. Never tune a check down to make the output green.
 
