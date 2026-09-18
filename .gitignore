@@ -185,3 +185,10 @@ benchmarks/mvp_seeds.tsv.pre_*
 # /done 2026-09-14: A/B no-op verification evidence for the arm-selector fix (314 MB of
 # regenerated figures). Reproducible from git HEAD + benchmarks/, not worth versioning.
 work/noopcheck/
+
+# Session drivers (SS-Clines block chains) keep their scripts; their per-seed logs, nohup
+# output and lock files are run artifacts and do not. 367 of them after one corpus run.
+work/*
+!work/*.sh
+# Archived failure logs follow the logs_*.log convention with a suffix, which logs_*.log misses.
+logs_*.log.*
