@@ -76,6 +76,14 @@ mala_block <- function(kbest) c(
     "      cor_threshold: '0.5'",
     "      spatial_correction: without",
     "      random_model: false",
+    # MANDATORY for the garden sweep. common.smk:409 defaults this to TRUE, which pulls
+    # `rule gf_sensitivity_check` (maladaptation.smk:241) into the DAG. That rule asks for the
+    # DEFAULT future scenario (year{Future.year}_ssp{Future.ssp}), which is NOT one of the 112
+    # garden env tables in SCENARIOS, so stage_custom_climate_future dies with
+    # `KeyError: 'year2061-2080_ssp585'` in under 10 s -- for every seed, before any garden runs.
+    # Cost the SS-Clines b3 block one full wave (logs_garden_ssclines_b3.run1_sensitivitycheck.log)
+    # and b4 another, because b3's configs were patched by hand afterwards instead of here.
+    "      sensitivity_check: false",
     "    geometric_offset:",
     "      scale: true",
     "      k: ''",
