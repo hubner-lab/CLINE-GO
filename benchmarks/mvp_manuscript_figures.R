@@ -99,8 +99,12 @@ seeds[, is_control := arm == "control_degenerate"]
 # SS-Clines replicates alongside the legacy 90, and the old `seeds[is_control == FALSE]`
 # took all 450. Defaults reproduce the pre-SS-Clines manifest exactly (90 + 2). Row
 # order preserved -- an rbind would reshuffle the emitted A1b table.
+# MVP_ADDED is a COMMA-SEPARATED LIST (mvp_arm.R:mvp_prim splits it the same way), so a
+# scalar `added == mvp_added()` matches nothing on a pooled run: every primary row is
+# dropped, PRIM goes to 0, A1 silently reports "0 primary" and A2 dies on an empty facet.
 seeds <- seeds[(arm == mvp_arm() &
-                (!nzchar(mvp_added()) | added == mvp_added())) | is_control]
+                (!nzchar(mvp_added()) |
+                 added %in% trimws(strsplit(mvp_added(), ",", fixed = TRUE)[[1]]))) | is_control]
 seeds[, arch_lab := relabel_arch(arch_level)]
 stopifnot(!any(is.na(seeds$arch_lab)))
 PRIM <- seeds[is_control == FALSE]
