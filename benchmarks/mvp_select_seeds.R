@@ -89,8 +89,10 @@ message(sprintf("  %d seeds verified against the Sec 8.2 rule, all %s / %s",
 # and PER_STRATUM. Re-running with an unchanged PER_STRATUM is a no-op.
 PREV <- if (file.exists(OUT_TSV)) fread(OUT_TSV) else NULL
 if (!is.null(PREV)) {
-  message(sprintf("== existing manifest: %d seeds (%d primary, %d control) ==",
-                  nrow(PREV), sum(PREV$arm == "primary"), sum(PREV$arm != "primary")))
+  message(sprintf("== existing manifest: %d seeds (%d primary, %d block, %d control) ==",
+                  nrow(PREV), sum(PREV$arm == "primary"),
+                  sum(!PREV$arm %chin% c("primary", "control_degenerate")),
+                  sum(PREV$arm == "control_degenerate")))
   gone <- setdiff(PREV$seed, d$seed)
   if (length(gone)) stop("Manifest seeds absent from the deposit summary: ",
                          paste(gone, collapse = ", "))
@@ -249,8 +251,8 @@ message(sprintf("  picked %s", paste(controls$seed, collapse = ", ")))
 
 # Controls are append-only too. If the manifest already carries some, they win, and a
 # re-derivation that disagrees is a loud failure rather than a silent swap.
-if (!is.null(PREV) && any(PREV$arm != "primary")) {
-  prev_ctrl <- PREV[arm != "primary"]$seed
+if (!is.null(PREV) && any(PREV$arm == "control_degenerate")) {
+  prev_ctrl <- PREV[arm == "control_degenerate"]$seed
   if (!setequal(prev_ctrl, controls$seed)) {
     stop("Re-derived controls (", paste(sort(controls$seed), collapse = ", "),
          ") disagree with the manifest's (", paste(sort(prev_ctrl), collapse = ", "),
