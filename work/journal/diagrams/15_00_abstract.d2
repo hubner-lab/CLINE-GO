@@ -1,0 +1,46 @@
+direction: right
+
+corpus: {
+  label: "SS-Clines, **5** блоков\n**600** реплик · 5 × 3 × 4 × 10\nотбор по реализованным статистикам не применялся"
+  shape: rectangle
+}
+scored: {
+  label: "оценено\n**2 083 200** строк\n**4 650** из **4 800** пар (реплика, панель)"
+  shape: rectangle
+}
+dropped: {
+  label: "**150** пар пусты\n86 gea_strict + 64 EMMAX\nрезультат, а не пропуск"
+  shape: rectangle
+}
+lead: {
+  label: "панель ≥2 из 3\nмедиана **−0.026** от оракула\nдотягивает в **34.7%** · p = **3.4e-19**"
+  shape: rectangle
+  style.fill: "#7a2d3a"
+}
+blocks: {
+  label: "знак воспроизводится\nв **5** из **5** демографий\nзначим в **4** (−0.006 … −0.047)"
+  shape: rectangle
+}
+pleio: {
+  label: "плейотропия — взаимодействие,\nне главный эффект:\nтолько × unequal-S, только олиго/умеренно"
+  shape: rectangle
+}
+la: {
+  label: "final_LA — два облака\nequal-S **0.49–0.58** · unequal-S **0.32–0.42**\nρ поперёк облаков 0.63 → внутри 0.34 / −0.15"
+  shape: rectangle
+  style.fill: "#2d4a3a"
+}
+figs: {
+  label: "**17** фигур с подписями\nfigures_ssclines_pooled_j15"
+  shape: rectangle
+}
+
+corpus -> scored
+scored -> dropped
+scored -> lead
+lead -> blocks
+lead -> pleio
+lead -> la: "ковариата, не фактор" {style.stroke-dash: 3}
+blocks -> figs
+pleio -> figs
+la -> figs

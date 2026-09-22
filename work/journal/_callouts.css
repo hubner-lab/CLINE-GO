@@ -135,3 +135,18 @@ details.callout-note[open] summary {
   padding-bottom: 1em;
   border-bottom: 1px solid #444;
 }
+
+/* Figure captions (journals 15+). Plots carry only a short title; units, n, which
+   methods are pooled, and the one-line reading live here — directly under the image,
+   before the callouts. A <div>, not a <p>: pandoc keeps the class on a div and wraps
+   the inner markdown in its own <p>, exactly as the callout divs above are rendered. */
+.fig-caption {
+  margin: -0.4em 0 1.4em;
+  padding: 0.3em 1em;
+  border-left: 4px solid #3a3a3a;
+  font-size: 0.88em;
+  line-height: 1.45;
+  color: #b0b0b0;
+}
+.fig-caption p { margin: 0; }
+.fig-caption strong { color: #e8e8e8; }
