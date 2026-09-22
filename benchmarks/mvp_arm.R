@@ -108,3 +108,19 @@ mvp_require_rows <- function(x, what = "rows") {
                      what, mvp_arm_label(), Sys.getenv("OFFSET_DIR", "<unset>")))
     invisible(x)
 }
+
+# Cohort tags named by MVP_ADDED, parsed once; character(0) when unset. The same
+# split mvp_prim() and mvp_arm_label() do inline, exposed so a script can key a
+# pinned literal on "which cohorts" and not only on "which arm".
+mvp_added_tags <- function() {
+    g <- mvp_added()
+    if (!nzchar(g)) return(character(0))
+    tags <- trimws(strsplit(g, ",", fixed = TRUE)[[1]])
+    tags[nzchar(tags)]
+}
+
+# Figure subtitles carry run provenance (arm label, n). MVP_SUBTITLE=0 drops them:
+# a lab-journal render puts provenance in the caption under the figure instead of
+# baking it into the PNG. Default "1" keeps every existing render byte-identical.
+# Scripts apply it in their save_fig() wrapper: `p + labs(subtitle = NULL)`.
+mvp_subtitle_on <- function() !identical(Sys.getenv("MVP_SUBTITLE", "1"), "0")

@@ -77,14 +77,28 @@ rd <- function(...) { f <- file.path(...); if (!file.exists(f)) stop("MISSING: "
 # On SS-Clines the single-method panels move UP relative to the combined ones (LFMM
 # from worst to second-best) and 3/3 falls to second-worst. 2/3 leads on both -- but
 # see panel B, where on that landscape it no longer REACHES the oracle.
+#   primary_ssclines / 5 blocks pooled (600): 2/3 66.6% < RDA 71.6% < 1/3 72.1% < LFMM 72.3% < 3/3 76.4% < EMMAX 80.4%
+#     (unweighted mean over the 9 cells; the n-weighted mean gives the same order,
+#     EMMAX 80.3 / 3/3 76.3, and rows 3-5 span 0.67 pp either way)
+# A MULTI-COHORT run is a different corpus from any single block, so it is keyed by
+# arm PLUS the sorted cohort tags. A single-block run keeps the bare arm key, which
+# is exactly the old behaviour -- and the old bug: every block reuses the order
+# pinned from block 1. That is left as is for per-block reruns (message below says
+# when the data disagree); MVP_ROW_ORDER=strict turns the message into a stop.
 ROW_ORDER_BY_ARM <- list(
     primary          = c("LFMM", "1/3 methods", "EMMAX", "3/3 methods", "RDA", "2/3 methods"),
-    primary_ssclines = c("EMMAX", "3/3 methods", "RDA", "1/3 methods", "LFMM", "2/3 methods"))
-ROW_ORDER <- ROW_ORDER_BY_ARM[[mvp_arm()]]
-if (is.null(ROW_ORDER))
-    stop("no pinned panel-B row order for arm '", mvp_arm(), "' -- derive it once from ",
-         "below_by_method.tsv (mean below_pct over the arch x working-method cells, ",
-         "worst first) and add it to ROW_ORDER_BY_ARM. Do NOT derive it here.")
+    primary_ssclines = c("EMMAX", "3/3 methods", "RDA", "1/3 methods", "LFMM", "2/3 methods"),
+    `primary_ssclines/ssclines_ncline_ctredge+ssclines_ncline_ns+ssclines_nequal_mbreaks+ssclines_nequal_mconst+ssclines_nvar_mvar` =
+                       c("EMMAX", "3/3 methods", "LFMM", "1/3 methods", "RDA", "2/3 methods"))
+ORDER_TAGS <- mvp_added_tags()
+ORDER_KEY  <- if (length(ORDER_TAGS) > 1L)
+                  paste0(mvp_arm(), "/", paste(sort(ORDER_TAGS), collapse = "+")) else mvp_arm()
+ROW_ORDER  <- ROW_ORDER_BY_ARM[[ORDER_KEY]]
+# MVP_ROW_ORDER: ""       pinned order; message if the data-derived order disagrees
+#                "strict" pinned order; STOP if the data-derived order disagrees
+#                "derive" data-derived order (for deriving a new pin, not for a figure)
+#                "a,b,c"  explicit list, worst first
+ROW_OVR <- Sys.getenv("MVP_ROW_ORDER", "")
 # The order below is stated worst-first for the same reason; it is unchanged by
 # the switch from `below_pct` to `match_pct`, which is its exact complement.
 
@@ -102,7 +116,28 @@ ROW_ORDER_A <- c("EMMAX", "3/3 methods", "RDA", "2/3 methods", "LFMM", "1/3 meth
 
 BM <- rd(SRC, "below_by_method.tsv")
 BM <- BM[arch_lab != "pooled" & !label %in% DROP_ROWS]
+# The data-derived order is always computed and written, never silently used: it is
+# what a pin is checked against, and what a new pin is copied from.
+DERIVED <- BM[, .(n_cells = .N, mean_below = mean(below_pct)), by = label][order(-mean_below)]
+if (ROW_OVR == "derive") {
+    ROW_ORDER <- as.character(DERIVED$label)
+} else if (!ROW_OVR %in% c("", "strict")) {
+    ROW_ORDER <- trimws(strsplit(ROW_OVR, ",", fixed = TRUE)[[1]])
+}
+if (is.null(ROW_ORDER))
+    stop("no pinned panel-B row order for key '", ORDER_KEY, "' -- derive it once with ",
+         "MVP_ROW_ORDER=derive (mean below_pct over the arch x working-method cells, ",
+         "worst first; see panelB_row_order.tsv) and add it to ROW_ORDER_BY_ARM.")
 stopifnot(setequal(unique(BM$label), ROW_ORDER))   # fails loudly if the corpus gains a rule
+DERIVED[, `:=`(derived_rank = .I, pinned_rank = match(label, ROW_ORDER), order_key = ORDER_KEY)]
+fwrite(DERIVED, file.path(OUT, "panelB_row_order.tsv"), sep = "\t")
+if (!identical(as.character(DERIVED$label), ROW_ORDER)) {
+    msg <- sprintf("panel-B row order in use (%s) differs from the data-derived order: %s",
+                   if (ROW_OVR == "") "pinned" else ROW_OVR,
+                   paste(sprintf("%s %.2f", DERIVED$label, DERIVED$mean_below), collapse = " | "))
+    if (ROW_OVR == "strict") stop(msg) else message("!! ", msg, " -- re-derive once and re-pin")
+}
+message("row order key: ", ORDER_KEY)
 message("row order (bottom -> top): ", paste(ROW_ORDER, collapse = " | "))
 
 # =============================================================================

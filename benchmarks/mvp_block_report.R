@@ -14,6 +14,8 @@
 #   2. realized covariate table  -- what the paper reports INSTEAD of selecting on
 #   3. accuracy vs final_LA      -- the continuous re-plot that replaced the
 #                                   two-cloud equal-S/unequal-S figure
+#   3b. the same, WITHIN symmetry regime -- because final_LA does not remove the
+#                                   two clouds, it only stops labelling them (below)
 # Plus a block-completeness table, because an underfilled marker panel is a
 # RESULT (n = 0 SNPs, recall = 0), not missing data, and the row arithmetic has
 # to be shown rather than assumed.
@@ -53,8 +55,10 @@ emit <- function(dt, stem) {
     invisible(dt)
 }
 save_fig <- function(p, stem, w, h) {
+    if (!mvp_subtitle_on()) p <- p + labs(subtitle = NULL)   # MVP_SUBTITLE=0: caption carries it
     clinego_save_both(file.path(OUT, stem), p, w = w, h = h); message("  OK ", stem)
 }
+message("figure subtitles: ", if (mvp_subtitle_on()) "on" else "off (MVP_SUBTITLE=0)")
 
 ARCH_LEVELS <- c("oliogenic", "mod-polygenic", "highly-polygenic")   # corpus typo
 ARCH_LABELS <- c("oligogenic", "moderately polygenic", "highly polygenic")
@@ -74,6 +78,10 @@ stopifnot(nrow(PRIM) == mvp_n_expect(), !any(is.na(PRIM$arch_lab)))
 # Architecture sub-level = `architecture` with the "<arch_level>_" prefix removed.
 PRIM[, sub_level := sub("^[^_]+_", "", architecture)]
 message("architecture sub-levels: ", paste(sort(unique(PRIM$sub_level)), collapse = " | "))
+# Selection-symmetry regime, one of the two factors inside sub_level. Test for
+# "unequal-S" FIRST: grepl("equal-S") matches both (mvp_regime_panel.R has the same trap).
+PRIM[, symmetry := factor(fifelse(grepl("unequal-S", architecture), "unequal-S", "equal-S"),
+                          levels = c("equal-S", "unequal-S"))]
 # The complete-block design asserted, not assumed. If a block is not 3 x 4 x 10 it
 # is not complete, and every "no selection rule inside the block" claim built on
 # this report is false.
@@ -115,7 +123,7 @@ SEED_MED <- LAND[, .(tau = median(tau)),
                  by = .(seed, marker_set, method_label)]
 SEED_MED[, accuracy := -tau]        # NEVER abs(): an anti-predicting model must
                                     # stay negative, not become accurate
-SEED_MED <- merge(SEED_MED, PRIM[, .(seed, arch_lab, sub_level, final_LA)], by = "seed")
+SEED_MED <- merge(SEED_MED, PRIM[, .(seed, arch_lab, sub_level, symmetry, final_LA)], by = "seed")
 
 CELL_MED <- SEED_MED[, .(n_replicates = uniqueN(seed),
                          accuracy = median(accuracy),
@@ -231,6 +239,81 @@ P_LA <- ggplot(LA_SEED, aes(final_LA, accuracy, colour = panel, fill = panel)) +
          subtitle = sprintf("%s -- %d replicates; LA is a covariate, not a selection criterion",
                             mvp_arm_label(), nrow(PRIM)))
 save_fig(P_LA, "block_accuracy_vs_LA", w = 10, h = 7.5)
+
+# =============================================================================
+# 3b. accuracy vs final_LA WITHIN the symmetry regime
+# =============================================================================
+# The continuous re-plot above does not turn two clouds into one relationship. On
+# every SS-Clines block final_LA is bimodal -- unequal-S replicates sit at ~0.32-0.42,
+# equal-S at ~0.49-0.58, and the gap between them holds NO replicate -- so a rho or
+# a loess computed across the whole range mostly measures the difference between
+# the two regimes, not a relationship inside either. Here the regime is put back on
+# the figure as colour, each regime gets its own fit (lm, so the fit stops at the
+# regime's own x-range and nothing is drawn across the empty gap), and rho is
+# reported per regime. The regime still enters no model as a factor; the figure
+# above and its two tables are kept unchanged for the reports that embed them.
+SYM_RANGE <- PRIM[, .(n = .N, LA_min = min(final_LA), LA_max = max(final_LA)), by = symmetry]
+setorder(SYM_RANGE, symmetry)
+emit(SYM_RANGE, "block_symmetry_LA_ranges")
+message("\n=== final_LA range per symmetry regime ===")
+print(SYM_RANGE)
+if (SYM_RANGE[symmetry == "unequal-S", LA_max] >= SYM_RANGE[symmetry == "equal-S", LA_min])
+    message("!! symmetry regimes OVERLAP on final_LA -- the two-cloud reading does not hold here")
+
+# One point per replicate: the three working methods pooled (median) within seed,
+# so the per-regime rho is over independent replicates, not seed x method rows.
+LA_SYM_SEED <- LA[, .(accuracy = median(accuracy), n_methods = .N),
+                  by = .(seed, arch_lab, symmetry, final_LA, panel)]
+emit(LA_SYM_SEED, "block_accuracy_vs_LA_symmetry")
+
+sp_rho <- function(x, y) suppressWarnings(cor(x, y, method = "spearman"))
+rho_by <- function(dt, by) {
+    out <- dt[, .(rho = sp_rho(final_LA, accuracy), n = .N), by = by]
+    for (k in c("method_label", "arch_lab", "symmetry"))
+        if (k %in% names(out)) out[, (k) := as.character(get(k))] else out[, (k) := "pooled"]
+    out
+}
+RHO_SYM <- rbind(
+    rho_by(LA,          c("panel", "method_label", "arch_lab", "symmetry")),   # 36 rows, n = seeds/2
+    rho_by(LA_SYM_SEED, c("panel", "arch_lab", "symmetry")),                   # methods pooled within seed
+    rho_by(LA_SYM_SEED, c("panel", "symmetry")),                               # + arch pooled
+    # the across-regime number, for contrast with block_accuracy_vs_LA_rho.tsv
+    rho_by(LA_SYM_SEED, c("panel")),
+    use.names = TRUE)
+setorder(RHO_SYM, panel, method_label, arch_lab, symmetry)
+emit(RHO_SYM, "block_accuracy_vs_LA_rho_symmetry")
+message("\n=== Spearman rho(final_LA, accuracy) WITHIN regime, methods pooled, arch pooled ===")
+print(dcast(RHO_SYM[method_label == "pooled" & arch_lab == "pooled"],
+            panel ~ symmetry, value.var = "rho"))
+
+P_LA_SYM <- ggplot(LA_SYM_SEED, aes(final_LA, accuracy, colour = symmetry, fill = symmetry)) +
+    geom_point(alpha = 0.3, size = 1) +
+    geom_smooth(method = "lm", formula = y ~ x, se = TRUE, linewidth = 0.8, alpha = 0.15) +
+    facet_grid(panel ~ arch_lab) +
+    scale_color_clinego() + scale_fill_clinego() +
+    theme_clinego() + theme(legend.position = "bottom") +
+    labs(x = "final local adaptation (final_LA, deposit-provided)",
+         y = expression("accuracy = " * -tau),
+         colour = NULL, fill = NULL,
+         title = "Offset accuracy vs local adaptation, within symmetry regime",
+         subtitle = sprintf("%s -- %d replicates; one fit per regime, methods pooled within replicate",
+                            mvp_arm_label(), nrow(PRIM)))
+save_fig(P_LA_SYM, "block_accuracy_vs_LA_symmetry", w = 10, h = 5.5)
+
+P_LA_SYM_M <- ggplot(LA, aes(final_LA, accuracy, colour = symmetry, fill = symmetry,
+                             linetype = panel, shape = panel)) +
+    geom_point(alpha = 0.25, size = 1) +
+    geom_smooth(method = "lm", formula = y ~ x, se = FALSE, linewidth = 0.7) +
+    facet_grid(method_label ~ arch_lab) +
+    scale_color_clinego() + scale_fill_clinego() +
+    scale_shape_manual(values = c(16, 17)) +
+    theme_clinego() + theme(legend.position = "bottom", legend.box = "vertical") +
+    labs(x = "final local adaptation (final_LA, deposit-provided)",
+         y = expression("accuracy = " * -tau),
+         colour = NULL, fill = NULL, linetype = NULL, shape = NULL,
+         title = "Offset accuracy vs local adaptation, within regime, by method",
+         subtitle = sprintf("%s -- %d replicates", mvp_arm_label(), nrow(PRIM)))
+save_fig(P_LA_SYM_M, "block_accuracy_vs_LA_symmetry_by_method", w = 10, h = 7.5)
 
 # =============================================================================
 # 4. block completeness -- an empty panel is a result, not missing data
