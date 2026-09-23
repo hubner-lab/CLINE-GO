@@ -76,6 +76,7 @@ run_suite() {
 # app code that is no longer in the repository. with_app_from_mount.sh installs
 # the mounted source into a throwaway library first and asserts the redirection
 # took. Costs a few seconds per suite; a stale green costs a review.
+# Deliberately UNQUOTED at the call sites: it must word-split into argv.
 WITH_APP="bash /pipeline/tests/with_app_from_mount.sh"
 
 # 1. Pipeline libraries: scripts/R/lib + scripts/R/utils.
