@@ -95,3 +95,38 @@ test_that("the test helper's redirect is in force for the rest of the suite", {
     expect_identical(get_pipeline_path(), CLINEGO_TEST_ROOT)
     expect_true(dir.exists(CLINEGO_TEST_ROOT))
 })
+
+# --------------------------------------------------- www/ asset resource prefix
+
+# app_ui() references two scripts as src = "www/...", which resolve only through
+# a registered "www" resource prefix. Until 2026-09-15 the only addResourcePath("www", ...)
+# in the whole package lived in dev.R, so clinego.app::run_app() — the documented
+# production path — served 404s for both, losing the config-dirty handler and the
+# module bar that drives tab switching. These tests read the sources, because the
+# defect is a relationship between two files rather than a value.
+
+.app_r <- function(f) file.path(testthat::test_path("..", ".."), "R", f)
+
+test_that("every www/ asset referenced by the package exists in inst/app/www", {
+    code <- unlist(lapply(c("app_ui.R", "utils_ui.R"), function(f) {
+        src <- readLines(.app_r(f), warn = FALSE)
+        src[!grepl("^\\s*#", src)]            # comments mention the pattern too
+    }))
+    refs <- regmatches(code, gregexpr('src\\s*=\\s*"www/[^"]+"', code))
+    refs <- sub('^.*"www/([^"]+)"$', "\\1", unlist(refs))
+
+    expect_gt(length(refs), 0)
+    for (r in refs) expect_true(file.exists(app_sys("app", "www", r)), info = r)
+})
+
+test_that("app_ui registers the www resource prefix itself, not only dev.R", {
+    ui <- paste(readLines(.app_r("app_ui.R"), warn = FALSE), collapse = "\n")
+    expect_match(ui, 'addResourcePath\\(\\s*"www"')
+})
+
+test_that("the registration is skipped when a www prefix is already set", {
+    # dev.R registers the BIND MOUNT before app_ui() ever runs; re-registering
+    # the installed copy there would shadow the file being edited.
+    ui <- paste(readLines(.app_r("app_ui.R"), warn = FALSE), collapse = "\n")
+    expect_match(ui, '"www" %in% names\\(shiny::resourcePaths\\(\\)\\)')
+})

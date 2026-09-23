@@ -108,7 +108,9 @@ plot_region_multi_trait <- function(region_str, trait_method_pairs, assoc_list, 
     sign_thresh = sign_thresh,
     max.overlaps = 999,
     show_gene_names = TRUE,
-    show_genes = TRUE,
+    # show_genes left at topr's default (NULL = auto): exon structure below a
+    # 1 Mb window, gene boxes above, where exons turn into unreadable noise.
+    # TRUE here hid exon structure on every region, whatever the GFF carried.
     unit_overview = 1,
     unit_main = 2.5,
     unit_gene = 1,
@@ -179,7 +181,9 @@ plot_region_trait <- function(region_str, trait, assoc_list, gff_table, filename
     sign_thresh = sign_thresh,
     max.overlaps = 999,
     show_gene_names = TRUE,
-    show_genes = TRUE,
+    # show_genes left at topr's default (NULL = auto): exon structure below a
+    # 1 Mb window, gene boxes above, where exons turn into unreadable noise.
+    # TRUE here hid exon structure on every region, whatever the GFF carried.
     unit_overview = 1,
     unit_main = 2.5,
     unit_gene = 1,
@@ -252,7 +256,11 @@ assoc_list <- lapply(method_data, function(md) {
 names(assoc_list) <- sapply(assoc_list, `[[`, 'method')
 
 # Load GFF annotation
-gff_table <- fread(GFF_TOPR) %>%
+# Exon columns are comma-joined lists that topr strsplit()s. With one exon per
+# gene there is no comma and fread infers integer (all empty -> logical), which
+# kills the exon-structure plot with "non-character argument".
+gff_table <- fread(GFF_TOPR, colClasses = c(exon_chromstart = "character",
+                                            exon_chromend   = "character")) %>%
   dplyr::mutate(chrom = extract_chr_num(chrom))
 
 # Filter genes based on GENES_TO_HIGHLIGHT
