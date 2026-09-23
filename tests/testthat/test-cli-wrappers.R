@@ -579,10 +579,11 @@ WRAPPERS <- list(
     # pinned CRAN packages in the image (Dockerfile:207,123), the same category
     # as ggplot2 — no genomics binary, no VCF, no network.
     #
-    # BOTH rows need argv[5] and argv[6] to carry a TRAILING SLASH: the script
-    # builds every output path with paste0 (:200-204, :320-323), and it calls
-    # dir.create nowhere, so both directories must already exist. fx_inter_dir()
-    # is the builder for exactly that.
+    # BOTH rows need argv[5]-argv[7] to carry a TRAILING SLASH: the script builds
+    # every output path with paste0, and only the tables dir is dir.create()d, so
+    # the plot and inter directories must already exist. fx_inter_dir() is the
+    # builder for exactly that. argv[7] (tables dir) carries mantel_statistics.tsv,
+    # a declared rule output since the variance-pie removal.
     list(
         # The single-site guard (:191-206). It fires BEFORE fread(ENV) and
         # fread(CLUSTERS), so metadata alone drives it — but it still writes all
@@ -591,10 +592,12 @@ WRAPPERS <- list(
         label   = "mantel_test.R (single-site skip branch)",
         script  = "mantel_test.R",
         build   = function(d) c(fx_geo_triple(d, n_sites = 1L, n_per_site = 4L),
-                                fx_inter_dir(d, "plots"), fx_inter_dir(d, "inter")),
-        args    = function(d, f) c(f[1], f[2], f[3], "bio_1,bio_12", f[4], f[5]),
+                                fx_inter_dir(d, "plots"), fx_inter_dir(d, "inter"),
+                                fx_inter_dir(d, "tables")),
+        args    = function(d, f) c(f[1], f[2], f[3], "bio_1,bio_12", f[4], f[5], f[6]),
         outputs = function(d) c(file.path(d, "plots", c("mantel_test.png", "mantel_test.svg")),
-                                file.path(d, "inter", "mantel_test.qs")),
+                                file.path(d, "inter", "mantel_test.qs"),
+                                file.path(d, "tables", "mantel_statistics.tsv")),
         fails_without_input = TRUE
     ),
     list(
@@ -604,10 +607,12 @@ WRAPPERS <- list(
         label   = "mantel_test.R (full path, 8 sites)",
         script  = "mantel_test.R",
         build   = function(d) c(fx_geo_triple(d),
-                                fx_inter_dir(d, "plots"), fx_inter_dir(d, "inter")),
-        args    = function(d, f) c(f[1], f[2], f[3], "bio_1,bio_12", f[4], f[5]),
+                                fx_inter_dir(d, "plots"), fx_inter_dir(d, "inter"),
+                                fx_inter_dir(d, "tables")),
+        args    = function(d, f) c(f[1], f[2], f[3], "bio_1,bio_12", f[4], f[5], f[6]),
         outputs = function(d) c(file.path(d, "plots", c("mantel_test.png", "mantel_test.svg")),
-                                file.path(d, "inter", "mantel_test.qs")),
+                                file.path(d, "inter", "mantel_test.qs"),
+                                file.path(d, "tables", "mantel_statistics.tsv")),
         fails_without_input = TRUE
     ),
     list(

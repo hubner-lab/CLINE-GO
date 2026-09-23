@@ -141,17 +141,18 @@ rule mantel_test:
     mantel_test.R's own complete.cases(env) guard drops geo/clust in lockstep with env, which
     requires meta and climate to already have the same row count/order."""
     input:  meta = W['metadata_climate_valid'], climate = O['climate_site'], clusters = clusters_table(K_BEST)
-    output: O['mantel']
+    output: plot = O['mantel'], stats = O['mantel_stats']
     params:
         predictors = ALL_BIO_STR,
         plot_dir = f"{MOD_STRUCT}plots/pop_stats/",
-        inter_dir = INTER
+        inter_dir = INTER,
+        tables_dir = f"{MOD_STRUCT}tables/pop_stats/"
     log: f"{LOGDIR}structure/mantel_test.log"
     shell:
         """
         Rscript /pipeline/scripts/mantel_test.R \
             {input.meta} {input.clusters} {input.climate} {params.predictors} \
-            {params.plot_dir} {params.inter_dir} > {log} 2>&1
+            {params.plot_dir} {params.inter_dir} {params.tables_dir} > {log} 2>&1
         """
 
 rule amova:
