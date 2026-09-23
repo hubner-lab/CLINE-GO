@@ -348,3 +348,22 @@ RUN Rscript -e " \
     stopifnot(ncol(as.data.frame(.m)) >= 1); \
     cat('All package version checks passed.\n'); \
 "
+
+# ── runtime identity ──────────────────────────────────────────────────────────
+# Every documented invocation passes `--user $(id -u):$(id -g)`, which puts the
+# container on a uid with NO /etc/passwd entry. Python's getpass.getuser() then
+# falls through to pwd.getpwuid() and raises, and Snakemake resolves the current
+# user at startup — so without `-e USER=...` the run dies before scheduling with
+#     KeyError: 'getpwuid(): uid not found: 1000'
+# getpass.getuser() reads LOGNAME/USER/LNAME/USERNAME first, so setting USER in
+# the IMAGE fixes it for every caller and every uid (a passwd entry would fix
+# only the uid it names). An explicit `-e USER=...` still overrides it.
+#
+# HOME is deliberately NOT set: Docker already gives an unknown uid HOME=/,
+# `-e USER` alone was measured sufficient (2026-09-23), and /.cache is made
+# writable at the top of this file for exactly that HOME. An ENV HOME here would
+# also repoint HOME for root and the inherited /init (shiny-server).
+#
+# Last in the file on purpose: ENV applies to later RUN layers and there are
+# none after this, so nothing above is invalidated.
+ENV USER=pipeline

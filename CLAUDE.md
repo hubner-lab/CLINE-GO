@@ -77,7 +77,7 @@ Rebuild required after any Dockerfile or R package version change.
 
 ### Run Pipeline (SIMDATA — main testing dataset)
 ```bash
-docker run --user $(id -u):$(id -g) --rm --memory=20g -e USER=pipeline -e HOME=/tmp \
+docker run --user $(id -u):$(id -g) --rm --memory=20g -e USER=pipeline \
   -v $PWD:/pipeline cline-go:latest \
   snakemake -c4 -s Snakefile --config mode=<MODE> --configfile config_SIMDATA.yaml --scheduler greedy
 ```
@@ -86,7 +86,7 @@ docker run --user $(id -u):$(id -g) --rm --memory=20g -e USER=pipeline -e HOME=/
 No default config file for this anymore (see Test Datasets below) — create a
 `config_<PROJECT>.yaml` naming the project after its actual VCF before running:
 ```bash
-docker run --user $(id -u):$(id -g) --rm --memory=20g -e USER=pipeline -e HOME=/tmp \
+docker run --user $(id -u):$(id -g) --rm --memory=20g -e USER=pipeline \
   -v $PWD:/pipeline cline-go:latest \
   snakemake -c4 -s Snakefile --config mode=<MODE> --configfile config_<PROJECT>.yaml --scheduler greedy
 ```
@@ -98,14 +98,17 @@ docker run -w /pipeline --user $(id -u):$(id -g) -it -v $PWD:/pipeline cline-go 
 
 ### Dry Run (check what would execute)
 ```bash
-docker run --user $(id -u):$(id -g) --rm -e USER=pipeline -e HOME=/tmp -v $PWD:/pipeline cline-go:latest \
+docker run --user $(id -u):$(id -g) --rm -e USER=pipeline -v $PWD:/pipeline cline-go:latest \
   snakemake -n -s Snakefile --config mode=<MODE> --configfile config_SIMDATA.yaml --scheduler greedy
 ```
 
-**`-e USER=pipeline -e HOME=/tmp` is required, not decorative.** `--user $(id -u):$(id -g)`
-puts the container on a uid with no `/etc/passwd` entry and Snakemake resolves the current user at
-startup, so without them every run dies before scheduling with
-`KeyError: 'getpwuid(): uid not found: 1000'`. Note also that piping `docker run` into `tail`
+**`-e USER=pipeline` is what stops the startup crash.** `--user $(id -u):$(id -g)` puts the
+container on a uid with no `/etc/passwd` entry and Snakemake resolves the current user at startup,
+so without `USER` every run dies before scheduling with
+`KeyError: 'getpwuid(): uid not found: 1000'`. The `Dockerfile` now ends with `ENV USER=pipeline`,
+so a **rebuilt** image no longer needs the flag; against an older `cline-go:latest` it is still
+load-bearing, which is why the commands keep it. `HOME` needs no flag (Docker gives an unknown uid
+`HOME=/`, and `/.cache` is made writable for it) — measured 2026-09-23. Note also that piping `docker run` into `tail`
 reports **`tail`'s** exit status — a failed run then looks like exit 0. Redirect to a file instead.
 
 **Pipeline modes**: `processing`, `prestructure`, `structure`, `climate`, `traits`, `pregea`, `gea`, `gwas`, `gea_x_gwas`, `maladaptation`
@@ -715,24 +718,27 @@ by SEVEN because that many quarantined defects were fixed and their `skip()`s de
 invariants table below, which fell from 41 violations to 3 in the same change. Before that:
 1051/21, 749/7; and 934/18, 417/3.)
 
-**THE APP SUITE TESTS THE IMAGE, NOT THE MOUNT.** `scripts/clinego.app/tests/testthat.R` is
-`library(clinego.app)` + `test_check("clinego.app")`, so it resolves against
-`/usr/local/lib/R/site-library/clinego.app` — the copy baked in at `Dockerfile:176-178` — and NOT
-against `scripts/clinego.app/R/*.R` on the `-v` mount. Tier 5 has the same property (it reaches the
-app through `clinego.app:::`). **So after ANY edit under `scripts/clinego.app/R/`, `./tests/run_all.sh`
-reports on the previous build until you `docker build` again.** It goes green while testing code that
-is no longer in the repo. Two ways through it:
-- `docker build -t cline-go .` — correct, and required before trusting the gate. Note an app change
-  invalidates the COPY at `:176`, so every layer after it rebuilds (Bioconductor, gradientForest,
-  test deps): tens of minutes, not the ~11 a cached rebuild takes.
-- For the edit/test loop, install the mounted package into a throwaway lib first:
-  `R CMD INSTALL --no-docs --no-byte-compile -l /tmp/applib /pipeline/scripts/clinego.app`, then
-  `.libPaths(c("/tmp/applib", .libPaths()))` before sourcing `testthat.R`, and assert
-  `find.package("clinego.app")` actually resolves there. Do **not** use
-  `remotes::install_local()` for this — it silently skips the install when the local SHA1 has not
-  changed, leaving the target lib empty while `find.package()` still points at site-library.
-Filed in `docs/pipeline_improvement_requests.md`: the gate should do this itself, or at minimum
-assert the installed package matches the mount instead of failing as an ordinary assertion error.
+**THE APP PACKAGE IN THE IMAGE IS STALE BY DEFAULT — the gate installs it from the mount.**
+`scripts/clinego.app/tests/testthat.R` is `library(clinego.app)` + `test_check("clinego.app")`, and
+Tier 5 reaches the app through `clinego.app:::`. Left alone, both resolve against
+`/usr/local/lib/R/site-library/clinego.app` — the copy baked in at `Dockerfile:176-178` — not
+against `scripts/clinego.app/R/*.R` on the `-v` mount, so the gate reported on the previous build.
+(Measured 2026-09-23 on a 9-day-old image: 12 of 402 app functions differed from the repo,
+`load_gff_genes` and `compute_method_thresholds` among them.)
+
+`tests/run_all.sh` therefore routes suites 1 and 2 through **`tests/with_app_from_mount.sh`**: it
+`R CMD INSTALL`s the mounted package into `/tmp/clinego_applib`, puts that first on `.libPaths()`,
+and **asserts** `find.package("clinego.app")` resolves there before exec'ing the suite. A failed
+install fails the suite instead of falling back. Three things about it are not free choices:
+- It exports **`R_LIBS`, not `R_LIBS_USER`.** rocker's `Renviron.site` sets
+  `R_LIBS=site-library:library`, and `R_LIBS` precedes `R_LIBS_USER` on `.libPaths()`, so an
+  `R_LIBS_USER` library loses to the image copy. The assertion caught exactly that.
+- Do **not** swap in `remotes::install_local()` — it silently skips the install when the local
+  SHA1 has not changed, leaving the target lib empty while `find.package()` still points at
+  site-library.
+- `docker build -t cline-go .` is still what makes the **image** current (package-mode Shiny
+  uses the image copy). An app change invalidates the COPY at `:176`, so every layer after it rebuilds:
+  tens of minutes, not the ~11 a cached rebuild takes. The gate no longer depends on it.
 
 **The quick gate's warning baseline is ZERO**, and that is load-bearing rather than cosmetic: a
 suite carrying standing warnings is one the next real warning hides in. Two known warts emit
