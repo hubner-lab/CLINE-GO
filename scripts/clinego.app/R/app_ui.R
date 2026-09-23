@@ -7,6 +7,30 @@ app_ui <- function(request) {
     # Serve pipeline output files as static resources
     shiny::addResourcePath("pipeline", pipeline_path)
 
+    # ...and the package's own assets. The header below loads two scripts as
+    # src = "www/...", which resolves only if a "www" resource prefix exists.
+    # dev.R registers one (pointing at the bind mount); the PACKAGE path never
+    # did, so clinego.app::run_app() served 404s for config-dirty.js and
+    # module-bar.js — and module-bar.js is what drives tab switching, since
+    # dashboard.scss hides the real navbar links. The SCSS is unaffected: it goes
+    # through sass_file(app_sys(...)) at theme build time, not over HTTP.
+    #
+    # Registered only when absent, so dev.R's mount-backed prefix keeps winning
+    # in dev mode — otherwise the installed (stale) copy of the JS would shadow
+    # the file being edited.
+    if (!"www" %in% names(shiny::resourcePaths())) {
+        www_dir <- app_sys("app", "www")
+        if (!nzchar(www_dir))
+            www_dir <- file.path(pipeline_path, "scripts", "clinego.app",
+                                 "inst", "app", "www")
+        if (dir.exists(www_dir)) {
+            shiny::addResourcePath("www", www_dir)
+        } else {
+            warning("app_ui: no www/ asset directory found; ",
+                    "config-dirty.js and module-bar.js will not load")
+        }
+    }
+
     bslib::page_navbar(
         title = NULL,
         theme    = app_theme(),
