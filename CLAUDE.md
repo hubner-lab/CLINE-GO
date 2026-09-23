@@ -77,7 +77,7 @@ Rebuild required after any Dockerfile or R package version change.
 
 ### Run Pipeline (SIMDATA — main testing dataset)
 ```bash
-docker run --user $(id -u):$(id -g) --rm --memory=20g -e USER=pipeline -e HOME=/tmp \
+docker run --user $(id -u):$(id -g) --rm --memory=20g -e USER=pipeline \
   -v $PWD:/pipeline cline-go:latest \
   snakemake -c4 -s Snakefile --config mode=<MODE> --configfile config_SIMDATA.yaml --scheduler greedy
 ```
@@ -86,7 +86,7 @@ docker run --user $(id -u):$(id -g) --rm --memory=20g -e USER=pipeline -e HOME=/
 No default config file for this anymore (see Test Datasets below) — create a
 `config_<PROJECT>.yaml` naming the project after its actual VCF before running:
 ```bash
-docker run --user $(id -u):$(id -g) --rm --memory=20g -e USER=pipeline -e HOME=/tmp \
+docker run --user $(id -u):$(id -g) --rm --memory=20g -e USER=pipeline \
   -v $PWD:/pipeline cline-go:latest \
   snakemake -c4 -s Snakefile --config mode=<MODE> --configfile config_<PROJECT>.yaml --scheduler greedy
 ```
@@ -98,7 +98,7 @@ docker run -w /pipeline --user $(id -u):$(id -g) -it -v $PWD:/pipeline cline-go 
 
 ### Dry Run (check what would execute)
 ```bash
-docker run --user $(id -u):$(id -g) --rm -e USER=pipeline -e HOME=/tmp -v $PWD:/pipeline cline-go:latest \
+docker run --user $(id -u):$(id -g) --rm -e USER=pipeline -v $PWD:/pipeline cline-go:latest \
   snakemake -n -s Snakefile --config mode=<MODE> --configfile config_SIMDATA.yaml --scheduler greedy
 ```
 
@@ -107,9 +107,8 @@ container on a uid with no `/etc/passwd` entry and Snakemake resolves the curren
 so without `USER` every run dies before scheduling with
 `KeyError: 'getpwuid(): uid not found: 1000'`. The `Dockerfile` now ends with `ENV USER=pipeline`,
 so a **rebuilt** image no longer needs the flag; against an older `cline-go:latest` it is still
-load-bearing, which is why the commands keep it. `-e HOME=/tmp` is not needed for that crash
-(Docker gives an unknown uid `HOME=/`, and `/.cache` is made writable for it) — measured
-2026-09-23. Note also that piping `docker run` into `tail`
+load-bearing, which is why the commands keep it. `HOME` needs no flag (Docker gives an unknown uid
+`HOME=/`, and `/.cache` is made writable for it) — measured 2026-09-23. Note also that piping `docker run` into `tail`
 reports **`tail`'s** exit status — a failed run then looks like exit 0. Redirect to a file instead.
 
 **Pipeline modes**: `processing`, `prestructure`, `structure`, `climate`, `traits`, `pregea`, `gea`, `gwas`, `gea_x_gwas`, `maladaptation`
