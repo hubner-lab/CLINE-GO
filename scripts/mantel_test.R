@@ -10,6 +10,9 @@ library(qs)
 source("/pipeline/scripts/R/utils/theme_clinego.R")
 
 args = commandArgs(trailingOnly=TRUE)
+# Permutation p-values must reproduce run to run. 42 = the pipeline-wide seed
+# (hardcoded here like most scripts until it becomes one config parameter).
+set.seed(42)
 ####################################
 SAMPLES = args[1]
 CLUSTERS = args[2]
