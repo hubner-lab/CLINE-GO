@@ -575,6 +575,30 @@ WRAPPERS <- list(
         outputs = function(d) file.path(d, c("scree.png", "scree.tsv")),
         fails_without_input = TRUE
     ),
+    # plot_regionplot.R, custom-region path. A window under 1 Mb makes topr
+    # (show_genes left at its NULL default) draw EXON structure, and one exon
+    # per gene leaves no comma in exon_chromstart — the exact shape fread used
+    # to read as integer, killing topr's strsplit() ("non-character argument").
+    list(
+        label   = "plot_regionplot.R (exon structure, single-exon gene)",
+        script  = "plot_regionplot.R",
+        build   = function(d) {
+            gff <- file.path(d, "topr.tsv")
+            writeLines(c(
+                "chrom\tgene_start\tgene_end\tgene_symbol\tbiotype\texon_chromstart\texon_chromend",
+                "1\t10050000\t10055000\tDRY1\tprotein_coding\t10050100\t10054900"), gff)
+            pv  <- file.path(d, "pvalues.tsv")
+            pos <- seq(10000000, 10100000, by = 5000)
+            data.table::fwrite(data.table::data.table(
+                SNPID = paste0("1:", pos), chr = "1", pos = pos,
+                bio_1 = ifelse(pos == 10050000, 1e-9, 0.5)), pv, sep = "\t")
+            c(gff, pv, paste0(d, "/"))
+        },
+        args    = function(d, f) c("NULL", f[1], paste0("LFMM:custom_1e-5:", f[2]),
+                                   "0", "all", f[3], "1:10000000-10100000",
+                                   "bio_1:LFMM", "NULL", "snp"),
+        outputs = function(d) file.path(d, "regionplot_custom_1_10000000_10100000.png")
+    ),
     # mantel_test.R. Quick tier, not heavy: vegan 2.6-8 and geosphere 1.5-20 are
     # pinned CRAN packages in the image (Dockerfile:207,123), the same category
     # as ggplot2 — no genomics binary, no VCF, no network.
