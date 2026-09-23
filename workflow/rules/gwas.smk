@@ -70,7 +70,12 @@ if GWAS_CONFIGS and PHENO_MISSING != 'DROP':
                 pheno_trait = r"[a-zA-Z]\w*"
             params:
                 tped_prefix = f"{WORK_FILT}phenotypes/emmax/{VCF_BASE}",
-                k           = K_BEST,
+                # arg 5 of emmax_phenotypes.R is the NUMBER OF PCA COVARIATES, not the
+                # "_K{k}" filename tag (that comes from K_BEST in `output` above). It
+                # must therefore follow GWAS.configs EMMAX params.n_pcs, exactly as the
+                # GEA twin does (gea.smk's assoc_emmax_gea_trait) — hardcoding K_BEST
+                # here silently discarded the user's structure-correction setting.
+                k           = GWAS_PARAMS.get("EMMAX", {}).get("n_pcs", K_BEST),
                 tables_dir  = f"{INTER}gwas_per_trait/",
             log: f"{LOGDIR}gwas/gwas_a_emmax_{{pheno_trait}}.log"
             shell:
@@ -110,7 +115,9 @@ if GWAS_CONFIGS and PHENO_MISSING != 'DROP':
             wildcard_constraints:
                 pheno_trait = r"[a-zA-Z]\w*"
             params:
+                # k is the FILENAME tag only; n_pcs is the PCA covariate count (arg 15).
                 k             = K_BEST,
+                n_pcs         = gapit_shared_npcs(GWAS_GAPIT_CONFIGS, GWAS_PARAMS, 'GWAS'),
                 models        = ','.join(GWAS_GAPIT_CONFIGS.keys()),
                 workdir       = lambda wc: f"{INTER}gapit/gwas_a/{wc.pheno_trait}/",
                 tables_dir    = f"{INTER}gwas_per_trait/",
@@ -122,7 +129,8 @@ if GWAS_CONFIGS and PHENO_MISSING != 'DROP':
                     {input.gd} {input.gm} {input.phenotypes} {input.pca} \
                     {input.kinship} {params.k} {params.models} \
                     {params.workdir} {params.tables_dir} {wildcards.pheno_trait} \
-                    {input.metadata} {params.native_outdir} NULL {wildcards.pheno_trait} > {log} 2>&1
+                    {input.metadata} {params.native_outdir} NULL {wildcards.pheno_trait} \
+                    {params.n_pcs} > {log} 2>&1
                 """
 
         for _gwas_model in GWAS_GAPIT_CONFIGS:
@@ -227,7 +235,8 @@ if GWAS_CONFIGS and PHENO_MISSING == 'DROP':
                 wildcard_constraints: pheno_trait = r"[a-zA-Z]\w*"
                 params:
                     tped_prefix   = _tped_pfx,
-                    k             = K_BEST,
+                    # PCA covariate count, not the filename tag — see Path A above.
+                    k             = GWAS_PARAMS.get(_method, {}).get("n_pcs", K_BEST),
                     tables_dir    = f"{MOD_GWAS}tables/methods/{_method}/",
                     samples_order = W['samples_order'],
                 log: _logpath
@@ -264,7 +273,9 @@ if GWAS_CONFIGS and PHENO_MISSING == 'DROP':
             output: [f"{MOD_GWAS}tables/methods/{model}/{{pheno_trait}}_pvalues_K{K_BEST}.tsv" for model in GWAS_GAPIT_CONFIGS]
             wildcard_constraints: pheno_trait = r"[a-zA-Z]\w*"
             params:
+                # k is the FILENAME tag only; n_pcs is the PCA covariate count (arg 15).
                 k = K_BEST,
+                n_pcs = gapit_shared_npcs(GWAS_GAPIT_CONFIGS, GWAS_PARAMS, 'GWAS'),
                 models = ','.join(GWAS_GAPIT_CONFIGS.keys()),
                 workdir = lambda wc: f"{INTER}gapit/phenotype_association/{wc.pheno_trait}/",
                 tables_dir = f"{MOD_GWAS}tables/methods/",
@@ -277,7 +288,7 @@ if GWAS_CONFIGS and PHENO_MISSING == 'DROP':
                     {input.kinship} {params.k} {params.models} \
                     {params.workdir} {params.tables_dir} {wildcards.pheno_trait} \
                     {input.metadata} {params.native_outdir} {input.samples} \
-                    {wildcards.pheno_trait} > {log} 2>&1
+                    {wildcards.pheno_trait} {params.n_pcs} > {log} 2>&1
                 """
 
         rule combine_gapit_gwas_pvalues:
