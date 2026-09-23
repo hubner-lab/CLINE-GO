@@ -69,16 +69,25 @@ run_suite() {
     fi
 }
 
+# Suites 1 and 2 both resolve `clinego.app` — suite 2 by library(), suite 1
+# because Tier 5 (test-equivalence-app-pipeline.R) reaches it through
+# clinego.app:::. Left alone, both pick up the copy baked into the image at
+# Dockerfile:176 and the gate reports on the PREVIOUS build: green while testing
+# app code that is no longer in the repository. with_app_from_mount.sh installs
+# the mounted source into a throwaway library first and asserts the redirection
+# took. Costs a few seconds per suite; a stale green costs a review.
+WITH_APP="bash /pipeline/tests/with_app_from_mount.sh"
+
 # 1. Pipeline libraries: scripts/R/lib + scripts/R/utils.
 #    NOT via scripts/clinego.app/dev.R and NOT with .R_libs_dev on .libPaths() —
 #    that carries testthat 3.3.2 while the image pins 3.2.3, and the two
 #    disagree about test_dir()'s return shape (tests/run_tests.R:15-17).
 run_suite "pipeline libs (tests/)" clinego_tests_libs \
-    Rscript /pipeline/tests/run_tests.R
+    $WITH_APP Rscript /pipeline/tests/run_tests.R
 
 # 2. The Shiny app package.
 run_suite "shiny app (clinego.app)" clinego_tests_app \
-    Rscript -e 'setwd("/pipeline/scripts/clinego.app/tests"); source("testthat.R")'
+    $WITH_APP Rscript -e 'setwd("/pipeline/scripts/clinego.app/tests"); source("testthat.R")'
 
 # 3. Python: scripts/*.py + workflow/methods/.
 #    stdlib unittest, deliberately not pytest: the image has python3.12 + numpy
