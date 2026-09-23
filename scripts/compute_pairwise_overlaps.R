@@ -12,6 +12,11 @@
 library(data.table)
 library(stringr)
 
+# trait_in_cell(): exact (non-regex) trait membership on a comma-separated cell.
+# Shared with build_per_trait_regions() so both sides of the pipeline decide
+# "is this SNP significant for trait X" by the same rule.
+source("/pipeline/scripts/R/lib/regions.R")
+
 args <- commandArgs(trailingOnly = TRUE)
 options(scipen = 99999)
 
@@ -54,9 +59,8 @@ extract_trait_snps <- function(sel_path, source_label) {
 
     # For each trait, collect SNPs and count confirming methods
     rows <- lapply(all_traits, function(trait) {
-        pattern <- paste0("(^|,)", trait, "($|,)")
         method_hit <- vapply(method_cols, function(m) {
-            grepl(pattern, gsub('"', '', dt[[m]]))
+            trait_in_cell(dt[[m]], trait)
         }, logical(nrow(dt)))
         if (is.vector(method_hit)) method_hit <- matrix(method_hit, ncol = length(method_cols))
         any_hit <- rowSums(method_hit) > 0

@@ -321,3 +321,69 @@ test_that("design_metric returns numeric(0), NOT NA, for an entry with no value 
     expect_length(got, 0L)
     expect_false(isTRUE(is.na(got)))
 })
+
+# ------------------------------------------------- .current_threshold_variant
+
+# A config change leaves the previous {method}_..._sig_snps_{adjust}.tsv on disk
+# with the same schema and the same naming convention, and nothing prunes it.
+# Sys.glob sorts, and the loader keyed its result list by method, so the variant
+# whose suffix sorted LAST won — "bonf_0.05" after "bonf_0.01", i.e. the stale one.
+
+.tv_cfg <- function(...) {
+    list(GEA = list(configs = lapply(list(...), function(x)
+        list(method = x[[1]], adjust = x[[2]], threshold = x[[3]]))))
+}
+
+.tv_files <- function(dir, method, adjusts) {
+    d <- file.path(dir, "GEA", "tables", "methods", method)
+    dir.create(d, recursive = TRUE, showWarnings = FALSE)
+    vapply(adjusts, function(a) {
+        f <- file.path(d, paste0(method, "_pvalues_K3_sig_snps_", a, ".tsv"))
+        writeLines("SNPID\tchr\tpos", f)
+        f
+    }, character(1), USE.NAMES = FALSE)
+}
+
+test_that(".current_threshold_variant keeps the file the config asks for", {
+    root <- file.path(tempdir(), paste0("tv1_", as.integer(runif(1, 1e6, 9e6))))
+    fs   <- .tv_files(root, "RDA", c("bonf_0.01", "bonf_0.05"))
+    cfg  <- .tv_cfg(list("RDA", "bonf", 0.01))
+
+    got <- suppressMessages(
+        .current_threshold_variant(fs, "P", MOD_GEA, cfg))
+
+    expect_length(got, 1L)
+    expect_true(endsWith(got, "sig_snps_bonf_0.01.tsv"))
+    unlink(root, recursive = TRUE)
+})
+
+test_that(".current_threshold_variant names the orphans it ignored", {
+    root <- file.path(tempdir(), paste0("tv2_", as.integer(runif(1, 1e6, 9e6))))
+    fs   <- .tv_files(root, "RDA", c("bonf_0.01", "bonf_0.05"))
+    cfg  <- .tv_cfg(list("RDA", "bonf", 0.01))
+
+    expect_message(.current_threshold_variant(fs, "P", MOD_GEA, cfg),
+                   "sig_snps_bonf_0.05.tsv")
+    unlink(root, recursive = TRUE)
+})
+
+test_that(".current_threshold_variant warns, and keeps the newest, when nothing matches", {
+    root <- file.path(tempdir(), paste0("tv3_", as.integer(runif(1, 1e6, 9e6))))
+    fs   <- .tv_files(root, "RDA", c("bonf_0.01", "bonf_0.05"))
+    Sys.setFileTime(fs[1], Sys.time() - 3600)   # 0.05 is the newer of the two
+    cfg  <- .tv_cfg(list("RDA", "fdr", 0.1))
+
+    expect_warning(got <- suppressMessages(
+        .current_threshold_variant(fs, "P", MOD_GEA, cfg)), "none matches the config")
+    expect_length(got, 1L)
+    expect_true(endsWith(got, "sig_snps_bonf_0.05.tsv"))
+    unlink(root, recursive = TRUE)
+})
+
+test_that(".current_threshold_variant is a no-op when each method has one file", {
+    root <- file.path(tempdir(), paste0("tv4_", as.integer(runif(1, 1e6, 9e6))))
+    fs   <- c(.tv_files(root, "RDA", "bonf_0.01"), .tv_files(root, "LFMM", "fdr_0.1"))
+
+    expect_identical(.current_threshold_variant(fs, "P", MOD_GEA, list()), fs)
+    unlink(root, recursive = TRUE)
+})

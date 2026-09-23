@@ -21,6 +21,25 @@
     return(as.integer(fallback))
 }
 
+# Exact trait membership test for a comma-separated trait cell.
+#
+# The method columns of selected_snps.tsv hold a LIST of trait names ("bio_1,bio_5"),
+# so membership is set containment on the split values — never a regex. The old
+# paste0("(^|,)", trait, "($|,)") pattern interpolated the trait name UNESCAPED, and
+# trait names are metadata column names, not identifiers the pipeline controls:
+#   'bio.1'   — '.' matches any character, so bio.1's region swallowed bioX1's SNPs
+#   'FT_16C+' — '+' is a quantifier, so the trait matched NOTHING and vanished silently
+# Quotes are stripped here for the same reason the trait-extraction loops strip them;
+# whitespace is deliberately NOT trimmed, so extraction and matching stay symmetric.
+#
+# @param values character vector of cells (NA / "" allowed)
+# @param trait  single trait name, taken literally
+# @return logical vector, same length as values
+trait_in_cell <- function(values, trait) {
+    cells <- strsplit(gsub('"', '', as.character(values)), ",", fixed = TRUE)
+    vapply(cells, function(x) any(!is.na(x) & x == trait), logical(1))
+}
+
 # Cluster significant SNPs into genomic regions using single-linkage clustering.
 #
 # Matches create_regions.R create_regions_from_snps() GRanges behavior:
@@ -155,11 +174,9 @@ build_per_trait_regions <- function(sig_snps, dist_spec, trait_pvalues = NULL) {
 
     per_trait_list <- lapply(all_traits, function(trait_name) {
         message(paste0("INFO:   Processing trait: ", trait_name))
-        pattern <- paste0("(^|,)", trait_name, "($|,)")
-
         trait_snps <- sig_snps[0, ]
         for (m in method_cols) {
-            rows <- sig_snps[grepl(pattern, sig_snps[[m]]), ]
+            rows <- sig_snps[trait_in_cell(sig_snps[[m]], trait_name), ]
             if (nrow(rows) > 0) trait_snps <- unique(rbind(trait_snps, rows))
         }
 

@@ -96,14 +96,46 @@ compute_region_overlaps <- function(gea_regions, gwas_regions) {
 
 # ── Overlap region building ────────────────────────────────────────────────────
 
+#' Canonical name for an overlap bounds strategy
+#'
+#' The radioButtons in mod_gea_x_gwas_ui() shipped the values "gea"/"gwas" while
+#' .apply_bounds() named the same strategies "gea_only"/"gwas_only", and the
+#' unnamed switch() default turned that mismatch into silent UNION bounds — so
+#' two of the four user-visible choices never did anything. The UI now sends the
+#' canonical names; this map keeps the legacy values (already persisted in
+#' region_params.json by every session that clicked them) working.
+#' @noRd
+.OVERLAP_BOUNDS <- c(union        = "union",
+                     intersection = "intersection",
+                     gea_only     = "gea_only",
+                     gwas_only    = "gwas_only",
+                     gea          = "gea_only",   # legacy UI value
+                     gwas         = "gwas_only")  # legacy UI value
+
+#' @noRd
+.normalize_bounds <- function(strategy) {
+    if (length(strategy) != 1L || is.na(strategy) || !nzchar(strategy))
+        stop("overlap bounds strategy is empty; expected one of: ",
+             paste(unique(.OVERLAP_BOUNDS), collapse = ", "))
+    hit <- unname(.OVERLAP_BOUNDS[match(as.character(strategy), names(.OVERLAP_BOUNDS))])
+    if (is.na(hit))
+        stop("unknown overlap bounds strategy '", strategy, "'; expected one of: ",
+             paste(unique(.OVERLAP_BOUNDS), collapse = ", "))
+    hit
+}
+
 #' Apply an overlap bounds strategy to a single pair row, returning region bounds
 #'
 #' @param pair_row Single-row data.table from compute_region_overlaps()
 #' @param strategy One of: "union", "intersection", "gea_only", "gwas_only"
+#'   ("gea"/"gwas" accepted as legacy aliases)
 #' @return Named list: chr, start, end
 #' @noRd
 .apply_bounds <- function(pair_row, strategy) {
-    switch(strategy,
+    # No unnamed default: an unrecognised strategy used to return union bounds,
+    # which are the WIDEST of the four, so a mis-typed or renamed choice produced
+    # a plausible region set nothing recorded as substituted.
+    switch(.normalize_bounds(strategy),
         union        = list(chr   = pair_row$chr,
                             start = pair_row$union_start,
                             end   = pair_row$union_end),
@@ -115,11 +147,7 @@ compute_region_overlaps <- function(gea_regions, gwas_regions) {
                             end   = pair_row$gea_end),
         gwas_only    = list(chr   = pair_row$chr,
                             start = pair_row$gwas_start,
-                            end   = pair_row$gwas_end),
-        # default: union
-        list(chr   = pair_row$chr,
-             start = pair_row$union_start,
-             end   = pair_row$union_end)
+                            end   = pair_row$gwas_end)
     )
 }
 

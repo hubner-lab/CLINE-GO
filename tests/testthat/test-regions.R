@@ -189,6 +189,35 @@ test_that("build_per_trait_regions explodes comma-separated traits into one set 
     expect_identical(nrow(r[trait == "bio_2"]), 2L)
 })
 
+test_that("build_per_trait_regions matches trait names literally, not as regexes", {
+    # Trait names are metadata column names. Until 2026-09-15 membership was
+    # tested with paste0("(^|,)", trait, "($|,)"), so '.' matched any character
+    # and 'bio.1' claimed bioX1's SNP as its own.
+    dt <- snps("1", c(10000, 900000), EMMAX = c("bio.1", "bioX1"))
+    r  <- suppressMessages(build_per_trait_regions(dt, 1000L))
+    expect_identical(nrow(r[trait == "bio.1"]), 1L)
+    expect_identical(r[trait == "bio.1"]$snp_count, 1L)
+    expect_identical(r[trait == "bioX1"]$snp_count, 1L)
+})
+
+test_that("build_per_trait_regions keeps a trait whose name contains a quantifier", {
+    # '+' is a regex quantifier: the old pattern matched nothing at all and the
+    # trait disappeared from the per-trait table with only an INFO line.
+    dt <- snps("1", 10000, EMMAX = "FT_16C+")
+    r  <- suppressMessages(build_per_trait_regions(dt, 1000L))
+    expect_identical(nrow(r), 1L)
+    expect_identical(r$trait, "FT_16C+")
+})
+
+test_that("trait_in_cell is exact set membership over the comma-separated cell", {
+    expect_identical(trait_in_cell(c("bio_1,bio_2", "bio_2", "", NA), "bio_1"),
+                     c(TRUE, FALSE, FALSE, FALSE))
+    # A trait name that is a prefix/substring of another must not match it.
+    expect_identical(trait_in_cell(c("bio_10", "bio_1"), "bio_1"), c(FALSE, TRUE))
+    # Quotes are stripped, as in the trait-extraction loops.
+    expect_identical(trait_in_cell('"bio_1,bio_2"', "bio_2"), TRUE)
+})
+
 test_that("build_per_trait_regions reports cross-trait evidence for the same interval", {
     dt <- snps("1", c(10000, 10500), EMMAX = c("bio_1", "bio_2"))
     r <- suppressMessages(build_per_trait_regions(dt, 1000L))

@@ -484,6 +484,10 @@ mod_gea_x_gwas_server <- function(id, project_data, run_trigger = NULL) {
             pd  <- project_data()
             rp  <- read_region_params(pd$name)
             val <- get_global_param(rp, module, "overlap_bounds")
+            # A file written before the choice values were fixed holds "gea"/"gwas",
+            # which is not one of the radio's values any more: restoring it verbatim
+            # would leave the group unselected.
+            val <- tryCatch(.normalize_bounds(val), error = function(e) NULL)
             if (!is.null(val)) shiny::updateRadioButtons(session, "overlap_bounds", selected = val)
         })
         shiny::observeEvent(input$overlap_bounds, {
@@ -495,7 +499,9 @@ mod_gea_x_gwas_server <- function(id, project_data, run_trigger = NULL) {
         }, ignoreInit = TRUE)
 
         overlap_bounds <- shiny::reactive({
-            input$overlap_bounds %||% "union"
+            # .normalize_bounds() maps the legacy "gea"/"gwas" values that older
+            # region_params.json files still carry onto the canonical names.
+            .normalize_bounds(input$overlap_bounds %||% "union")
         })
 
         # ── GEA filter bar UI (matrix + strategy + clumping) ──────────────────
@@ -822,8 +828,11 @@ mod_gea_x_gwas_ui <- function(id) {
             htmltools::span(class = "lab-xg-bounds-label", "Overlap bounds"),
             shiny::radioButtons(
                 ns("overlap_bounds"), label = NULL,
+                # Values are the names .apply_bounds() switches on. They read
+                # "gea"/"gwas" until 2026-09-15, which the unnamed switch default
+                # silently turned into union bounds.
                 choices = c("Union" = "union", "Intersection" = "intersection",
-                            "GEA only" = "gea", "GWAS only" = "gwas"),
+                            "GEA only" = "gea_only", "GWAS only" = "gwas_only"),
                 selected = "union", inline = TRUE
             )
         ),
