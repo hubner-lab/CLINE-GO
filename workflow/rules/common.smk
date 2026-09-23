@@ -45,7 +45,53 @@ def get_vcf_basename(vcf_path):
     raise ValueError(f"VCF must end with .vcf or .vcf.gz: {vcf_path}")
 
 def k_range(start, end):
+    """Inclusive K sweep. Validated by _validate_k_sweep() at parse time.
+
+    range(9, 4) is [] rather than an error, while snmf.R's `K = Ks:Ke` is a
+    valid descending sequence in R. So an inverted sweep used to run sNMF in
+    full (K 3..9 for 9..3), plot the cross-entropy, and then extract NOTHING
+    per K: no clusters_K*.tsv, no structure/pop_diff/pca_structure plots
+    (measured 2026-09-23, snakemake -n: 38 jobs -> 14), and exit 0.
+    """
     return list(range(int(start), int(end) + 1))
+
+
+def _validate_k_sweep(k_start, k_end, k_best):
+    """Reject an sNMF K sweep the rest of the workflow cannot honour.
+
+      * k_start < 1       -> K0 targets; K=0 is not a model. K=1 is allowed:
+                             it is LEA's usual cross-entropy baseline, and the
+                             app's config schema (fct_config_schema.R) sets
+                             min = 1 for k_start/k_end/k_best.
+      * k_start > k_end   -> sNMF runs, but no per-K output is extracted
+                             (see k_range above).
+      * k_best outside the sweep -> every K_BEST-keyed path points at a
+                             Q-matrix prestructure never extracted. The DAG
+                             still builds, because extract_clusters takes a
+                             bare {k} wildcard (prestructure.smk:52), so the
+                             run fails inside extract_clusters.R after sNMF
+                             has already run.
+
+    k_best is optional (null until the cross-entropy plot has been read), so
+    None passes.
+    """
+    if k_start < 1:
+        raise ValueError(
+            f"sNMF.k_start must be >= 1, got: {k_start}. K<1 is not an "
+            "ancestry model.")
+    if k_end < k_start:
+        raise ValueError(
+            f"sNMF.k_end ({k_end}) must be >= sNMF.k_start ({k_start}). The K "
+            "sweep is inclusive, so an inverted range extracts no per-K "
+            "output: sNMF would run, then mode=prestructure would exit 0 "
+            "with no Q-matrices and no structure plots.")
+    if k_best is not None and not (k_start <= k_best <= k_end):
+        raise ValueError(
+            f"sNMF.k_best ({k_best}) is outside the swept range "
+            f"[{k_start}, {k_end}]. Every downstream path is keyed on k_best, "
+            "so the run would ask for a Q-matrix that mode=prestructure was "
+            "never asked to build. Widen sNMF.k_start/k_end, or pick a k_best "
+            "inside the sweep.")
 
 #=============================================================================
 # PARSE AND VALIDATE CONFIGURATION
@@ -132,6 +178,7 @@ K_END = _as_int(config['sNMF']['k_end'], 'snmf.k_end')
 PLOIDY = 2  # diploid only
 REPEAT = _as_int(config['sNMF']['repeats'], 'snmf.repeats')
 K_BEST = int(_cfg('sNMF', 'k_best', None)) if _cfg('sNMF', 'k_best', None) is not None else None
+_validate_k_sweep(K_START, K_END, K_BEST)
 SNMF_PROJECT_MODE = 'new'  # LEA project mode: 'new' for fresh runs, 'continue' to resume
 
 # MAP parameters
@@ -597,14 +644,58 @@ def resolve_method_params(method, registry, user_params):
         resolved[name] = raw if spec["type"] == "str" else _coerce_param(method, name, spec, raw)
     return resolved
 
-def parse_association_configs(configs_list, registry=None):
+# The significance rules compute_pval_threshold() implements
+# (scripts/R/utils/pval_threshold.R). Anything else reaches its final
+# stop("Unknown adjustment method: ") — but only once p-values exist.
+PVAL_ADJUSTMENTS = ('bonf', 'qval', 'top', 'custom')
+
+# Valid threshold range per rule. Mirrors the app's
+# threshold_value_valid_for_type() (scripts/clinego.app/R/fct_combine.R) —
+# keep the two in step, or the Shiny sidebar writes configs this refuses.
+_THRESHOLD_VALID = {
+    'bonf':   (lambda v: 0 < v <= 1, "a probability in (0, 1]"),
+    'qval':   (lambda v: 0 < v <= 1, "a probability in (0, 1]"),
+    'top':    (lambda v: v >= 1,     "a SNP count >= 1"),
+    'custom': (lambda v: v > 0,      "a raw p-value cutoff > 0"),
+}
+
+
+def _validate_adjust_threshold(context, method, adjust, threshold):
+    """Check one config's (adjust, threshold) pair at parse time.
+
+    The pair is interpolated verbatim into every sig-SNP table, Manhattan and
+    QQ path (`..._sig_snps_{adjust}_{threshold}.tsv`), so a typo does not look
+    wrong to Snakemake: it builds a complete, consistent, valid-looking target
+    set, and the error only surfaces inside compute_pval_threshold() after the
+    method's genome scan has run.
+    """
+    if adjust not in PVAL_ADJUSTMENTS:
+        raise ValueError(
+            f"{context} method '{method}': adjust must be one of "
+            f"{list(PVAL_ADJUSTMENTS)}, got: {adjust!r}")
+    try:
+        value = float(threshold)
+    except (TypeError, ValueError):
+        value = float('nan')
+    valid, expected = _THRESHOLD_VALID[adjust]
+    if value != value or not valid(value):
+        raise ValueError(
+            f"{context} method '{method}': adjust='{adjust}' takes {expected}, "
+            f"got threshold: {threshold!r}")
+
+
+def parse_association_configs(configs_list, registry=None, context='configs'):
     """Parse association configs list into method -> adjust_threshold dict.
     When `registry` is given (the GEA_METHODS/GWAS_METHODS dict), also returns
     a sibling method -> resolved-params dict as a second tuple element."""
     configs = {}
     params = {}
     for cfg in (configs_list or []):
+        for field in ('method', 'adjust', 'threshold'):
+            if field not in cfg:
+                raise ValueError(f"{context}: entry {cfg!r} is missing '{field}'")
         method = cfg['method']
+        _validate_adjust_threshold(context, method, cfg['adjust'], cfg['threshold'])
         adjust = f"{cfg['adjust']}_{cfg['threshold']}"
         if method in configs:
             raise ValueError(f"Method '{method}' appears multiple times in configs")
@@ -613,7 +704,7 @@ def parse_association_configs(configs_list, registry=None):
             params[method] = resolve_method_params(method, registry, cfg.get('params', {}) or {})
     return configs, params
 
-GEA_CONFIGS, GEA_PARAMS = parse_association_configs(_assoc.get('configs', []), GEA_METHODS)
+GEA_CONFIGS, GEA_PARAMS = parse_association_configs(_assoc.get('configs', []), GEA_METHODS, 'GEA.configs')
 
 # GAPIT model detection — derived from registry (single source of truth)
 GAPIT_MODELS = {name for name, cfg in GEA_METHODS.items() if cfg["engine"] == "gapit"}
@@ -631,7 +722,7 @@ GEA_METHOD_REGEX = '|'.join(GEA_CONFIGS.keys()) if GEA_CONFIGS else 'EMMAX'
 
 # PHENOTYPE ASSOCIATION parameters (inherits from GEA.* by default)
 _pheno = config.get('GWAS', {})
-GWAS_CONFIGS, GWAS_PARAMS = parse_association_configs(_pheno.get('configs', []), GWAS_METHODS)
+GWAS_CONFIGS, GWAS_PARAMS = parse_association_configs(_pheno.get('configs', []), GWAS_METHODS, 'GWAS.configs')
 GWAS_GAPIT_CONFIGS, GWAS_OTHER_CONFIGS = split_configs_by_engine(GWAS_CONFIGS)
 GWAS_METHOD_REGEX = '|'.join(GWAS_CONFIGS.keys()) if GWAS_CONFIGS else 'EMMAX'
 PHENO_MISSING = _pheno.get('missing_strategy', 'DROP')
