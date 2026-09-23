@@ -602,6 +602,65 @@ load_gff_genes <- function(project, config) {
     }, fingerprint = fp)
 }
 
+#' Keep one sig-SNPs file per method: the one the CURRENT config asked for
+#'
+#' Nothing prunes `{method}_pvalues_K{k}_sig_snps_{adjust}.tsv` when the config's
+#' threshold changes, so a method directory can hold several variants that are
+#' indistinguishable by name, mtime or schema (e.g. RDA bonf_0.05 from an earlier
+#' run sitting beside the current bonf_0.01). The loader below keyed its result
+#' list by method, so the LAST file in Sys.glob's alphabetical order won silently
+#' — "bonf_0.05" sorts after "bonf_0.01", i.e. the stale, looser table replaced
+#' the current one wholesale.
+#'
+#' This picks the variant whose suffix equals resolve_adjust() for that method and
+#' says, in the log, which files it ignored. It does NOT delete anything: pruning
+#' the results tree is a pipeline-side decision (see the same class of staleness in
+#' PreGEA/{plots,tables} and the GEAxGWAS pairwise table).
+#' @noRd
+.current_threshold_variant <- function(files, project, module, config = NULL) {
+    method_of <- vapply(files, function(f) {
+        parts <- strsplit(f, .Platform$file.sep, fixed = TRUE)[[1]]
+        i <- which(parts == "methods")
+        if (length(i) == 0) NA_character_ else parts[i + 1L]
+    }, character(1), USE.NAMES = FALSE)
+
+    dup_methods <- unique(method_of[!is.na(method_of) & duplicated(method_of)])
+    if (length(dup_methods) == 0) return(files)
+
+    if (is.null(config)) config <- tryCatch(read_project_config(project),
+                                            error = function(e) list())
+
+    drop <- character(0)
+    for (m in dup_methods) {
+        idx  <- which(method_of == m)
+        adj  <- resolve_adjust(config, m, module)
+        want <- if (is.null(adj)) character(0)
+                else paste0("_sig_snps_", adj, ".tsv")
+        hit  <- if (length(want)) idx[endsWith(basename(files[idx]), want)] else integer(0)
+
+        if (length(hit) == 1L) {
+            keep <- hit
+        } else {
+            # No config entry (or an ambiguous one): keep the newest rather than
+            # whichever name sorts last, and still report the ambiguity.
+            mt   <- file.info(files[idx])$mtime
+            keep <- idx[which.max(mt)]
+            warning(sprintf(
+                "load_all_method_sigsnps: %s/%s has %d threshold variants and none matches the config (%s); using the newest, %s",
+                module, m, length(idx), adj %||% "no configs entry",
+                basename(files[keep])), call. = FALSE)
+        }
+        drop <- c(drop, files[setdiff(idx, keep)])
+    }
+
+    if (length(drop) > 0)
+        message("load_all_method_sigsnps: ignoring ", length(drop),
+                " orphaned threshold variant(s) left by an earlier config: ",
+                paste(basename(drop), collapse = ", "))
+
+    files[!files %in% drop]
+}
+
 #' Load all per-method sig SNPs for a module (for interactive Shiny combine)
 #'
 #' Reads all {method}_pvalues_K*_sig_snps_*.tsv files found under
@@ -609,7 +668,7 @@ load_gff_genes <- function(project, config) {
 #' Each data.table has columns: SNPID, chr, pos, pvalue, method, trait.
 #' Returns an empty list when no files exist (old pipeline run / fallback).
 #' @noRd
-load_all_method_sigsnps <- function(project, module = MOD_GEA, k = NA) {
+load_all_method_sigsnps <- function(project, module = MOD_GEA, k = NA, config = NULL) {
     files <- find_method_sigsnps_files(project, module)
     if (length(files) == 0) return(list())
     if (!is.na(k)) {
@@ -617,6 +676,8 @@ load_all_method_sigsnps <- function(project, module = MOD_GEA, k = NA) {
         files <- files[grepl(k_pattern, basename(files), fixed = TRUE)]
     }
     if (length(files) == 0) return(list())
+
+    files <- .current_threshold_variant(files, project, module, config)
 
     result <- list()
     for (f in files) {

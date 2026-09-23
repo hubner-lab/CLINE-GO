@@ -4,14 +4,12 @@
 # dependency on the shared pipeline libraries that zzz.R sources from /pipeline.
 # It therefore runs anywhere, with no container and no mount.
 #
-# Two contracts below are pinned deliberately because they are surprising, not
-# because they are obviously right:
-#   * .apply_bounds() silently falls back to "union" for an unrecognised
-#     strategy (fct_overlap.R:119-122) — a typo is not an error today.
+# One contract below is pinned deliberately because it is surprising, not
+# because it is obviously right:
 #   * assign_region_ids_from_regions() mutates its argument BY REFERENCE, on
 #     every path including the early returns. Callers defend with
 #     data.table::copy() (mod_gea.R:547-552, mod_gwas.R:502-507).
-# If either is ever fixed, this file is where the change must be made explicit.
+# If it is ever fixed, this file is where the change must be made explicit.
 
 regs <- function(region_id, chr, start, end) {
     data.table::data.table(
@@ -164,15 +162,38 @@ test_that(".apply_bounds honours each named strategy", {
     expect_equal(.apply_bounds(pair, "gwas_only"),    list(chr = "1", start = 150L, end = 300L))
 })
 
-test_that(".apply_bounds silently falls back to union for an unknown strategy", {
-    # CURRENT BEHAVIOUR, not an endorsement: the unnamed final switch() branch
-    # (fct_overlap.R:119-122) makes a typo'd strategy return plausible wrong
-    # bounds with no error. Filed in docs/pipeline_improvement_requests.md.
+test_that(".apply_bounds rejects an unknown strategy instead of substituting union", {
+    # Was pinned the other way round until 2026-09-15: the unnamed final switch()
+    # branch returned UNION bounds for anything unrecognised, which is how the
+    # UI's "gea"/"gwas" values silently produced union regions for months.
     pair <- compute_region_overlaps(regs("g1", "1", 100L, 200L),
                                     regs("w1", "1", 150L, 300L))
 
-    expect_equal(.apply_bounds(pair, "intersecton"), .apply_bounds(pair, "union"))
-    expect_equal(.apply_bounds(pair, ""),            .apply_bounds(pair, "union"))
+    expect_error(.apply_bounds(pair, "intersecton"), "unknown overlap bounds strategy")
+    expect_error(.apply_bounds(pair, ""),            "empty")
+    expect_error(.apply_bounds(pair, NA_character_), "empty")
+})
+
+test_that(".apply_bounds accepts the legacy gea/gwas aliases the UI used to send", {
+    pair <- compute_region_overlaps(regs("g1", "1", 100L, 200L),
+                                    regs("w1", "1", 150L, 300L))
+
+    expect_equal(.apply_bounds(pair, "gea"),  .apply_bounds(pair, "gea_only"))
+    expect_equal(.apply_bounds(pair, "gwas"), .apply_bounds(pair, "gwas_only"))
+})
+
+test_that("the overlap-bounds radio ships exactly the values .apply_bounds switches on", {
+    # The defect was a NAME mismatch between two files, so the test has to read
+    # both: a UI value that .normalize_bounds() cannot resolve is the bug.
+    ui_src <- readLines(test_path("..", "..", "R", "mod_gea_x_gwas.R"), warn = FALSE)
+    i <- grep('ns\\("overlap_bounds"\\)', ui_src)
+    skip_if(length(i) == 0, "overlap_bounds radioButtons not found")
+    block  <- paste(ui_src[i:min(length(ui_src), i + 8L)], collapse = " ")
+    values <- regmatches(block, gregexpr('"[^"]+"\\s*=\\s*"[^"]+"', block))[[1]]
+    values <- sub('^.*=\\s*"([^"]+)"$', "\\1", values)
+
+    expect_gt(length(values), 0)
+    for (v in values) expect_silent(.normalize_bounds(v))
 })
 
 # ── compute_all_overlap_regions() ─────────────────────────────────────────────
