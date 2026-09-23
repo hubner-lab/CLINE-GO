@@ -328,28 +328,6 @@ if GEA_GAPIT_CONFIGS or GWAS_GAPIT_CONFIGS:
 # --- GAPIT GEA per-trait ---
 if GEA_GAPIT_CONFIGS:
 
-    def _gapit_shared_npcs():
-        """The number of PCA covariates handed to GAPIT, from GEA.configs params.n_pcs.
-
-        gapit_gea_trait runs every configured GAPIT model in ONE gapit.R call and
-        gapit.R takes a single scalar (arg 6 -> pca_raw[, 1:K]), so per-model n_pcs is
-        not expressible without splitting the rule. Rather than silently honouring one
-        model's value and discarding the others, disagreement is a hard error: the user
-        gets told to split the run instead of getting a number that is wrong for all but
-        one model. Unset params resolve to the @k_best sentinel, so the all-defaults case
-        agrees trivially and keeps the previous behaviour.
-        """
-        vals = {m: GEA_PARAMS.get(m, {}).get('n_pcs', K_BEST) for m in GEA_GAPIT_CONFIGS}
-        distinct = set(vals.values())
-        if len(distinct) > 1:
-            raise ValueError(
-                "GAPIT models in GEA.configs request different params.n_pcs "
-                f"({vals}), but all configured GAPIT models share one gapit.R call and "
-                "therefore one PCA covariate count. Give them the same n_pcs, or run "
-                "them in separate pipeline invocations."
-            )
-        return distinct.pop()
-
     rule gapit_gea_trait:
         """Run GAPIT for a single GEA bioclimatic trait, all configured models in one call.
         Output files land under _intermediate/gea_per_trait/{model}/{trait}_pvalues_K{k}.tsv.
@@ -376,7 +354,7 @@ if GEA_GAPIT_CONFIGS:
             # this rule declares as its output), so it must stay sNMF k_best. The PCA
             # covariate count travels separately as n_pcs.
             k             = K_BEST,
-            n_pcs         = _gapit_shared_npcs(),
+            n_pcs         = gapit_shared_npcs(GEA_GAPIT_CONFIGS, GEA_PARAMS, 'GEA'),
             models        = ','.join(GEA_GAPIT_CONFIGS.keys()),
             workdir       = lambda wc: f"{INTER}gapit/gea/{wc.trait}/",
             tables_dir    = f"{INTER}gea_per_trait/",

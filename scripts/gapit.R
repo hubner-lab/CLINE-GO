@@ -30,8 +30,9 @@ OUTPUT_PREFIX   <- if (length(args) >= 14 && args[14] != "NULL") args[14] else N
 # (the "_K{k}" in the output name, which the calling Snakemake rule declares as its output
 # path), whereas N_PCS controls how many PC columns are used. They were the same value until
 # params.n_pcs became honoured, and conflating them made the script write
-# "{trait}_pvalues_K0.tsv" while the rule expected "_K5.tsv". Optional and defaulting to
-# K_BEST so existing 14-argument callers (mode=gwas) keep their previous behaviour exactly.
+# "{trait}_pvalues_K0.tsv" while the rule expected "_K5.tsv". Every rule (GEA and GWAS)
+# passes it; the K_BEST fallback only serves hand-run calls. A 14-argument rule call
+# silently discards the configured n_pcs — tests/python/test_method_param_wiring.py pins it.
 N_PCS           <- if (length(args) >= 15 && args[15] != "NULL") as.integer(args[15]) else K_BEST
 ########################
 

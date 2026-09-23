@@ -693,6 +693,41 @@ def _validate_rda_semantics(configs, params):
 if GEA_CONFIGS:
     _validate_rda_semantics(GEA_CONFIGS, GEA_PARAMS)
 
+def gapit_shared_npcs(gapit_configs, params, context):
+    """The number of PCA covariates handed to gapit.R, from <context>.configs params.n_pcs.
+
+    Shared by GEA and GWAS: every configured GAPIT model runs in ONE gapit.R call and
+    gapit.R takes a single scalar (arg 15 -> pca_raw[, 1:N_PCS]), so per-model n_pcs is
+    not expressible without splitting the rule. Rather than silently honouring one
+    model's value and discarding the others, disagreement is a hard error: the user gets
+    told to split the run instead of getting a number that is wrong for all but one
+    model. Unset params resolve to the @k_best sentinel, so the all-defaults case agrees
+    trivially and keeps the previous behaviour.
+    """
+    vals = {m: params.get(m, {}).get('n_pcs', K_BEST) for m in gapit_configs}
+    distinct = set(vals.values())
+    if len(distinct) > 1:
+        raise ValueError(
+            f"GAPIT models in {context}.configs request different params.n_pcs "
+            f"({vals}), but all configured GAPIT models share one gapit.R call and "
+            "therefore one PCA covariate count. Give them the same n_pcs, or run "
+            "them in separate pipeline invocations."
+        )
+    return distinct.pop() if distinct else K_BEST
+
+# EMMAX.kinship is honoured in GEA (emmax_kinship_climate_path() picks the BN or IBS
+# file) but there is no IBS kinship rule on the GWAS side: every GWAS kinship rule
+# declares a .aBN.kinf output and calls emmax-kin without -s. Accepting kinship='IBS'
+# here and running BN anyway is exactly the silent-wrong-science case the pipeline
+# philosophy forbids, so fail at parse time instead — before any rule burns compute.
+if GWAS_PARAMS.get("EMMAX", {}).get("kinship") == "IBS":
+    raise ValueError(
+        "GWAS.configs EMMAX params.kinship='IBS' is not implemented: the GWAS kinship "
+        "rules (workflow/rules/gwas.smk) always compute the BN estimator. Only "
+        "GEA.configs supports kinship='IBS' today. Remove the override (BN is the "
+        "default) or run the scan through mode=gea."
+    )
+
 SIGSNPS_METHOD = _parse_combine_method(_assoc, set(GEA_CONFIGS), 'GEA')
 
 # Inherit from GEA.* with optional override
