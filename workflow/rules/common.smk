@@ -1042,6 +1042,7 @@ O['pi_div']               = _ph('pi_div')
 O['amova']                = _ph('amova')
 O['corr_heatmap']         = _ph('corr_heatmap')
 O['mantel']               = _ph('mantel')
+O['mantel_stats']         = _ph('mantel_stats')
 O['amova_plot']           = _ph('amova_plot')
 O['ld_decay_table']       = _ph('ld_decay_table')
 O['ld_decay_plot_gw']     = _ph('ld_decay_plot_gw')
@@ -1165,6 +1166,7 @@ def add_kbest_paths():
     O['tajima'] = f"{MOD_STRUCT}tables/pop_stats/tajima_d_by_pop.tsv"
     O['pi_div'] = f"{MOD_STRUCT}tables/pop_stats/pi_diversity_by_pop.tsv"
     O['amova'] = f"{MOD_STRUCT}tables/pop_stats/amova.tsv"
+    O['mantel_stats'] = f"{MOD_STRUCT}tables/pop_stats/mantel_statistics.tsv"
 
     # Plots - climate
     O['corr_heatmap'] = f"{MOD_CLIMATE}plots/correlation_heatmap.png"
@@ -2167,7 +2169,7 @@ def get_targets(mode):
             targets += [O['tajima'], O['pi_div']]
             targets += [O['amova'], O['amova_plot']]
             if CLIMATE_ENABLED:
-                targets += [O['mantel']]
+                targets += [O['mantel'], O['mantel_stats']]
                 # PieMaps with trait overlays for ALL 19 BIO variables
                 targets += [piemap_tajima(bio) for bio in ALL_BIO]
                 targets += [piemap_diversity(bio) for bio in ALL_BIO]

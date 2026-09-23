@@ -4,8 +4,10 @@ library(vegan)
 library(stringr)
 library(geosphere)
 library(ggplot2)
-library(ggpubr)
 library(qs)
+# Shared plot theme + palette (CLAUDE.md rule 9) — theme_clinego(),
+# scale_fill_clinego(), CLINEGO_THRESHOLD.
+source("/pipeline/scripts/R/utils/theme_clinego.R")
 
 args = commandArgs(trailingOnly=TRUE)
 ####################################
@@ -15,6 +17,7 @@ ENV = args[3]
 PREDICTORS_SELECTED = args[4] %>% str_split(',') %>% unlist
 PLOT_DIR = args[5]
 INTER_DIR = args[6]
+TABLES_DIR = args[7]
 ####################################
 
 #################################### Functions
@@ -57,31 +60,34 @@ analyze_mantel <- function(geo, env, clust) {
                                 method = 'pearson',
                                 permutations = 999)
 
-  # Calculate variance components (R-squared)
-  r2_geo_total <- max(0, ibd_full$statistic^2)
-  r2_env_total <- max(0, ibe_full$statistic^2)
-  r2_geo_pure <- max(0, ibd_partial$statistic^2)
-  r2_env_pure <- max(0, ibe_partial$statistic^2)
+  # NO VARIANCE PARTITION HERE. This used to square the four r values into a
+  # "Geography Only / Environment Only / Geography x Environment / Unexplained"
+  # pie, clamp each at 0, derive "shared" by Venn subtraction and renormalise to
+  # 1 (twice: here and again in the plot). None of that is a partition: a Mantel
+  # r correlates two vectors of PAIRWISE DISTANCES, so r^2 is not a fraction of
+  # genomic variance; a partial Mantel r is a partial correlation (a share of the
+  # residual), not a semipartial, so the Venn algebra does not hold; squaring
+  # drops the sign, so a NEGATIVE IBD r was drawn as a positive geography share;
+  # and r_geo = r_env = 0.8 with both partials 0 rendered "100% shared, 0%
+  # unexplained". The genuine partition of the same question (dbMEM + partial RDA
+  # on adjusted R2) is mode=climate's climate/tables/varpart/variance_partition.tsv.
+  # The four statistics are reported as what they are.
+  stats_dt <- data.table::data.table(
+    test         = c('IBD (geography)', 'IBE (environment)',
+                     'IBD | environment', 'IBE | geography'),
+    type         = c('mantel', 'mantel', 'partial_mantel', 'partial_mantel'),
+    mantel_r     = c(ibd_full$statistic, ibe_full$statistic,
+                     ibd_partial$statistic, ibe_partial$statistic),
+    p_value      = c(ibd_full$signif, ibe_full$signif,
+                     ibd_partial$signif, ibe_partial$signif),
+    permutations = c(ibd_full$permutations, ibe_full$permutations,
+                     ibd_partial$permutations, ibe_partial$permutations)
+  )
 
-  # Shared variance (intersection)
-  r2_shared <- max(0, r2_geo_total + r2_env_total - r2_geo_pure - r2_env_pure)
-
-  # Unexplained variance
-  r2_total_explained <- r2_geo_pure + r2_env_pure + r2_shared
-  r2_unexplained <- max(0, 1 - r2_total_explained)
-
-  # Normalize if components don't sum to 1
-  total_check <- r2_geo_pure + r2_env_pure + r2_shared + r2_unexplained
-  if (abs(total_check - 1) > 0.01) {
-    message('WARNING: Variance components do not sum to 1. Normalizing...')
-    r2_geo_pure <- r2_geo_pure / total_check
-    r2_env_pure <- r2_env_pure / total_check
-    r2_shared <- r2_shared / total_check
-    r2_unexplained <- r2_unexplained / total_check
+  for (i in seq_len(nrow(stats_dt))) {
+    message(sprintf('INFO: %-20s r = %+.3f, p = %.3f',
+                    stats_dt$test[i], stats_dt$mantel_r[i], stats_dt$p_value[i]))
   }
-
-  message(sprintf('INFO: Variance components - Geography: %.3f, Environment: %.3f, Shared: %.3f, Unexplained: %.3f',
-                  r2_geo_pure, r2_env_pure, r2_shared, r2_unexplained))
 
   results <- list(
     mantel_tests = list(
@@ -90,74 +96,36 @@ analyze_mantel <- function(geo, env, clust) {
       ibd_partial = ibd_partial,
       ibe_partial = ibe_partial
     ),
-    variance_components = list(
-      geo_pure = r2_geo_pure,
-      env_pure = r2_env_pure,
-      shared = r2_shared,
-      unexplained = r2_unexplained
-    )
+    statistics = stats_dt
   )
 
   return(results)
 }
 
-create_variance_pie <- function(results) {
-  geo_pure <- results$variance_components$geo_pure
-  env_pure <- results$variance_components$env_pure
-  shared <- results$variance_components$shared
-  unexplained <- results$variance_components$unexplained
+# Bar chart of the four Mantel statistics (replaces the variance pie — see the
+# comment in analyze_mantel()). Value labels are data, not commentary (rule 8).
+create_mantel_plot <- function(results) {
+  # as.data.frame, not the data.table: $<- on a data.table emits the
+  # shallow-copy warning, and the test suite's warning baseline is 0.
+  st <- as.data.frame(results$statistics)
+  st$test <- factor(st$test, levels = rev(st$test))
+  st$label <- sprintf('r = %+.3f   p = %.3f', st$mantel_r, st$p_value)
+  st$fill_grp <- ifelse(st$type == 'partial_mantel', 'Partial Mantel', 'Mantel')
 
-  # Define colors as named vector for consistent mapping
-  component_colors <- c(
-    "Geography Only" = "#56B4E9",
-    "Environment Only" = "#E69F00",
-    "Geography \u00d7 Environment" = "#9B59B6",
-    "Unexplained" = "#999999"
-  )
+  lo <- min(0, min(st$mantel_r, na.rm = TRUE)) - 0.38
+  hi <- max(0, max(st$mantel_r, na.rm = TRUE)) + 0.38
 
-  pie_data <- data.frame(
-    component = names(component_colors),
-    value = c(geo_pure, env_pure, shared, unexplained),
-    stringsAsFactors = FALSE
-  )
-
-  # Filter negligible components
-  pie_data <- pie_data[pie_data$value > 0.001, ]
-  pie_data$percentage <- pie_data$value / sum(pie_data$value) * 100
-  pie_data$percent_label <- sprintf("%.1f%%", pie_data$percentage)
-
-  colors <- component_colors[pie_data$component]
-
-  p <- ggpubr::ggpie(
-    data = pie_data,
-    x = "value",
-    label = "percent_label",
-    fill = "component",
-    color = "white",
-    palette = unname(colors),
-    lab.pos = "in",
-    lab.font = c(4, "bold", "black")
-  ) +
-    theme(
-      plot.title = element_blank(),
-      plot.subtitle = element_blank(),
-      legend.position = "right",
-      legend.title = element_blank(),
-      legend.text = element_text(size = 10),
-      panel.background = element_rect(fill = "white", color = NA),
-      plot.background = element_rect(fill = "white", color = NA)
-    ) +
-    guides(fill = guide_legend(title = NULL))
-
-  # Log breakdown
-  for (i in 1:nrow(pie_data)) {
-    message(sprintf('INFO: %s: %.3f (%.1f%%)',
-                    pie_data$component[i],
-                    pie_data$value[i],
-                    pie_data$percentage[i]))
-  }
-
-  return(p)
+  ggplot(st, aes(x = test, y = mantel_r, fill = fill_grp)) +
+    geom_col(width = 0.6) +
+    geom_hline(yintercept = 0, colour = CLINEGO_THRESHOLD) +
+    geom_text(aes(label = label, hjust = ifelse(mantel_r >= 0, -0.08, 1.08)),
+              size = 3.4) +
+    coord_flip() +
+    scale_fill_clinego() +
+    scale_y_continuous(limits = c(lo, hi)) +
+    labs(x = NULL, y = 'Mantel correlation (r)', fill = NULL) +
+    theme_clinego(base_size = 12) +
+    theme(legend.position = 'bottom')
 }
 
 ########################################## Main
@@ -182,7 +150,7 @@ if (length(lon_col) > 1) { message('WARNING: Multiple longitude columns, using: 
 # geographic or environmental one. With one sampling site the geographic matrix
 # is all zeros and every per-sample climate column is constant, so both the
 # geographic and the environmental term are undefined -- the statistics come back
-# NaN and propagate into the variance pie.
+# NaN and propagate into the plot and the statistics table.
 #
 # This has to run BEFORE the zero-variance predictor check further down: with one
 # site that check drops every predictor and stop()s first, reporting a predictor
@@ -202,6 +170,12 @@ if (n_sites < 2) {
          device = svglite::svglite, bg = 'white', fix_text_size = FALSE)
   qsave(list(status = 'skipped_single_site', n_sites = n_sites),
         paste0(INTER_DIR, 'mantel_test.qs'))
+  # mantel_statistics.tsv is a declared rule output — write the empty shape so the
+  # opt-in skip stays a skip instead of failing the rule on a missing file.
+  dir.create(TABLES_DIR, recursive = TRUE, showWarnings = FALSE)
+  fwrite(data.table(test = character(0), type = character(0), mantel_r = numeric(0),
+                    p_value = numeric(0), permutations = numeric(0), n_sites = integer(0)),
+         paste0(TABLES_DIR, 'mantel_statistics.tsv'), sep = '\t')
   quit(status = 0)
 }
 
@@ -290,7 +264,7 @@ if (n_sites < 4) {
 if (n_sites < 8) {
     message(sprintf(paste0('WARNING: only %d sites — %d pairwise distances, and the ',
                            'permutation test cannot resolve p below 1/%d. Read the ',
-                           'variance components as descriptive, not as a test.'),
+                           'Mantel statistics as descriptive, not as a test.'),
                     n_sites, n_sites * (n_sites - 1) / 2, factorial(n_sites)))
 }
 
@@ -313,11 +287,16 @@ if (ncol(env) == 0) {
 # Run Mantel analysis
 results <- analyze_mantel(geo, env, clust)
 
-# Create variance pie chart
-gMantel <- create_variance_pie(results)
+# Plot the four Mantel statistics
+gMantel <- create_mantel_plot(results)
 
-# Save
-ggsave(paste0(PLOT_DIR, 'mantel_test.png'), gMantel, width = 10, height = 8, dpi = 300, bg = "white")
+# Save. The statistics table is a DECLARED OUTPUT: CLAUDE.md rule 1 forbids
+# reading plots, and before this the r values and permutation p-values existed
+# only inside the PNG and the .qs.
+dir.create(TABLES_DIR, recursive = TRUE, showWarnings = FALSE)
+fwrite(cbind(results$statistics, n_sites = n_sites),
+       paste0(TABLES_DIR, 'mantel_statistics.tsv'), sep = '\t')
+ggsave(paste0(PLOT_DIR, 'mantel_test.png'), gMantel, width = 10, height = 6, dpi = 300, bg = "white")
 ggsave(paste0(PLOT_DIR, 'mantel_test.svg'), gMantel,
        device = svglite::svglite, bg = 'white', fix_text_size = FALSE)
 qsave(results, paste0(INTER_DIR, 'mantel_test.qs'))
