@@ -29,7 +29,9 @@
 # EXCLUSIONS in the A-plane: causal loci (no linked hits by construction -- TP 7/43/460
 #   at FP 0, so it would sit BELOW every GEA panel at oligo/moderate and read as "2/3
 #   beats the truth set") and the random panel (drawn from background only: TP 0).
-#   Both appear in A4 as labelled reference bars.
+#   The causal loci appear in A4 as a labelled reference bar. The random panel is in NO
+#   figure at all (user decision 2026-09-24); it survives only in offset_delta_per_seed.tsv
+#   and detection_*.tsv as data.
 #
 #   FIG_OUT     default benchmarks/mvp_eval/figures_ssclines_j16_gallery
 #   OFFSET_DIR  default offset12_ssclines_pooled
@@ -62,7 +64,10 @@ BLOCK_LAB <- c(ssclines_nvar_mvar      = "N variable, m variable",
 RULES  <- c("2/3 methods", "1/3 methods", "3/3 methods", "LFMM", "RDA", "EMMAX")
 ORACLE <- "causal loci"
 RANDOM <- "random, size-matched"
-OFF_ORDER <- c(RULES, RANDOM)
+# The size-matched random panel is REMOVED FROM EVERY FIGURE (user decision 2026-09-24,
+# journal 16): it stays in the per-seed data record and in the journal-15 regression tie,
+# never in a plotted row.
+OFF_ORDER <- RULES
 
 # Rule colours as mvp_dist_panel.R: sage shades = combinations, amber = single methods.
 MINOU <- c(teal = "#00798c", red = "#d1495b", amber = "#edae49", sage = "#66a182",
@@ -150,22 +155,23 @@ SA <- acc[, .(accuracy = median(accuracy), n_methods = .N), by = .(seed, marker_
 SA[, label := SET_LAB[marker_set]]
 W  <- dcast(SA, seed ~ label, value.var = "accuracy")
 stopifnot(ORACLE %in% names(W), !anyNA(W[[ORACLE]]), nrow(W) == nrow(PRIM))
-OFFD <- rbindlist(lapply(OFF_ORDER, function(p)
+OFFD_ALL <- rbindlist(lapply(c(RULES, RANDOM), function(p)
     data.table(seed = W$seed, label = p, accuracy = W[[p]], oracle = W[[ORACLE]])))[is.finite(accuracy)]
-OFFD[, delta := accuracy - oracle]
-OFFD <- merge(OFFD, COV, by = "seed")
-OFFD[, label := factor(label, levels = OFF_ORDER)]
+OFFD_ALL[, delta := accuracy - oracle]
+OFFD_ALL <- merge(OFFD_ALL, COV, by = "seed")
 
 # Regression tie to journal 15: same seeds, same labels, same deltas.
 j15 <- fread(file.path(J15, "delta_per_seed.tsv"), colClasses = c(seed = "character"))
-chk <- merge(OFFD[, .(seed, label = as.character(label), delta)],
+chk <- merge(OFFD_ALL[, .(seed, label, delta)],
              j15[, .(seed, label, delta_j15 = delta)], by = c("seed", "label"), all = TRUE)
 stopifnot(!anyNA(chk$delta), !anyNA(chk$delta_j15),
           max(abs(chk$delta - chk$delta_j15)) < 1e-9)
 message(sprintf("regression vs journal 15: %d seed x panel deltas, max |diff| = %.1e",
                 nrow(chk), max(abs(chk$delta - chk$delta_j15))))
-emit(OFFD[, .(seed, label, arch, regime, pleio, block, accuracy, oracle, delta)],
+emit(OFFD_ALL[, .(seed, label, arch, regime, pleio, block, accuracy, oracle, delta)],
      "offset_delta_per_seed")
+OFFD <- OFFD_ALL[label %in% OFF_ORDER]
+OFFD[, label := factor(label, levels = OFF_ORDER)]
 
 # =============================================================================
 # DATA 2 -- detection composition, per seed
@@ -295,7 +301,7 @@ save_fig("A3", "A3_arrows_lfmm_to_best", pA3, 13, 5.2,
          "one arrow per seed from LFMM-alone to the 2/3 panel; black = median move")
 
 # A4 -- composition from per-seed MEANS (medians of components do not sum; filed defect)
-COMP <- pr[, .(causal = mean(n_causal), linked = mean(n_linked), background = mean(FP),
+COMP <- pr[label != RANDOM, .(causal = mean(n_causal), linked = mean(n_linked), background = mean(FP),
                total_mean = mean(n), total_median = median(n),
                total_q25 = quantile(n, .25), total_q75 = quantile(n, .75)), by = .(label, arch)]
 stopifnot(COMP[, max(abs(causal + linked + background - total_mean))] < 1e-9)
@@ -304,7 +310,7 @@ CL <- melt(COMP, id.vars = c("label", "arch"), measure.vars = c("causal", "linke
            variable.name = "class", value.name = "markers")
 CL[, class := factor(class, levels = c("background", "linked", "causal"))]
 CLASS_COL <- c(causal = CLINEGO_RETAINED, linked = MINOU[["sage"]], background = CLINEGO_REMOVED)
-A4_ORDER <- c(RULES, ORACLE, RANDOM)
+A4_ORDER <- c(RULES, ORACLE)
 pA4 <- ggplot(CL, aes(markers, label)) +
     geom_col(aes(fill = class), width = 0.7, alpha = 0.85) +
     geom_linerange(data = COMP, aes(xmin = total_q25, xmax = total_q75, y = label),
@@ -486,10 +492,9 @@ save_fig("C3", "C3_rank_share", pC3, 14, 4.6,
          "share of seeds at each within-seed accuracy rank among the six obtainable rules")
 
 # C4 -- ECDF
-pC4 <- ggplot(OFFD, aes(delta, colour = label, linetype = label == RANDOM)) + ZERO +
+pC4 <- ggplot(OFFD, aes(delta, colour = label)) + ZERO +
     stat_ecdf(linewidth = 0.55) + ARCH_FACET +
     scale_colour_manual(values = RULE_COL, name = NULL) +
-    scale_linetype_manual(values = c(`FALSE` = "solid", `TRUE` = "dashed"), guide = "none") +
     labs(x = "accuracy of the panel minus accuracy of the causal loci (per seed)",
          y = "cumulative share of seeds", title = "C4  cumulative distribution of delta") +
     theme_clinego() + theme(legend.position = "bottom")
