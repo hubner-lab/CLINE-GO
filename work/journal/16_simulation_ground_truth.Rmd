@@ -66,6 +66,32 @@ EXC <- EXC[seed %in% P$seed]
 GATE <- rd(paste0(DET, "gate_legacy_reproduction.tsv"))
 PR  <- rd(paste0(POOL, "panel_pr_recomputed.tsv"), colClasses = c(seed = "character"))
 PR  <- PR[seed %in% P$seed]
+
+# Части III-IV: таблицы галереи (выбранные рисунки) и производные сравнения
+fig16 <- function(stem) knitr::include_graphics(paste0(G16, stem, ".png"))
+DS  <- rd(paste0(G16, "detection_stats.tsv"))
+CS  <- rd(paste0(G16, "C_delta_stats.tsv"))
+AU  <- rd(paste0(G16, "B4_aucpr_stats.tsv"))
+D6d <- rd(paste0(G16, "D6_detection_stats.tsv"))
+D5d <- rd(paste0(G16, "D5_detection_stats.tsv"))
+DP  <- rd(paste0(G16, "detection_per_seed.tsv"), colClasses = c(seed = "character"))
+PO <- "pooled"; OL <- "oligogenic"; MO <- "moderately polygenic"; HI <- "highly polygenic"
+B23 <- "2/3 methods"
+# D6: в каждом демографическом блоке — у 2/3 FP меньше, чем у LFMM? наибольший TP у 1/3, наименьший у RDA?
+w6   <- dcast(D6d[label %in% c(B23, "LFMM")], block ~ label, value.var = "FP_median")
+n6   <- sum(w6[[B23]] < w6[["LFMM"]])
+ord6 <- D6d[label %in% c(B23, "LFMM", "1/3 methods", "RDA"),
+            .(top = label[which.max(TP_median)], bottom = label[which.min(TP_median)]), by = block]
+ord6_ok <- all(ord6$top == "1/3 methods") && all(ord6$bottom == "RDA")
+r6tp <- D6d[label == B23, range(TP_median)]; r6fp <- D6d[label == B23, range(FP_median)]
+# D5: 12 ячеек — FP у 2/3 < LFMM? разница TP 2/3 - LFMM; уровни FP по режиму
+w5 <- dcast(D5d[label %in% c(B23, "LFMM")], arch + pleio + regime ~ label,
+            value.var = c("FP_median", "TP_median"))
+n5    <- sum(w5[[paste0("FP_median_", B23)]] < w5[["FP_median_LFMM"]])
+tpd5  <- max(abs(w5[[paste0("TP_median_", B23)]] - w5[["TP_median_LFMM"]]))
+FPreg <- DP[label == B23, .(fp = median(FP), tp = median(TP)), by = regime]
+RK3   <- rd(paste0(G16, "C3_rank_share.tsv"))
+last23 <- RK3[label == B23 & arch == PO & rank_lab == "6th", pct]
 ```
 
 ## Обзор
@@ -102,9 +128,10 @@ if (file.exists(img)) knitr::include_graphics(img) else cat("[ОТСУТСТВУ
   `docs/03-results-simulations.md`, `docs/claim_gea_panels_beat_causal_loci.md`,
   `benchmarks/mvp_eval/CLAIMS.md`, `docs/gea_paper_positioning.md`. Все они описывают
   легаси-корпус; их статус — в Части V.
-- **Части III–IV** заполняются по выбору пользователя из галереи
-  `work/journal/16g_simulation_variants.html` и по проверенной литературе. До этого там стоят
-  явные заглушки.
+- **Части III–IV** содержат только рисунки, выбранные пользователем в галерее
+  `work/journal/16g_simulation_variants.html` (решение 2026-09-24: A1, C5, в приложение D6-детекция
+  и D5-детекция), и только литературу, проверенную по полному тексту
+  (`docs/simulation_literature_2026-09.md`).
 </div>
 
 ---
@@ -592,7 +619,8 @@ OUT=".../offset12" CONFIG_SUFFIX=_sweep BLAS_THREADS=2 HOST_RAM_CEILING_GB=800 \
 - **Ничья с каузальными:** при n = 200 точный биномиальный интервал для 50 % — **43–57 %**. Доля
   «не хуже» внутри него — формальная ничья, а не выигрыш.
 - **Доминирование по Парето** (B1): правило задано до расчёта — TP ≥ и FP ≤, одно строго; в
-  каждой ячейке три доли.
+  каждой ячейке три доли. Рисунок B1 в журнал не вошёл (решение 2026-09-24): таблица
+  `figures_ssclines_j16_gallery/B1_dominance.tsv` существует, но в Частях III–IV не цитируется.
 </div>
 
 ## 18. Цепочка скриптов
@@ -627,21 +655,300 @@ Runbook пропускает `mvp_fitness_identity.R` в шаге 7; прави�
 
 # Часть III. Результаты
 
-<details class="callout-note" open>
-<summary>Заглушка</summary>
-<p>Заполняется только вариантами, выбранными пользователем в
-`work/journal/16g_simulation_variants.html` (коды A, B, C, D). Числа будут взяты inline из
-`figures_ssclines_j16_gallery/`, а фигуры — из того же каталога.</p>
-</details>
+<div class="callout-method">
+Рисунки выбраны пользователем 2026-09-24 из галереи 16g:
+
+- **A1** — единственный рисунок детекции GEA. Вид подходит, но пока немного запутан; переделка —
+  открытая подзадача.
+- **C5** — рисунок точности offset.
+- **D6 (детекция)** и **D5 (детекция)** — в приложение.
+
+Решения по подаче:
+
+- **Не показываются:**
+  - метрики B (ни одна не выбрана);
+  - случайная панель подобранного размера — убрана со всех рисунков;
+  - точность offset по демографическим блокам.
+- **Итоговая компоновка панелей** — после окончательного выбора каждого рисунка.
+
+Рисунки строит `benchmarks/mvp_j16_gallery.R` (драйвер `work/j16_figures.sh`), все числа ниже
+считаются из его таблиц в `figures_ssclines_j16_gallery/`.
+</div>
+
+## 19. Детекция GEA: плоскость TP-vs-FP (A1, основной)
+
+```{r 19-fig, echo=FALSE, out.width="100%"}
+fig16("A1_plane_contours")
+```
+
+<div class="fig-caption">
+Каждое получаемое правило — облако из **200** реплик на генный уровень: контуры плотности
+(25 % и 60 % от пика) и медиана с подписью.
+
+- **Оси:** X — ложные срабатывания (фоновые локусы LG 11–20), Y — истинные попадания
+  (каузальные + сцепленные, LG 1–10); обе в корне.
+- **Пунктирные лучи** — равная точность 0.50 / 0.75 / 0.90. Выше и левее — лучше.
+- **Рабочие точки фиксированы:** LFMM top 100, RDA top 100, EMMAX p < 1e-4, окно 5 kb.
+- **Не показаны:** каузальные локусы (по построению нет сцепленных попаданий) и случайная панель.
+</div>
+
+<div class="callout-result">
+Медианы по репликам, объединённо:
+
+| | TP | FP |
+|---|---|---|
+| 2/3 | **`r f0(g(DS, "TP_median", label = B23, arch = PO))`** | **`r f0(g(DS, "FP_median", label = B23, arch = PO))`** |
+| LFMM | **`r f0(g(DS, "TP_median", label = "LFMM", arch = PO))`** | **`r f0(g(DS, "FP_median", label = "LFMM", arch = PO))`** |
+| 1/3 | **`r f0(g(DS, "TP_median", label = "1/3 methods", arch = PO))`** | **`r f0(g(DS, "FP_median", label = "1/3 methods", arch = PO))`** |
+| RDA | **`r f0(g(DS, "TP_median", label = "RDA", arch = PO))`** | **`r f0(g(DS, "FP_median", label = "RDA", arch = PO))`** |
+| 3/3 | **`r f0(g(DS, "TP_median", label = "3/3 methods", arch = PO))`** | **`r f0(g(DS, "FP_median", label = "3/3 methods", arch = PO))`** |
+| EMMAX | **`r f0(g(DS, "TP_median", label = "EMMAX", arch = PO))`** | **`r f0(g(DS, "FP_median", label = "EMMAX", arch = PO))`** |
+
+По генным уровням (олигогенные / умеренно / высоко полигенные):
+
+- 2/3 — TP **`r f0(g(DS, "TP_median", label = B23, arch = OL))` / `r f0(g(DS, "TP_median", label = B23, arch = MO))` / `r f0(g(DS, "TP_median", label = B23, arch = HI))`**,
+  FP **`r f0(g(DS, "FP_median", label = B23, arch = OL))` / `r f0(g(DS, "FP_median", label = B23, arch = MO))` / `r f0(g(DS, "FP_median", label = B23, arch = HI))`**;
+- LFMM — TP **`r f0(g(DS, "TP_median", label = "LFMM", arch = OL))` / `r f0(g(DS, "TP_median", label = "LFMM", arch = MO))` / `r f0(g(DS, "TP_median", label = "LFMM", arch = HI))`**,
+  FP **`r f0(g(DS, "FP_median", label = "LFMM", arch = OL))` / `r f0(g(DS, "FP_median", label = "LFMM", arch = MO))` / `r f0(g(DS, "FP_median", label = "LFMM", arch = HI))`**.
+
+Пороговонезависимая AUC-PR по одиночным методам (§16), медианы по уровням:
+
+- LFMM **`r f3(g(AU, "median", label = "LFMM", arch = OL))` / `r f3(g(AU, "median", label = "LFMM", arch = MO))` / `r f3(g(AU, "median", label = "LFMM", arch = HI))`**;
+- RDA **`r f3(g(AU, "median", label = "RDA", arch = OL))` / `r f3(g(AU, "median", label = "RDA", arch = MO))` / `r f3(g(AU, "median", label = "RDA", arch = HI))`**;
+- EMMAX **`r f3(g(AU, "median", label = "EMMAX", arch = OL))` / `r f3(g(AU, "median", label = "EMMAX", arch = MO))` / `r f3(g(AU, "median", label = "EMMAX", arch = HI))`**.
+</div>
+
+<div class="callout-conclusion">
+Правило 2/3 почти сохраняет объём LFMM (лучшего одиночного метода и по AUC-PR) при меньшем числе
+ложных на каждом генном уровне. 1/3 находит больше, но и ошибается больше всех. 3/3 и EMMAX почти
+ничего не выбирают. Смысл 2/3 в детекции — **лучший баланс**, а не наибольшая мощность.
+</div>
+
+## 20. Offset: доля реплик, достигших каузальных локусов (C5, основной)
+
+```{r 20-fig, echo=FALSE, out.width="75%"}
+fig16("C5_reach_tile")
+```
+
+<div class="fig-caption">
+Для каждого правила и генного уровня: % реплик, где точность offset панели **не ниже** точности
+каузальных локусов на той же реплике (delta ≥ 0).
+
+- Точность = −τ Кендалла: медиана по **100** ландшафтным садам, затем по трём рабочим движкам.
+- Колонка «pooled» — все **`r nrow(P)`** реплик.
+- При n = 200 доли внутри **43–57 %** — формальная ничья с каузальными (точный биномиальный
+  интервал).
+</div>
+
+<div class="callout-result">
+| | reach, % | медиана delta |
+|---|---|---|
+| 2/3, объединённо | **`r f0(g(CS, "reach_pct", label = B23, arch = PO))`** | **`r f3(g(CS, "median", label = B23, arch = PO))`** [`r f3(g(CS, "ci_lo", label = B23, arch = PO))`, `r f3(g(CS, "ci_hi", label = B23, arch = PO))`] |
+| 2/3, олигогенные | **`r f0(g(CS, "reach_pct", label = B23, arch = OL))`** | **`r f3(g(CS, "median", label = B23, arch = OL))`** |
+| 2/3, умеренно полигенные | **`r f0(g(CS, "reach_pct", label = B23, arch = MO))`** | **`r f3(g(CS, "median", label = B23, arch = MO))`** |
+| 2/3, высоко полигенные | **`r f0(g(CS, "reach_pct", label = B23, arch = HI))`** | **`r f3(g(CS, "median", label = B23, arch = HI))`** |
+| LFMM, объединённо | **`r f0(g(CS, "reach_pct", label = "LFMM", arch = PO))`** | **`r f3(g(CS, "median", label = "LFMM", arch = PO))`** |
+| RDA, объединённо | **`r f0(g(CS, "reach_pct", label = "RDA", arch = PO))`** | **`r f3(g(CS, "median", label = "RDA", arch = PO))`** |
+| **RDA, высоко полигенные** | **`r f0(g(CS, "reach_pct", label = "RDA", arch = HI))`** | **`r f3(g(CS, "median", label = "RDA", arch = HI))`** |
+| 1/3, объединённо | **`r f0(g(CS, "reach_pct", label = "1/3 methods", arch = PO))`** | **`r f3(g(CS, "median", label = "1/3 methods", arch = PO))`** |
+| 3/3, объединённо | **`r f0(g(CS, "reach_pct", label = "3/3 methods", arch = PO))`** | **`r f3(g(CS, "median", label = "3/3 methods", arch = PO))`** |
+| EMMAX, объединённо | **`r f0(g(CS, "reach_pct", label = "EMMAX", arch = PO))`** | **`r f3(g(CS, "median", label = "EMMAX", arch = PO))`** |
+</div>
+
+<div class="callout-conclusion">
+2/3 — лучшее получаемое правило объединённо и на олигогенном и умеренно полигенном уровнях. Ни
+одно правило каузальных локусов в среднем не достигает: все медианы delta < 0.
+
+**Для обсуждения статьи:** на высоко полигенном уровне впереди **RDA в одиночку**. По детекции
+(AUC-PR, §19) RDA этого преимущества не имеет — разбор в §24.
+</div>
+
+## 21. Приложение: демография не меняет картину детекции (D6, детекция)
+
+```{r 21-fig, echo=FALSE, out.width="100%"}
+fig16("D6_detection")
+```
+
+<div class="fig-caption">
+Плоскость A1 по пяти демографическим блокам депозита, по **120** реплик. Лучи точности на сетках
+больше трёх панелей не подписаны: это те же 0.50 / 0.75 / 0.90. Точность offset по блокам
+сознательно не показывается (решение 2026-09-24).
+</div>
+
+<div class="callout-result">
+- 2/3 по блокам: медиана TP **`r f0(r6tp[1])`–`r f0(r6tp[2])`**, FP **`r f0(r6fp[1])`–`r f0(r6fp[2])`**.
+- FP у 2/3 меньше, чем у LFMM, в **`r n6` из `r nrow(w6)`** блоков.
+- Наибольший TP у 1/3 и наименьший у RDA — в каждом блоке: **`r if (ord6_ok) "да" else "нет"`**.
+</div>
+
+<div class="callout-conclusion">
+Демография сдвигает уровни, но не меняет порядок правил. Объединение пяти блоков в один корпус
+не прячет демографически-зависимого вывода о детекции.
+</div>
+
+## 22. Приложение: режим отбора меняет уровни, но не порядок (D5, детекция)
+
+```{r 22-fig, echo=FALSE, out.width="100%"}
+fig16("D5_detection")
+```
+
+<div class="fig-caption">
+Плоскость A1 по всем **12** ячейкам дизайна: генный уровень × плейотропия × режим отбора, по
+**50** реплик.
+</div>
+
+<div class="callout-result">
+- FP у 2/3 меньше, чем у LFMM, в **`r n5` из `r nrow(w5)`** ячеек.
+- Наибольшая разница медиан TP между 2/3 и LFMM в ячейке — **`r f0(tpd5)`**.
+- Режим отбора сдвигает уровни: у 2/3 медиана FP
+  **`r f0(g(FPreg, "fp", regime = "equal-S"))`** при equal-S против
+  **`r f0(g(FPreg, "fp", regime = "unequal-S"))`** при unequal-S; TP
+  **`r f0(g(FPreg, "tp", regime = "equal-S"))`** против **`r f0(g(FPreg, "tp", regime = "unequal-S"))`**.
+</div>
+
+<div class="callout-conclusion">
+Это обоснование объединения корпуса для детекции. **Режим отбора влияет** — при unequal-S ложных
+больше и попаданий меньше. Но **у 2/3 FP ниже, чем у LFMM, во всех 12 ячейках**, а TP
+отличаются не больше чем на **`r f0(tpd5)`**, поэтому объединённая плоскость A1 правильно
+передаёт отношение 2/3 к LFMM. Абсолютные уровни в объединённом
+рисунке — смесь двух режимов, и в тексте это надо сказать.
+
+Для offset режим отбора, наоборот, меняет **порядок**: при unequal-S одиночные методы
+проваливаются, а 2/3 держится (галерея 16g, D3). Поэтому точность offset объединяется только
+вместе с этим предупреждением.
+</div>
+
+---
 
 # Часть IV. Интерпретация
 
-<details class="callout-note" open>
-<summary>Заглушка</summary>
-<p>Заполняется после проверки литературы (сильные стороны методов по
-архитектуре; комбинирование как устойчивость; мощность при малом числе особей и сайтов) и выбора
-в 16g.</p>
-</details>
+<div class="callout-method">
+Каждая ссылка ниже проверена по полному тексту статьи; цитаты и места —
+`docs/simulation_literature_2026-09.md`.
+
+Шесть работ **не прочитаны** (paywall / 403) и не цитируются для конкретных формулировок:
+Lotterhos & Whitlock 2015, Rellstab 2015, De Mita 2013, Ahrens 2018, Capblancq & Forester 2021,
+Fitzpatrick 2021.
+</div>
+
+## 23. 2/3 — устойчивость, а не мощность
+
+<div class="callout-conclusion">
+«Комбинирование методов» в литературе — две разные операции с противоположными компромиссами.
+
+- **(a) Пересечение списков, прошедших порог** («найдено ≥ k методами»).
+  - de Villemereuil et al. 2014: три метода снижают FDR на 0.4–0.65, но мощность падает на
+    0.25–0.55.
+  - Forester et al. 2018 называет наложение списков смещённым к сильным свипам и «likely too
+    conservative» для отбора на стоячей изменчивости.
+  - Панели 2/3 и 3/3 пайплайна — это операция (a), с оконным согласием ±5 kb.
+- **(b) Метааналитическое объединение откалиброванных тестов** (типа Стоуффера). François et al.
+  2016: после калибровки тесты становятся взаимодополняющими, и их объединение **повышает**
+  мощность при контроле FDR. Пайплайн этого не делает.
+
+Наши данные ложатся на (a), но цену платит только k = 3. 3/3 теряет почти всю мощность (§19).
+2/3 почти не теряет объёма LFMM, но отсекает часть ложных, и в offset почти никогда не худшее:
+последнее место лишь на **`r formatC(last23, format = "f", digits = 1)` %** реплик (галерея 16g, C3). Утверждение для статьи —
+«2 из 3 — самое устойчивое из получаемых правил», а не «комбинирование мощнее».
+
+**Уточнение атрибуции:** воспоминание «Capblancq показал, что комбинирование стабильнее» не
+подтверждается. Capblancq et al. 2018 сравнивает мощность RDA, pcadapt и LFMM и комбинирование
+не изучает. Эмпирические результаты о комбинировании — de Villemereuil 2014 и François 2016.
+</div>
+
+## 24. RDA при высокой полигенности — пункт обсуждения
+
+<div class="callout-conclusion">
+В offset на высоко полигенном уровне RDA в одиночку впереди 2/3: delta
+**`r f3(g(CS, "median", label = "RDA", arch = HI))`** против
+**`r f3(g(CS, "median", label = B23, arch = HI))`**, но ДИ перекрываются. По AUC-PR RDA там же
+уступает LFMM (**`r f3(g(AU, "median", label = "RDA", arch = HI))`** против
+**`r f3(g(AU, "median", label = "LFMM", arch = HI))`**). Значит, выигрыш RDA — не в ранжировании
+каузальных локусов, а в составе панели, которую получает модель offset.
+
+С литературой согласуется частично:
+
+- Forester et al. 2018: RDA «had the highest overall power across all methods tested», а
+  ограниченные ординации эффективны для «weak, multilocus molecular signatures»;
+- Capblancq et al. 2018: слабый отбор — наименее благоприятное условие для RDA.
+
+В статье это надо подавать как наблюдение с предложенным объяснением (многолокусный сигнал),
+а не как установленное превосходство RDA при полигенности.
+</div>
+
+## 25. Ограничение: только два предиктора
+
+<div class="callout-conclusion">
+В симуляциях MVP две оси среды (`bio_1`, `bio_2`), а реальные проекты используют до **19**
+предикторов.
+
+- **RDA здесь в невыгодном положении.** Число осей RDA ограничено числом предикторов, так что при
+  двух предикторах выбор осей вырожден (досье :328; `docs/gea_paper_positioning.md` §10).
+  Преимущество, ради которого RDA рекомендуют, — многомерная структура среды — здесь проявиться не
+  может.
+- **Подходы на пересечении сигнала методов, по ожиданию пользователя, тоже выигрывают от большего
+  числа предикторов.** Это **гипотеза для обсуждения**: на этом корпусе она не проверялась, и в
+  проверенной литературе прямой опоры нет. Кандидат на проверку — многопредикторная симуляция;
+  единственная известная (Lind & Lotterhos 2025, 6 BioClim + 3 ложных) не опубликована как данные.
+</div>
+
+## 26. Реальные данные: меньше особей и сайтов
+
+<div class="callout-conclusion">
+Каждая реплика — **100** демов × **10** особей, это щедрая выборка. На реальных данных часто
+1–10 особей на сайт и немного сайтов.
+
+- Selmoni et al. 2020: около **20** сайтов достаточно, но при N = 50–100 особей TPR «close or
+  equal to zero»; «sample size is the key factor».
+- François et al. 2016: мощность тестов ассоциации со средой растёт, когда особи статистически
+  некоррелированы и географическое покрытие максимально; неравномерная выборка её снижает.
+- Forester et al. 2018: ординации «relatively insensitive» к 6 против 20 особей на дем — но при
+  90 демах.
+
+Поэтому мощность одиночных методов здесь — **верхняя оценка**. Аргумент устойчивости 2/3 на
+реальных данных ожидается сильнее, но это ожидание, а не результат: проверка через подвыборку
+особей (идея из досье статьи) не проводилась. Утверждение «много сайтов с малым числом особей
+лучше» в проверенной литературе не найдено; De Mita 2013 и Lotterhos & Whitlock 2015 не прочитаны.
+</div>
+
+## 27. Выбор маркеров мало влияет на offset — согласуется с литературой
+
+<div class="callout-conclusion">
+- Lind & Lotterhos 2025: «The median increase in performance from adaptive compared to all or
+  neutral models was less than 3%».
+- Láruson et al. 2022: offset по полногеномным данным «performed similarly» отфильтрованным по
+  каузальным аллелям.
+
+Наши панели GEA лишь немного ниже каузальных локусов (2/3: медиана
+**`r f3(g(CS, "median", label = B23, arch = PO))`**), и это с этими работами согласуется.
+Исключение на эмпирических данных — Gain et al. 2023 (жемчужное просо): локусы GEA дали
+«substantial» улучшение над полногеномными данными.
+</div>
+
+## 28. Коррекция на структуру и непроверенный `k_best`
+
+<div class="callout-conclusion">
+- Forester et al. 2018: коррекция на структуру в RDA дала «substantial loss of power and, in most
+  cases, increased FPRs», когда поверхность отбора совпадает с градиентом экспансии.
+- Lotterhos 2023 (на тех же симуляциях MVP): «power was reduced by ~30 to 50% after structure
+  correction».
+
+На SS-Clines обе оси среды смешаны со структурой (§6), а параметр коррекции один на все реплики
+и не проверен на этом ландшафте (§11). Чувствительность результатов к `k_best` — открытый
+вопрос, и его надо назвать в разделе ограничений.
+</div>
+
+### Литература (проверенная)
+
+- de Villemereuil P et al. (2014) *Mol Ecol* 23:2006–2019. doi:10.1111/mec.12705
+- Forester BR et al. (2018) *Mol Ecol* 27:2215–2233. doi:10.1111/mec.14584
+- François O et al. (2016) *Mol Ecol* 25:454–469. doi:10.1111/mec.13513
+- Capblancq T et al. (2018) *Mol Ecol Resour* 18:1223–1233. doi:10.1111/1755-0998.12906
+- Selmoni O et al. (2020) *Mol Ecol Resour* 20:154–169. doi:10.1111/1755-0998.13095
+- Lind BM, Lotterhos KE (2025) *Mol Ecol Resour* 25(4):e14008. doi:10.1111/1755-0998.14008
+- Láruson ÁJ et al. (2022) *Evol Appl* 15:403–416. doi:10.1111/eva.13354
+- Gain C et al. (2023) *Mol Biol Evol* 40:msad140. doi:10.1093/molbev/msad140
+- Lotterhos KE (2023) *PNAS* 120:e2220313120. doi:10.1073/pnas.2220313120
 
 ---
 
@@ -684,6 +991,9 @@ Runbook пропускает `mvp_fitness_identity.R` в шаге 7; прави�
     бессмысленны; исключён везде.
 14. **Сплит по когортам** в легаси-контрасте «GEA против оракула» не объяснён. Касается только
     легаси; на SS-Clines когорт нет.
+15. **«Capblancq показал, что комбинирование методов стабильнее»** — ошибочная атрибуция
+    (§23). Эмпирические результаты о комбинировании — de Villemereuil 2014 (пересечение списков:
+    FDR ниже, мощность тоже ниже) и François 2016 (объединение откалиброванных тестов).
 
 Открытые находки, которые трогают числа (досье `## Findings`):
 
