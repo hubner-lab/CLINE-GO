@@ -1,0 +1,748 @@
+---
+title: "16. Симуляционное исследование — сводный журнал"
+subtitle: "MVP (Lotterhos 2023) → SS-Clines, 600 реплик · путь к корпусу, дизайн, методы, решения · результаты по выбору из 16g · реестр отменённых утверждений · карта файлов"
+output:
+  html_document:
+    theme: darkly
+    highlight: breezedark
+    toc: true
+    toc_float: true
+    code_folding: hide
+css: ["_callouts.css"]
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+library(data.table)
+
+# Среда: контейнер adaptogene:latest (тот же image ID, что cline-go:latest) для рендера;
+# d2 CLI — с хоста (~/.nix-profile/bin/d2), запускать ДО рендера.
+# Клиент docker: только `nix shell nixpkgs#docker-client -c docker ...` (CLAUDE.local.md);
+# `--name` обязателен на этой машине (CLAUDE.md).
+#
+# Рендер:
+#   nix shell nixpkgs#docker-client -c docker run --rm --name j16-render \
+#     --user $(id -u):$(id -g) -e USER=pipeline -e OPENBLAS_NUM_THREADS=4 \
+#     -v /mnt/data/eugene/ADAPTOGENE:/mnt/data/eugene/ADAPTOGENE adaptogene:latest \
+#     Rscript -e 'rmarkdown::render("/mnt/data/eugene/ADAPTOGENE/work/journal/16_simulation_ground_truth.Rmd")'
+#
+# Фигуры и таблицы этого журнала: bash work/j16_figures.sh (детекция на 600 + галерея 16g).
+
+check_files <- function(paths, labels = names(paths)) {
+  if (is.null(labels)) labels <- paths
+  for (i in seq_along(paths))
+    cat(ifelse(file.exists(paths[i]), "[OK]", "[ОТСУТСТВУЕТ]"), labels[i], "\n")
+}
+rd <- function(f, ...) if (file.exists(f)) fread(f, ...) else NULL
+# одно значение из таблицы по условиям; падает, если условия не выделяют ровно одну строку.
+# Формальные аргументы с точкой и индекс вне `[.data.table` — чтобы имя условия не совпало
+# ни с аргументом функции, ни с колонкой таблицы.
+g <- function(.dt, .col, ...) {
+  cond <- list(...); x <- .dt
+  for (nm in names(cond)) { idx <- which(x[[nm]] == cond[[nm]]); x <- x[idx] }
+  if (nrow(x) != 1L) stop("g(): ", nrow(x), " rows for ", paste(names(cond), cond, collapse = ", "))
+  x[[.col]]
+}
+f3 <- function(x) formatC(x, format = "f", digits = 3)
+f2 <- function(x) formatC(x, format = "f", digits = 2)
+f0 <- function(x) formatC(x, format = "f", digits = 0, big.mark = " ")
+
+ROOT <- "/mnt/data/eugene/ADAPTOGENE/"
+MAN  <- paste0(ROOT, "benchmarks/mvp_seeds.tsv")
+POOL <- paste0(ROOT, "benchmarks/mvp_eval/offset12_ssclines_pooled/")
+J15  <- paste0(ROOT, "benchmarks/mvp_eval/figures_ssclines_pooled_j15/")
+G16  <- paste0(ROOT, "benchmarks/mvp_eval/figures_ssclines_j16_gallery/")
+DET  <- paste0(ROOT, "benchmarks/mvp_eval/detection600/")
+
+man <- rd(MAN, colClasses = c(seed = "character"))
+P   <- man[arm == "primary_ssclines"]
+LEG <- man[arm == "primary"]
+CTL <- man[arm == "control_degenerate"]
+P[, regime := fifelse(grepl("unequal-S", architecture), "unequal-S", "equal-S")]
+P[, pleio  := fifelse(ispleiotropy == 1L, "pleiotropy", "no pleiotropy")]
+LA <- P[, .(lo = min(final_LA), hi = max(final_LA)), by = regime]
+EXC <- rd(paste0(POOL, "panel_offset_exclusions.tsv"), colClasses = c(seed = "character"))
+EXC <- EXC[seed %in% P$seed]
+GATE <- rd(paste0(DET, "gate_legacy_reproduction.tsv"))
+PR  <- rd(paste0(POOL, "panel_pr_recomputed.tsv"), colClasses = c(seed = "character"))
+PR  <- PR[seed %in% P$seed]
+```
+
+## Обзор
+
+```{bash abstract-diagram-render, eval=FALSE}
+if [ ! -f /mnt/data/eugene/ADAPTOGENE/work/journal/diagrams/16_00_abstract.svg ] || \
+   [ /mnt/data/eugene/ADAPTOGENE/work/journal/diagrams/16_00_abstract.d2 -nt \
+     /mnt/data/eugene/ADAPTOGENE/work/journal/diagrams/16_00_abstract.svg ]; then
+  d2 --theme 200 --layout elk \
+    /mnt/data/eugene/ADAPTOGENE/work/journal/diagrams/16_00_abstract.d2 \
+    /mnt/data/eugene/ADAPTOGENE/work/journal/diagrams/16_00_abstract.svg
+fi
+```
+
+```{r abstract-diagram-embed, echo=FALSE}
+img <- "/mnt/data/eugene/ADAPTOGENE/work/journal/diagrams/16_00_abstract.svg"
+if (file.exists(img)) knitr::include_graphics(img) else cat("[ОТСУТСТВУЕТ]", img, "\n")
+```
+
+---
+
+## Как читать этот журнал
+
+<div class="callout-method">
+Это **единственный источник истины** о симуляционной части работы. Новая сессия может опираться
+только на него. Журналы 04–09, 14, 15 остаются историей: этот журнал ссылается на них, но не
+требует их чтения.
+
+- **Числа текущего корпуса** (SS-Clines, **`r nrow(P)`** реплик) считаются прямо из таблиц при
+  рендере (inline R), а не переписываются руками.
+- **Исторические числа** (легаси-корпус, решения августа) цитируются с указанием источника:
+  журнал NN, файл, строка досье.
+- **Замещает как источник текущих утверждений:** `docs/methods_simulations.md`,
+  `docs/03-results-simulations.md`, `docs/claim_gea_panels_beat_causal_loci.md`,
+  `benchmarks/mvp_eval/CLAIMS.md`, `docs/gea_paper_positioning.md`. Все они описывают
+  легаси-корпус; их статус — в Части V.
+- **Части III–IV** заполняются по выбору пользователя из галереи
+  `work/journal/16g_simulation_variants.html` и по проверенной литературе. До этого там стоят
+  явные заглушки.
+</div>
+
+---
+
+# Часть I. Путь к корпусу
+
+## 1. Láruson et al. 2022 отвергнут как бенчмарк GEA
+
+<div class="callout-method">
+Первым кандидатом был депозит Láruson et al. 2022 (симуляции для проверки Gradient Forest).
+Конвертер `benchmarks/convert_laruson.R` написан, проверен на одной реплике и заархивирован
+(`_archive/laruson/`). Причины отказа — свойства самого депозита, а не пайплайна
+(`CLAUDE.md`, раздел «Retired: Láruson et al. 2022»):
+
+- **Нет популяционной структуры.** m = 0.2, n = 100 → Nm = 20, ожидаемый Fst ≈ 0.012.
+  Измерено: PC1 = **0.38 %** дисперсии, а PC1/PC2 — просто поворот двух осей среды
+  (R²_env **0.835 / 0.838**). Коррекция на структуру может здесь только удалять сигнал, и
+  проверить её нельзя.
+- **Набор истины несовместим с нашим MAF-фильтром.** Каузальные варианты отфильтрованы авторами
+  при MAF ≥ 0.01, а VCF в депозите нефильтрованный. При `Filter.maf: 0.05` тестируемы лишь
+  **28 из 102** каузальных локусов, так что полнота ограничена ~27 % по построению.
+- LD падает до r² = 0.2 уже на **591 bp**; окон для WZA всего **50**.
+
+Переиспользуемые части сохранены вне архива: `benchmarks/lib_detection.R`, `eval_detection.R`,
+`sweep_thresholds.R`. Они не зависят от набора данных.
+</div>
+
+## 2. Выбор MVP (Lotterhos 2023)
+
+<div class="callout-method">
+Обзор кандидатов (досье, 2026-08-01; `docs/gea_simulation_benchmarks.md`,
+`docs/gea_simulation_protocol.md`) требовал четырёх вещей:
+
+- структуру, реально смешанную со средой;
+- известные каузальные локусы;
+- матрицу приспособленности deme × сад;
+- согласованные MAF истины и генотипов.
+
+Выбран **MVP** — Lotterhos 2023, *PNAS* 120(12):e2220313120; данные BCO-DMO
+doi:10.26008/1912/bco-dmo.889769.1. Это **2250** реплик SLiM, полный факториал:
+
+- **3** ландшафта (`Est-Clines`, `SS-Clines`, `SS-Mtn`) × **5** демографий — 15 типов мира;
+- × **3** генных уровня × **5** уровней плейотропии/отбора — 15 генетических типов;
+- × **10** реплик.
+
+Одна реплика устроена так (`docs/simulation_design_decisions.md` §0):
+
+- решётка **10 × 10 = 100** демов, **10** особей на дем (**1000** особей);
+- **20** групп сцепления × **50 000** сайтов (1 Mb), QTN только на LG 1–10;
+- две оси среды: температура → `bio_1`, Env2 («солёность») → `bio_2`.
+
+Матрицы пересадок в депозите нет — только приспособленность в родном деме. Для оси offset её
+пришлось построить (§14).
+
+Проверенный альтернативный набор Capblancq et al. 2026 (Dryad doi:10.5061/dryad.jdfn2z3m6)
+принят как валидационный, но не как основной (`benchmarks/capblancq_eval/FINDINGS.md`).
+Проверка на нём оказалась ненужной: функция приспособленности MVP восстанавливается из данных
+тождественно (§14).
+</div>
+
+## 3. Легаси-корпус SS-Mtn: 14 → 32 → 50 → 92
+
+<div class="callout-method">
+Легаси-корпус набирался волнами, каждый раз с отбором по реализованной статистике
+τ²(PC1, temp). В депозите она называется `R²` / `cor_PC1_temp`, но это квадрат τ Кендалла, а не
+доля дисперсии (§5). Источники: досье `ADAPTOGENE-simulation.md:198-282`,
+`docs/simulation_design_decisions.md` §6, журналы 04–09.
+
+| волна | реплик | полоса τ²(PC1,temp) | что сделано |
+|---|---|---|---|
+| `initial` | **12** + **2** контроля | [0.30, 0.60] | журналы 04–09: конвертация, лестницы GEA, портфель методов, первый offset |
+| `group1_expansion` | +**18** → **32** | [0.20, 0.60] | 112 садов, 12 панелей, `figures_FINAL_32seeds_112gardens/` |
+| `group2_phase1` | +**18** → **50** | [0.20, 0.60] | все панели, включая `all` и `neutral_all` |
+| `group3_phase2` | +**42** → **92** | [0.20, 0.75] | **30** на генный уровень; `all` и `neutral_all` досчитаны на всех 92 |
+
+На диске сейчас: arm `primary` — **`r nrow(LEG)`** реплик, `control_degenerate` —
+**`r nrow(CTL)`**. Детекция (лестницы, AUC-PR, портфель методов) считалась только на
+**14** репликах `initial` (журналы 05–07); offset — на всех 92.
+</div>
+
+<div class="callout-result">
+Что показал легаси-корпус. Всё это — история; на SS-Clines не воспроизводится или воспроизводится
+частично (Часть V).
+
+- Панель 2/3 **выше** каузальных локусов: **+0.0477**, выигрыш **72.5 %** на **80** 2-трейтовых
+  репликах (журнал 14, :264).
+- На объединённых 90 — **+0.0355**, выигрыш **64.4 %**.
+- Коррекция на структуру по умолчанию оптимальна лишь в **6 из 56** ячеек метод × реплика
+  (`docs/03-results-simulations.md:234`).
+- Рекомендатель PreGEA забирает медианно **9 %** выигрыша «умолчание → оракул» (досье :217).
+- «Все методы объединением» (поведение `mode=gea` по умолчанию) — худшая схема: **1242**
+  вызова (журнал 07).
+- Сплит по когортам в контрасте «GEA против оракула»: `initial` **−0.024**, остальные когорты
+  **0…+0.028**. Объяснения нет (досье :336-340).
+</div>
+
+## 4. Находка, изменившая дизайн: режим отбора решает, какое правило выигрывает
+
+<div class="callout-method">
+Источник: досье :27, :37-39; `docs/claim_gea_panels_beat_causal_loci.md` (дополнение); знание
+`99-selection-symmetry-decides-the-marker-rule`.
+
+- В депозите селекция по второй оси задаётся двухуровневым `SIGMA_K_2` ∈ {**0.5**, **4.0**}:
+  - **equal-S** — обе оси под одинаковым отбором;
+  - **unequal-S** — вторая ось под отбором в 8 раз слабее.
+- Тождество приспособленности восстанавливает коэффициенты b1 = b2 = −1 для equal-S и
+  b1 = −0.125, b2 = −1 для unequal-S (`benchmarks/mvp_fitness_identity.R:24-30`).
+- Режим действует через `final_LA` и делит точность offset на два облака, которые не
+  перекрываются. На SS-Clines промежуток между ними пуст:
+  - equal-S `final_LA` **`r f3(g(LA, "lo", regime = "equal-S"))`–`r f3(g(LA, "hi", regime = "equal-S"))`**;
+  - unequal-S **`r f3(g(LA, "lo", regime = "unequal-S"))`–`r f3(g(LA, "hi", regime = "unequal-S"))`**.
+- Легаси-корпус был сбалансирован по архитектуре, но не по режиму (30 из 90 — unequal-S,
+  10 — однотрейтовые). Поэтому объединённые медианы смешивали два режима, например 0.759 у
+  высоко полигенных = 0.776 equal-S + 0.491 unequal-S.
+</div>
+
+## 5. Отбор реплик отменён: полные блоки вместо полосы
+
+<div class="callout-method">
+Решение 2026-09-08 (досье :31-33; знание `100-select-benchmark-replicates-on-design-not-outcome`):
+**правило отбора отменено, а не перестроено.**
+
+- **Отбор шёл по исходу.** τ²(PC1, temp) — реализованная статистика реплики. Внутри SS-Mtn
+  медиана |τ| меняется от **0.102** до **0.970** в зависимости от демографии, так что полоса по
+  τ² молча выбирала демографию: **74 из 90** реплик — из двух демографий, и **0** из
+  `N-equal_m_breaks`.
+- **Объявленная полоса не была правдой.** В документах [0.30, 0.60], а вне её лежат **46 из 90**
+  реплик. Фактически работала полоса [0.20, 0.60], затем [0.20, 0.75]
+  (`mvp_select_seeds.R:137-138`).
+- **«R²» — это τ².** Депозит поставляет τ Кендалла, и колонки `r2_*` — его квадрат, а не доля
+  объяснённой дисперсии. Так и называть в тексте.
+
+Вместо полосы берётся **полный блок**: ландшафт × демография со всеми генетическими ячейками и
+всеми репликами. Порога ни на одну реализованную статистику нет. Смешение со структурой
+становится ковариатой отчёта, а не критерием отбора.
+</div>
+
+## 6. Почему ландшафт SS-Clines
+
+<div class="callout-method">
+Решение 2026-09-08 (досье :34).
+
+- В `SS-Clines` обе оси среды — линейные клины, поэтому обе смешаны со структурой: медиана
+  |τ|(PC1, Env2) **0.20–0.77** против **0.008–0.084** в SS-Mtn. Это типичный эмпирический
+  случай, когда все климатические предикторы пространственно автокоррелированы.
+- В `SS-Mtn` Env2 — V-образный хребет, ортогональный структуре.
+- По метрике самой Lotterhos это более трудный ландшафт: её RDA с коррекцией на структуру даёт
+  AUC-PR **0.008–0.094** против **0.069–0.107** на SS-Mtn.
+- `Est-Clines` (τ² ≈ 0.96) вырожден: структура и температура — одна переменная. Две его
+  реплики оставлены как отрицательный контроль (§7).
+
+**Ограничение, которое надо писать в статье:** ландшафт вложен в волну когорт (весь легаси —
+SS-Mtn, всё новое — SS-Clines). Никакую разницу «легаси против SS-Clines» нельзя приписать
+ландшафту причинно.
+</div>
+
+## 7. Однотрейтовые реплики исключены; вырожденные контроли
+
+<div class="callout-method">
+- **1-trait исключены по идентифицируемости** (досье :44-48). При одной оси отбора структура
+  почти коллинеарна среде по построению (|τ|(PC1, temp) > 0.95) — та же невозможность, что у
+  Láruson. Это не оценка качества пайплайна.
+  - Цена: только однотрейтовые реплики занимали промежуток `final_LA` 0.45–0.50 между двумя
+    облаками.
+  - **10** уже посчитанных остаются побочным плечом и никогда не объединяются.
+- **Вырожденные контроли**: сиды **1231578**, **1232568** (`Est-Clines`, τ² **0.92 / 0.94**,
+  arm `control_degenerate`). Они исключены из всех агрегатов; в SS-Clines-анализах не участвуют.
+</div>
+
+## 8. Пять блоков: исполнение и сертификация
+
+```{r 08-check, echo=FALSE}
+check_files(c(MAN, paste0(POOL, "garden_performance.tsv"),
+              paste0(POOL, "phase1_seed_medians_solo.tsv"), paste0(POOL, "panel_pr_recomputed.tsv"),
+              paste0(POOL, "panel_offset_exclusions.tsv"),
+              paste0(ROOT, "benchmarks/mvp_eval/SSCLINES_COMPLETENESS_2026-09-23.md"),
+              paste0(ROOT, "benchmarks/SSCLINES_RUNBOOK.md")),
+            c("манифест", "оценённые сады (сводный)", "медианы по репликам", "состав панелей",
+              "исключённые пары (n < 3 SNP)", "аудит полноты", "runbook"))
+```
+
+```{bash 08-cmd, eval=FALSE}
+# НЕ ПЕРЕЗАПУСКАТЬ — выполнено 2026-09-10 … 2026-09-19 (b1 → b5), свод 2026-09-19
+# Блоки гнались автоматически драйверами work/: block_prep.sh (шаги 6-8),
+# garden_wave.sh (шаг 9), block_close.sh (шаги 10-11 + снимок), block_report.sh (шаг 12);
+# цепочки work/b4_chain.sh, work/b5_chain.sh. Сводный каталог:
+bash /mnt/data/eugene/ADAPTOGENE/work/build_pooled_dir.sh
+bash /mnt/data/eugene/ADAPTOGENE/work/j15_figures.sh
+```
+
+<div class="callout-result">
+- Блоков: **`r uniqueN(P$added)`**, реплик: **`r nrow(P)`** (по **`r P[, .N, by = added][, unique(N)]`** на блок).
+- Ячеек генный уровень × плейотропия × режим: **`r nrow(P[, .N, by = .(arch_level, pleio, regime)])`**,
+  по **`r P[, .N, by = .(arch_level, pleio, regime)][, unique(N)]`** реплик.
+- Строк оценённых садов: **`r f0(nrow(fread(paste0(POOL, "garden_performance.tsv"), select = "seed")))`**.
+- Исключённых пар реплика × панель (панель < 3 SNP): **`r nrow(EXC)`**
+  (`r paste(EXC[, .N, by = set][, sprintf("%s %d", set, N)], collapse = ", ")`).
+- Аудит полноты 2026-09-23: **0** недостающих реплик, конфигов, панелей, садов и таблиц;
+  перед удалением промежуточных деревьев освобождено **2823 GB**, повторный анализ после
+  удаления воспроизведён байт-в-байт.
+</div>
+
+<div class="callout-conclusion">
+Корпус закрыт на **`r nrow(P)`** репликах, сбалансирован по всем пяти факторам дизайна и не
+содержит ни одного порога по исходу. Всё ниже в этом журнале считается на нём, если не сказано
+иное.
+</div>
+
+---
+
+# Часть II. Дизайн и методы (SS-Clines)
+
+## 9. Дизайн 5 × 3 × 4 × 10
+
+```{r 09-design, echo=FALSE}
+print(dcast(P[, .N, by = .(arch_level, sub = paste(pleio, regime, sep = " / "))],
+            arch_level ~ sub, value.var = "N"))
+print(P[, .N, by = .(added, demog_level_sub)][order(added)])
+```
+
+<div class="callout-method">
+Параметры депозита — `data/mvp/selection/0b-final_params-20220428.txt`;
+`docs/simulation_design_decisions.md` §4.
+
+- **Генный уровень** (депозит пишет `oliogenic`):
+
+  | уровень | `MU_QTL_proportion` | `SIGMA_QTN` |
+  |---|---|---|
+  | олигогенный | 0.001 | 0.4 (крупные эффекты) |
+  | умеренно полигенный | 0.1 | 0.1 |
+  | высоко полигенный | 0.25 | 0.002 (мелкие эффекты) |
+
+- **Подуровень архитектуры** — суффикс колонки `architecture`: {плейотропия, нет} ×
+  {equal-S, unequal-S}. Режим задаёт `SIGMA_K_1 = 0.5` и `SIGMA_K_2` ∈ {0.5, 4.0}.
+- **Демография** — пять блоков, миграция `MIG_x = MIG_y = 0.03` везде:
+  - b1 `nvar_mvar` — N и m переменны;
+  - b2 `ncline_ns` — клин N север→юг;
+  - b3 `nequal_mconst` — N равны, m постоянна;
+  - b4 `ncline_ctredge` — клин N центр→край;
+  - b5 `nequal_mbreaks` — N равны, разрывы миграции.
+- Сиды — собственные ID депозита, списки в `work/seeds_b*.txt`.
+- Отбор блока — `mvp_select_seeds.R` в режиме `MVP_BLOCK="landscape:demography"`: проверяет
+  дизайн 3 × 4 × 10 и только дописывает строки; arm `primary_ssclines`, тег блока в `added`.
+</div>
+
+<div class="callout-result">
+Реализованные ковариаты — сообщаются, не отбираются:
+
+- τ²(PC1, temp) **`r f3(min(P$r2_pc1_temp))` / `r f3(median(P$r2_pc1_temp))` / `r f3(max(P$r2_pc1_temp))`** (мин / медиана / макс);
+- τ²(PC1, Env2) **`r f3(min(P$r2_pc1_sal))` / `r f3(median(P$r2_pc1_sal))` / `r f3(max(P$r2_pc1_sal))`**;
+- meanFst **`r f3(min(P$meanFst))` / `r f3(median(P$meanFst))` / `r f3(max(P$meanFst))`**;
+- каузальных локусов при MAF ≥ 0.01, медиана по уровням:
+  **`r paste(P[, .(m = median(n_causal_maf01)), by = arch_level][, sprintf("%s %s", arch_level, f0(m))], collapse = " · ")`**;
+- `final_LA`: equal-S **`r f3(g(LA, "lo", regime = "equal-S"))`–`r f3(g(LA, "hi", regime = "equal-S"))`**,
+  unequal-S **`r f3(g(LA, "lo", regime = "unequal-S"))`–`r f3(g(LA, "hi", regime = "unequal-S"))`**; в промежутке **0** реплик.
+</div>
+
+## 10. Конвертация, истина, конфиг пайплайна
+
+```{bash 10-cmd, eval=FALSE}
+# НЕ ПЕРЕЗАПУСКАТЬ — выполнено 2026-09-10 … 2026-09-18 (по блоку); runbook, шаги 1-3
+cd /mnt/data/eugene/ADAPTOGENE
+benchmarks/fetch_mvp.sh
+benchmarks/convert_mvp_all.sh 20 "$SEEDS"
+nix shell nixpkgs#docker-client -c docker run --rm --name mvp-cfg-${MVP_COHORT} \
+  --user "$(id -u):$(id -g)" -e USER=adaptogene -v "$PWD":/pipeline cline-go:latest \
+  Rscript /pipeline/benchmarks/mvp_write_configs.R --seeds="$SEEDS"
+```
+
+<div class="callout-method">
+**`benchmarks/convert_mvp.R`** переводит генотипы, мутации и особей депозита в VCF,
+метаданные, таблицу среды и таблицы истины. Проверка: `af_max_deviation = 0` и совпадение числа
+SNP и каузальных локусов с депозитом.
+
+- **Категории истины** (`convert_mvp.R:502-505`), по оси (`truth_temp`, `truth_sal`) и
+  объединённо (`truth_any`):
+  - `causal` — каузальный хотя бы по одной оси;
+  - `linked_neutral` — любой некаузальный на LG 1–10, **без** окна расстояния;
+  - `background_neutral` — LG 11–20, где QTN нет.
+- **`Filter.maf: 0.01`** — генотипы и истина в депозите уже отфильтрованы при MAF > 0.01 на тех
+  же 1000 особях, так что 0.01 — пустая операция, сохраняющая все каузальные локусы тестируемыми.
+  Проверено: **11 194 → 11 194** SNP на 1231288. Это ровно та ловушка, которая дисквалифицировала
+  Láruson.
+- **`Climate.source: custom`** — `bio_1 = temp_opt`, `bio_2 = sal_opt` деме. Путь WorldClim
+  молча подставил бы реальный климат по координатам без всякой ошибки.
+- **Масштабные поправки** под геном 1 Mb, заданные до получения любых результатов:
+  - `LD.window` 100 → 10 kb;
+  - `GEA.snp_clumping_distance` 100 000 → 5 000;
+  - `LDdecay.max_distance` 500 → 50 kb.
+- GFF и WZA не используются: геном синтетический, окон слишком мало.
+</div>
+
+## 11. Параметры структуры: K и число PC
+
+<div class="callout-method">
+**Правило.** `sNMF.k_best` = колонка `K` депозита («number of populations used in analyses»),
+поднятая до минимума 2 (`mvp_select_seeds.R:276-282`). Минимум 2 нужен графикам структуры и
+`pop_diff_test`.
+
+- **Почему не минимум кросс-энтропии.** На непрерывной решётке из 100 демов дискретного K нет:
+  на сиде 1231288 кросс-энтропия монотонно падает от K = 2 до K = 10
+  (0.5416 → 0.4770, `mvp_write_configs.R`), и «минимум» просто вернул бы `k_end`.
+- **Все параметры коррекции на структуру равны `k_best`:** EMMAX `n_pcs`, LFMM `K`, RDA
+  `condition_pcs` (`mvp_write_sweep_configs.R --cells=1`, :156-165).
+- Распределение `k_best` на корпусе:
+  **`r paste(P[order(k_best), .N, by = k_best][, sprintf("K=%d: %d", k_best, N)], collapse = " · ")`**;
+  из них поднято с K = 1 до 2 — **`r sum(P$K_authors < 2)`**.
+
+**Прямо: на SS-Clines лестница коррекции на структуру НЕ запускалась.** Запускалась одна
+ступень — умолчание. Выбор унаследован непроверенным с легаси-корпуса (**14** сидов SS-Mtn,
+другой ландшафт), где:
+
+- умолчание было лучшим лишь в **6 из 56** ячеек метод × реплика;
+- PreGEA забирал медианно **9 %** выигрыша «умолчание → оракул».
+
+Это выбор ради стоимости и единообразия, а не проверенный оптимум (Часть V). `mode=pregea`
+запускался на каждом сиде, но его рекомендации панели не читают.
+
+Ловушка `pad_to()` при `--cells=1` (досье :53) исправлена: при одной ступени лестница
+возвращала 0 PC и K−2, `is_default` был FALSE везде, и панели выходили пустыми после
+многочасового прогона. Шлюз в runbook: посчитать строки `is_default == TRUE` до запуска.
+</div>
+
+## 12. GEA и рабочие точки
+
+```{bash 12-cmd, eval=FALSE}
+# НЕ ПЕРЕЗАПУСКАТЬ — выполнено 2026-09-10 … 2026-09-18 (по блоку); runbook, шаги 4-5
+nix shell nixpkgs#docker-client -c docker run --rm --name mvp-swcfg-${MVP_COHORT} \
+  --user "$(id -u):$(id -g)" -e USER=adaptogene -v "$PWD":/pipeline cline-go:latest \
+  Rscript /pipeline/benchmarks/mvp_write_sweep_configs.R \
+    --seeds="$SEEDS" --cells=1 --manifest-out="$CELLS_TSV"
+CPUS_PER_SEED=8 SNAKE_CORES=4 BLAS_THREADS=2 MEM_PER_SEED=40g \
+  benchmarks/mvp_run_sweep.sh "$SEEDS" 20 1
+```
+
+<div class="callout-method">
+**Методы:** EMMAX, LFMM, RDA через `mode=gea` пайплайна; базовый конфиг — `bonf 0.05` для
+каждого. RDA: `scale = TRUE`, p = `pmax` скорректированной и нескорректированной подгонки,
+**2** оси. BLINK прогонялся, но ни в одну панель не входит. Сырые p-значения собираются в
+`benchmarks/mvp_eval/params/MVP<seed>/c1/`.
+
+**Рабочие точки для панелей — схема S1, перенесённая дословно** (`benchmarks/mvp_anchor_schemes.tsv`):
+
+- LFMM top 100, RDA top 100, EMMAX p < 1e-4;
+- зафиксирована на якорном сиде 1232548 (плечо MAF 0.05, ступень c4; лучший F1 журнала 06,
+  0.625) **без таблицы истины**;
+- применяется ко всем сидам без перекалибровки. Это режим `verbatim` журнала 07; режим `recal`
+  подбирал бы точки по истине сида и сознательно не используется.
+
+**Почему не `bonf 0.05` пайплайна.** На 14 легаси-сидах он даёт 0–34 вызова на метод, RDA —
+0 на 8 из 14, и панель 2/3 выходит пустой. `qval 0.1` даёт 0 везде. Только `top_N` даёт наборы
+размера, с которым может работать модель offset (`mvp_build_snp_sets.R`, заголовок).
+
+Следствие: размер панели примерно постоянен по построению, а число каузальных локусов меняется
+на два порядка. Поэтому у олигогенных панель покрывает гораздо бо́льшую долю истины.
+</div>
+
+## 13. Правила комбинирования и панели маркеров
+
+```{bash 13-cmd, eval=FALSE}
+# НЕ ПЕРЕЗАПУСКАТЬ — выполнено 2026-09-11 … 2026-09-18 (по блоку); runbook, шаг 6
+nix shell nixpkgs#docker-client -c docker run --rm --name mvp-snpsets-${MVP_COHORT} \
+  --user "$(id -u):$(id -g)" -e USER=adaptogene -v "$PWD":/pipeline cline-go:latest \
+  Rscript /pipeline/benchmarks/mvp_build_snp_sets.R --seeds="$SEEDS"
+```
+
+<div class="callout-method">
+`benchmarks/mvp_build_snp_sets.R` (:200-250) строит **8** панелей на сид:
+
+- `best` = **2/3** — SNP, у которого ≥ 2 из 3 методов имеют вызов в окне **±5 kb**;
+- `union` = **1/3** — любой из трёх, точная позиция;
+- `intersect3` = **3/3** — все три в окне ±5 kb. Это **оконная колокализация, а не пересечение
+  по SNP**: медиана 75.5 маркера против 12.5 у точного пересечения на легаси (досье :329);
+- `solo_lfmm`, `solo_rda`, `solo_emmax` — каждый метод в своей рабочей точке, без шага
+  согласия. Именно они делают «комбинирование помогает» измеренным контрастом;
+- `truth` = **каузальные локусы** из протестированного набора — потолок, «оракул»;
+- `rand_best1` = **случайная** панель размера 2/3 **только из фоновых** локусов, seed
+  `substr(seed,4,7)*100 + i`. Выборка из всех SNP была бы на ~50 % из сцепленных локусов и
+  нулём не являлась бы.
+
+Предфильтр шага 6: панель < 3 SNP в offset не идёт, потому что `rda_offset.R:174` падает ниже 3
+кандидатов и роняет весь прогон сида. Панели `all` и `neutral_all` на SS-Clines не считались —
+ради стоимости.
+</div>
+
+<div class="callout-result">
+- Сняты предфильтром: **`r paste(EXC[, .N, by = set][, sprintf("%s — %d", set, N)], collapse = "; ")`** пар реплика × панель.
+- Пустых панелей в детекции (n = 0): **`r paste(PR[n == 0, .N, by = set][, sprintf("%s — %d", set, N)], collapse = "; ")`**.
+</div>
+
+## 14. Сады и приспособленность
+
+```{bash 14-cmd, eval=FALSE}
+# НЕ ПЕРЕЗАПУСКАТЬ — выполнено 2026-09-11 … 2026-09-18 (по блоку); work/block_prep.sh, шаг 7
+# ПОРЯДОК НЕ runbook-а: тождество ПЕРВЫМ, затем сады с --identity на накопленную таблицу
+Rscript /pipeline/benchmarks/mvp_fitness_identity.R --seeds="$SEEDS" --outdir=/pipeline/work/identity_${SHORT}
+Rscript /pipeline/benchmarks/mvp_garden_fitness.R --seeds="$SEEDS" --outdir=/pipeline/benchmarks/mvp_eval/offset12 \
+  --identity=/pipeline/benchmarks/mvp_eval/offset12/fitness_identity.tsv
+Rscript /pipeline/benchmarks/mvp_write_garden_env.R --seed=$s --gardens=/pipeline/benchmarks/mvp_eval/offset12/gardens_${s}.tsv
+```
+
+<div class="callout-method">
+Дизайн пересадок — Lind & Lotterhos 2025, прочитан из их кода, а не придуман
+(`mvp_garden_fitness.R`, заголовок).
+
+- **112 садов** на реплику:
+  - **100** ландшафтных — оптимум каждого дема;
+  - **12** садов климатической новизны — обе оси сдвинуты в mean + dev·SD,
+    dev ∈ {0, 1.72, 2.35, … 5.88}.
+- **Приспособленность** — точное тождество на каждом сиде: log(fitness) = b1·d1² + b2·d2²
+  восстанавливается МНК с R² = **1 − 1e-6** или лучше (`mvp_fitness_identity.R`). В саду
+  приспособленность популяции = среднее по особям exp(b1·d1² + b2·d2²).
+- **QC:** воспроизводит `final_LA` депозита в пределах 0.05, медианный ранг родного дема ≤ 15.
+- **Ловушка:** умолчание `--identity` в `mvp_garden_fitness.R` указывает на устаревший
+  `offset08/fitness_identity.tsv` (32 строки, ни одного SS-Clines-сида). Используется
+  накопленный `offset12/fitness_identity.tsv` (открытая находка, Часть V).
+</div>
+
+## 15. Движки offset
+
+```{bash 15-cmd, eval=FALSE}
+# НЕ ПЕРЕЗАПУСКАТЬ — выполнено 2026-09-11 … 2026-09-19 (по блоку); runbook, шаги 8-9
+Rscript /pipeline/benchmarks/mvp_write_sweep_config.R --seeds="$SEEDS" \
+  --sets=truth,union,best,intersect3,rand_best1,solo_lfmm,solo_rda,solo_emmax
+OUT=".../offset12" CONFIG_SUFFIX=_sweep BLAS_THREADS=2 HOST_RAM_CEILING_GB=800 \
+  benchmarks/mvp_garden_sweep.sh "$SEEDS" 20 8 40g
+```
+
+<div class="callout-method">
+Все четыре реализации Lind & Lotterhos 2025 — один вызов на сид (`mvp_write_sweep_config.R:60-104`):
+
+- `gradient_forest` → **GFoffset**: `ntree 500`, `cor_threshold 0.5`, без пространственной
+  коррекции; `sensitivity_check: false` обязателен (иначе DAG просит несуществующий сценарий и
+  падает на каждом сиде);
+- `geometric_offset` → **LFMM2offset**: `scale: true`;
+- `rda_offset` → **RDA-uncorrected**: `condition_pcs 0`, `axes 2`;
+- `rda_offset_corrected` → **RDA-corrected**: `condition_pcs = k_best`. **Исключён из всех
+  агрегатов**: на **2.65 %** садов предсказывает в обратную сторону, а на 5 репликах выдаёт
+  побитно одинаковую точность для всех панелей, то есть не зависит от маркеров
+  (`mvp_oracle_stats.R:60-64`).
+
+Итого 8 панелей × 4 движка × 112 садов = **3584** файла на сид.
+</div>
+
+## 16. Метрика и агрегация
+
+<div class="callout-method">
+**Offset** (`eval_offset_lind.R`, метрика Lind & Lotterhos без изменений):
+
+- τ Кендалла **внутри сада**, по 100 исходным популяциям, offset против приспособленности.
+  Хорошая модель даёт отрицательный τ, поэтому точность = **−τ**. Никогда `abs()`: модель,
+  предсказывающая наоборот, должна оставаться отрицательной.
+- Точность реплики × панели × движка = медиана по **100 ландшафтным** садам; сады новизны
+  анализируются отдельно (`mvp_panel_tables.R:65-66`). Подписи журнала 15 и
+  `mvp_pleiotropy_report.R:14` пишут «112» — это ошибка текста, код берёт 100 (Часть V).
+- Точность реплики × панели = медиана по трём рабочим движкам (GF, LFMM2, RDA-uncorrected).
+- **delta = точность панели − точность каузальных локусов**, парно внутри реплики. Каузальные
+  локусы — ориентир-потолок, а не соперник (решение 2026-09-24).
+
+**Детекция** (`panel_pr_recomputed.tsv`, `mvp_panel_tables.R:105-143`), по реплике × панели:
+
+- TP = каузальные + сцепленные попадания, FP = фоновые = n − TP;
+- для AUC-PR и F1 положительные — только каузальные.
+
+**AUC-PR на 600** (`benchmarks/mvp_detection_600.R`, новый) — ровно конвенция журнала 07:
+
+- ранжирование по min p по осям метода;
+- `truth_any`, ложные — только фоновые;
+- знаменатель — тестируемые каузальные.
+
+Перед расчётом корпуса легаси-сид 1231288 пересчитан из `params07/c3` и совпал с
+`redundancy07` до **`r formatC(max(GATE$abs_diff), format = "e", digits = 1)`** по трём методам.
+</div>
+
+## 17. Статистика
+
+<div class="callout-method">
+- **Единица наблюдения — реплика.** Поля и движки внутри неё не являются независимыми
+  повторами.
+- **Сравнение с каузальными:** парный Вилкоксон по delta, двусторонний для галереи и
+  односторонний (H1: панель хуже) в `mvp_oracle_stats.R`.
+- **Бутстреп-ДИ медианы:** **2000** повторов, seed **16** (`mvp_j16_gallery.R`).
+- **Плейотропия** (журнал 15, часть III): Манн–Уитни + сдвиг Ходжеса–Лемана, поправка Холма по
+  трём уровням; единица — сид.
+- **Ничья с каузальными:** при n = 200 точный биномиальный интервал для 50 % — **43–57 %**. Доля
+  «не хуже» внутри него — формальная ничья, а не выигрыш.
+- **Доминирование по Парето** (B1): правило задано до расчёта — TP ≥ и FP ≤, одно строго; в
+  каждой ячейке три доли.
+</div>
+
+## 18. Цепочка скриптов
+
+<div class="callout-method">
+Шаги runbook `benchmarks/SSCLINES_RUNBOOK.md` и их драйверы:
+
+| шаг | что | скрипт / драйвер |
+|---|---|---|
+| 0 | манифест блока | `mvp_select_seeds.R` (`MVP_BLOCK`) |
+| 1 | загрузка | `fetch_mvp.sh` |
+| 2 | конвертация | `convert_mvp_all.sh` → `convert_mvp.R` |
+| 3 | базовые конфиги | `mvp_write_configs.R` |
+| 4 | конфиг одной ступени | `mvp_write_sweep_configs.R --cells=1` |
+| 5 | GEA: processing → prestructure → structure → pregea → gea | `mvp_run_sweep.sh` |
+| 6 | панели + предфильтр n ≥ 3 | `mvp_build_snp_sets.R` (`work/block_prep.sh`) |
+| 7 | тождество → сады → таблицы среды | `mvp_fitness_identity.R`, `mvp_garden_fitness.R`, `mvp_write_garden_env.R` |
+| 8 | конфиги садов | `mvp_write_sweep_config.R` |
+| 9 | прогон садов | `mvp_garden_sweep.sh` (`work/garden_wave.sh`, `ram_guard.sh`) |
+| 10 | оценка | `eval_offset_lind.R` (`work/block_close.sh`) |
+| 11 | таблицы + регрессионный шлюз | `mvp_panel_tables.R --check=offset11` |
+| снимок | `offset12_<блок>/` | `work/block_close.sh` |
+| 12 | отчёт блока | `work/block_report.sh` (15 скриптов) |
+| свод | `offset12_ssclines_pooled/` | `work/build_pooled_dir.sh`, `work/j15_figures.sh` |
+| j16 | детекция на 600 + галерея | `work/j16_figures.sh` |
+
+Runbook пропускает `mvp_fitness_identity.R` в шаге 7; правильный порядок — в
+`work/block_prep.sh:58-75`.
+</div>
+
+---
+
+# Часть III. Результаты
+
+<details class="callout-note" open>
+<summary>Заглушка</summary>
+<p>Заполняется только вариантами, выбранными пользователем в
+`work/journal/16g_simulation_variants.html` (коды A, B, C, D). Числа будут взяты inline из
+`figures_ssclines_j16_gallery/`, а фигуры — из того же каталога.</p>
+</details>
+
+# Часть IV. Интерпретация
+
+<details class="callout-note" open>
+<summary>Заглушка</summary>
+<p>Заполняется после проверки литературы (сильные стороны методов по
+архитектуре; комбинирование как устойчивость; мощность при малом числе особей и сайтов) и выбора
+в 16g.</p>
+</details>
+
+---
+
+# Часть V. Реестр отменённых и уточнённых утверждений
+
+<div class="callout-method">
+Для каждого: что утверждалось, где, что с этим теперь.
+
+1. **«Панель GEA не хуже или лучше каузальных локусов»** — `docs/claim_gea_panels_beat_causal_loci.md`
+   (само имя файла), `CLAIMS.md` claim 1, `figures_ms/`. Верно было на легаси SS-Mtn
+   (+0.0477 на 80 2-трейтовых). **На SS-Clines отменено**:
+   **`r f3(g(rd(paste0(J15, "delta_by_arch.tsv")), "median_delta", label = "2/3 methods", arch_lab = "pooled"))`**
+   на **`r nrow(P)`**. Разница не приписывается ландшафту причинно (§6). Каузальные локусы
+   теперь ориентир, а не предмет сравнения.
+2. **Сильная связь точности с `final_LA`** (журнал 14 §8, ρ 0.55–0.78) была мерой разрыва между
+   двумя режимами. Внутри режима ρ **0.34 / 0.14** (equal-S) и **−0.15 / −0.01** (unequal-S)
+   (журнал 15 §12). Правильная формулировка: offset точнее при симметричном отборе, а
+   `final_LA` — маркер этого, не механизм.
+3. **«R²(PC1, temp)» в любом документе** — это τ² Кендалла.
+4. **Объявленная полоса отбора [0.30, 0.60]** в `docs/methods_simulations.md` и
+   `docs/gea_simulation_benchmarks.md` §8.2 — ложна для **46 из 90** реплик. Для SS-Clines
+   полосы нет вообще.
+5. **«112 садов» в подписях журнала 15** — агрегат берёт медиану по **100** ландшафтным садам.
+6. **`docs/methods_simulations.md`, `docs/03-results-simulations.md`** описывают 32-репликовый
+   корпус. Их offset-часть помечена SUPERSEDED; как методы не цитировать.
+7. **`benchmarks/mvp_eval/figures/fig4_*.tsv`, `fig5_*.tsv`** — в медианы попали два
+   вырожденных контроля (фильтр по несуществующей колонке `is_control`). Лежат на диске
+   неверными и сознательно не пересчитаны; не читать.
+8. **`CLAIMS.md` claim 4**, ρ(recall, accuracy) = −0.79, — парадокс Симпсона. Парная оценка
+   **−0.44** (статья, досье :117).
+9. **`CLAIMS.md` claim 2**, разброс 0.011 по архитектурам, — при медиане по движкам **0.037**.
+   Порядок сохраняется, «в 5 раз стабильнее» — нет.
+10. **`docs/gea_paper_positioning.md`**: заголовок «LFMM+EMMAX TPR 2.5×» (14 сидов SS-Mtn) и
+    «нет оси offset» устарели.
+11. **Статья** (`ADAPTOGENE-article.md:90`, 2026-09-14) всё ещё называет SS-Mtn основным для
+    R3. На 2026-09-24 основной корпус — SS-Clines.
+12. **Параметры коррекции на структуру на SS-Clines не проверены** (§11): одна ступень,
+    унаследована с другого ландшафта.
+13. **RDA-corrected** не зависит от панели маркеров (досье :299-303). Сравнения панелей под ним
+    бессмысленны; исключён везде.
+14. **Сплит по когортам** в легаси-контрасте «GEA против оракула» не объяснён. Касается только
+    легаси; на SS-Clines когорт нет.
+
+Открытые находки, которые трогают числа (досье `## Findings`):
+
+- умолчание `--identity` → устаревший `offset08` (§14);
+- `phase1_seed_medians_solo.tsv` не прошёл регрессионный шлюз ни в одном блоке, и после
+  удаления деревьев закрыть это нельзя;
+- `mvp_panel_tables.R --check` при непересекающихся наборах сидов сообщал RUN;
+- `mvp_lind_compare.R` падает без панелей `all`/`neutral`.
+</div>
+
+---
+
+# Часть VI. Карта файлов для следующей сессии
+
+<div class="callout-method">
+**Контракт окружения.** Любой скрипт `benchmarks/mvp_*.R`, читающий корпус, выбирает сиды
+только через `benchmarks/mvp_arm.R::mvp_prim()`:
+
+```
+MVP_ARM=primary_ssclines
+MVP_ADDED=ssclines_nvar_mvar,ssclines_ncline_ns,ssclines_nequal_mconst,ssclines_ncline_ctredge,ssclines_nequal_mbreaks
+MVP_N_EXPECT=600
+```
+
+Без `MVP_ADDED` объединяются блоки, без `MVP_ARM` берётся легаси (90). Частная копия фильтра уже
+однажды дала 0 строк (`mvp_manuscript_figures.R:102`, исправлено).
+
+**Доверенные таблицы (600 сидов):**
+
+| путь (от `benchmarks/mvp_eval/`) | зерно | кем пишется |
+|---|---|---|
+| `offset12_ssclines_pooled/garden_performance.tsv` | сид × сад × движок × панель | `eval_offset_lind.R` |
+| `offset12_ssclines_pooled/phase1_seed_medians_solo.tsv` | сид × панель × движок (медиана по 100 садам) | `mvp_panel_tables.R` |
+| `offset12_ssclines_pooled/panel_pr_recomputed.tsv` | сид × панель, состав (692 сида — фильтровать) | `mvp_panel_tables.R` |
+| `offset12_ssclines_pooled/panel_offset_exclusions.tsv` | снятые пары | `mvp_panel_tables.R` |
+| `figures_ssclines_pooled_j15/delta_per_seed.tsv` | сид × панель, delta к каузальным | `mvp_oracle_stats.R` |
+| `figures_ssclines_pooled_j15/pleio_delta_per_seed*.tsv` | сид (× движок), с блоком / плейотропией / режимом | `mvp_pleiotropy_report.R` |
+| `detection600/aucpr_per_seed.tsv` | сид × одиночный метод | `mvp_detection_600.R` |
+| `figures_ssclines_j16_gallery/*.tsv` | фигуры галереи, одноимённые TSV | `mvp_j16_gallery.R` |
+| `params/MVP<seed>/c1/*_pvalues.tsv` | сырые p-значения GEA | `mvp_run_sweep.sh` |
+| `offset12/gardens/` (77 GB) | файлы садов — единственный путь к переоценке | `mvp_garden_sweep.sh` |
+
+**Не читать как текущий результат:**
+
+- `figures/` (fig4/fig5 с контролями);
+- `figures_ms/`, `figures_FINAL_32seeds_*`, `figures_50seeds_*`, `figures_92seeds_*` (легаси);
+- в `figures_ssclines_pooled/` — таблицы B/C/D/E/T2/T3 (это 14 легаси-сидов) и
+  `MAIN_FIGURE_simulation` (v1; актуальная v2 — только в `_j15/`);
+- `report07/`, `axis07*/` — легаси-детекция (история, 14 сидов);
+- `docs/claim_gea_panels_beat_causal_loci.md`, `docs/methods_simulations.md`,
+  `docs/03-results-simulations.md`, `CLAIMS.md` — легаси-текст (Часть V).
+
+**Драйверы:** `work/j16_figures.sh` (детекция + галерея), `work/j15_figures.sh`,
+`work/build_pooled_dir.sh`, `work/block_report.sh`.
+
+**Журналы:** 04–09 (легаси, детекция и первый offset), 14 (блок 1), 15 (свод 600), 16g
+(галерея выбора), 16 (этот).
+</div>
+
+```{r sessioninfo}
+sessionInfo()
+```
