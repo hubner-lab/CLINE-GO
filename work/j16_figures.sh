@@ -7,8 +7,11 @@
 #           reproduce journal 07 (redundancy07) before the corpus is scored
 #   step 2  benchmarks/mvp_j16_gallery.R    -> benchmarks/mvp_eval/figures_ssclines_j16_gallery/
 #           26 figures + same-stem TSVs; regression-tied to journal 15 delta tables
+#   step 3  benchmarks/mvp_ms_sim_figures.R -> benchmarks/mvp_eval/figures_ssclines_ms/
+#           manuscript picks (2026-09-25): editable SVG + PNG at print size, captions.md,
+#           index.html + zip; served on :8099 via the work/journal/sim_figures symlink
 #
-#   bash work/j16_figures.sh [detection|gallery|all]     logs: work/j16_logs/<script>.log
+#   bash work/j16_figures.sh [detection|gallery|ms|all]  logs: work/j16_logs/<script>.log
 #
 # Image cline-go:latest (as work/block_report.sh). --name is required on this host.
 set -u
@@ -39,6 +42,8 @@ run() {   # run <script> <cpus> <mem> [extra -e args...]
     run mvp_detection_600.R 16 64g -e OPENBLAS_NUM_THREADS=1 -e NCORES=16
 [[ "$WHAT" == gallery || "$WHAT" == all ]] && \
     run mvp_j16_gallery.R 8 48g -e OPENBLAS_NUM_THREADS=4
+[[ "$WHAT" == ms || "$WHAT" == all ]] && \
+    run mvp_ms_sim_figures.R 4 16g -e OPENBLAS_NUM_THREADS=2
 
 # Cross-arm pooling scan: no emitted table may carry more distinct seeds than the corpus.
 echo "--- cross-arm pooling scan (must print nothing):"
