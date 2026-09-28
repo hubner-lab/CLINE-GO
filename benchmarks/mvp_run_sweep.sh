@@ -76,6 +76,7 @@ HARVEST_WZA="${HARVEST_WZA:-0}"
 # CONCURRENTLY with the base arm. That is safe only because the project names differ -- two
 # arms sharing a project_name would collide on the lock and overwrite each other's tables.
 PROJ_SUFFIX="${PROJ_SUFFIX:-}"
+SKIP_PREGEA="${SKIP_PREGEA:-0}"
 
 mkdir -p "$PARAMS_DIR" "$RUNLOG_DIR"
 
@@ -90,7 +91,10 @@ fi
 kbest_of() { awk -v s="$1" 'NR>1 && $1==s {print $11; exit}' "$MANIFEST"; }
 
 snake() {   # snake <seed> <mode> <configfile> <logfile>
-    "${DOCKER[@]}" run --user "$(id -u):$(id -g)" --rm -e USER=pipeline \
+    # --name: killing the docker CLIENT leaves the container running and holding the results
+    # lock; a named orphan is one `docker stop` away (CLAUDE.md, "Always pass --name").
+    "${DOCKER[@]}" run --name "mvp-sweep-MVP${1}${PROJ_SUFFIX}-$2" \
+        --user "$(id -u):$(id -g)" --rm -e USER=pipeline \
         -e OPENBLAS_NUM_THREADS="$BLAS_THREADS" -e OMP_NUM_THREADS="$BLAS_THREADS" \
         --cpus="$CPUS_PER_SEED" --memory="$MEM_PER_SEED" \
         -v "$PIPELINE_ROOT:/pipeline" "$IMAGE" \
@@ -131,7 +135,7 @@ run_seed() {
     # keeps `ld_decay_run_chr` (which segfaults inside PopLDdecay on monomorphic deme x
     # chromosome subsets) out of the DAG. Using the base config here would reintroduce it.
     for mode in processing prestructure structure; do
-        echo "[$proj] mode=$mode" | tee -a "$log"
+        echo "[$proj] mode=$mode  $(date -Is)" | tee -a "$log"
         snake "$seed" "$mode" "config_${proj}_c1${CFG_SUFFIX}.yaml" "$log" \
             || { echo "[$proj] FAILED at mode=$mode" | tee -a "$log"; return 1; }
     done
@@ -140,9 +144,17 @@ run_seed() {
     # marker set, where roughly half the causal loci are gone (seed 1232548: 30 -> 14 on the
     # temperature axis), so PreGEA NOMINATES a rung and the production cells below are what
     # actually get scored. Never mix a PreGEA recall number into the production surface.
-    echo "[$proj] mode=pregea" | tee -a "$log"
-    snake "$seed" pregea "config_${proj}_c1${CFG_SUFFIX}.yaml" "$log" \
-        || echo "[$proj] WARNING: pregea failed, recommender arm unavailable" | tee -a "$log"
+    #
+    # SKIP_PREGEA=1 (added 2026-09-28, SS-Clines re-analysis): PreGEA is 50-70 % of per-seed
+    # wall time and nothing downstream of the sweep reads it -- the cells take their rungs from
+    # the generated config, never from pregea_recommendations.tsv.
+    if [[ "$SKIP_PREGEA" == "1" ]]; then
+        echo "[$proj] mode=pregea SKIPPED (SKIP_PREGEA=1)" | tee -a "$log"
+    else
+        echo "[$proj] mode=pregea  $(date -Is)" | tee -a "$log"
+        snake "$seed" pregea "config_${proj}_c1${CFG_SUFFIX}.yaml" "$log" \
+            || echo "[$proj] WARNING: pregea failed, recommender arm unavailable" | tee -a "$log"
+    fi
 
     # ---- cells
     local prev_dir=""
@@ -161,6 +173,7 @@ run_seed() {
         touch "$stamp"
         snake "$seed" gea "$cfg" "$log" \
             || { echo "[$proj] FAILED at c$i" | tee -a "$log"; return 1; }
+        echo "[$proj] c$i gea finished  $(date -Is)" | tee -a "$log"
 
         mkdir -p "$dest/manhattan"
         for m in "${METHODS[@]}"; do
