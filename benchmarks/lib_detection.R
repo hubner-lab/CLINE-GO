@@ -227,7 +227,15 @@ combine_support <- function(parts, window_bp) {
 
 # --------------------------------------------------------------- calling rules
 # Mirrors find_significant_snps_per_trait(): threshold computed PER TRAIT, mask
-# is strict `<` with NA -> FALSE, positions unioned across traits.
+# is INCLUSIVE `<=` with NA -> FALSE, positions unioned across traits.
+#
+# [changed 2026-09-28] was strict `<`, which did NOT mirror the pipeline: sig_snps.R
+# selects `p <= threshold` because compute_pval_threshold() returns a cutoff that is
+# itself a member of the call set -- `top N` returns the N-th smallest p (so `<` gave
+# N-1: every top-100 panel held 99), `qval f` returns the largest p with q < f (so `<`
+# dropped the boundary SNP and every SNP tied with it). Every call count and panel built
+# through this function before that date is one boundary SNP (plus ties) short for
+# top/qval; AUC-PR is rank-based and unaffected.
 call_by_threshold <- function(pv, trait_cols, adjust, value, quiet = TRUE) {
     called <- character(0); info <- list()
     for (tc in trait_cols) {
@@ -236,7 +244,7 @@ call_by_threshold <- function(pv, trait_cols, adjust, value, quiet = TRUE) {
               else compute_pval_threshold(p, adjust, as.numeric(value))
         info[[tc]] <- th
         if (identical(th$status, "ok") && !is.na(th$threshold)) {
-            called <- c(called, pv$key[!is.na(p) & p < th$threshold])
+            called <- c(called, pv$key[!is.na(p) & p <= th$threshold])
         }
     }
     list(called = unique(called), info = info)
