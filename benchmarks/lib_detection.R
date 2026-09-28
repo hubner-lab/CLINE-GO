@@ -68,13 +68,23 @@ load_pvalues <- function(path, traits = "all") {
 # unchanged. It matters for (a) any threshold-based call and (b) multi-trait
 # min-p ranking, where per-trait lambdas differ and so the cross-trait ordering
 # does move.
+# Genomic-control inflation factor of ONE p-value vector, without touching it:
+# lambda = median(chi2_1) / qchisq(0.5, 1) over the p-values in (0, 1]. NA when none are.
+# apply_genomic_control() calls this, so the number a report quotes and the number the
+# recalibration divides by cannot drift apart.
+gc_lambda <- function(p) {
+    ok <- !is.na(p) & p > 0 & p <= 1
+    if (!any(ok)) return(NA_real_)
+    median(qchisq(p[ok], df = 1, lower.tail = FALSE)) / qchisq(0.5, df = 1)
+}
+
 apply_genomic_control <- function(pv, trait_cols, verbose = TRUE) {
     for (tc in trait_cols) {
         p  <- pv[[tc]]
         ok <- !is.na(p) & p > 0 & p <= 1
         if (!any(ok)) next
         chi    <- qchisq(p[ok], df = 1, lower.tail = FALSE)
-        lambda <- median(chi) / qchisq(0.5, df = 1)
+        lambda <- gc_lambda(p)
         if (!is.finite(lambda) || lambda <= 0) next
         newp     <- p
         newp[ok] <- pchisq(chi / lambda, df = 1, lower.tail = FALSE)
@@ -275,6 +285,41 @@ auc_pr_from_rank <- function(ranked_keys, truth, n_testable) {
     tp_cum <- cumsum(is_causal); fp_cum <- cumsum(is_bg)
     prec   <- tp_cum / (tp_cum + fp_cum); prec[is.nan(prec)] <- 1
     sum(prec[is_causal]) / n_testable
+}
+
+# R-precision: the share of causal loci among the top R ranked SNPs, R = n_testable -- i.e.
+# the precision (and, identically, the recall) of the `top(n_causal)` panel a user could only
+# build if they knew n_causal. That is why it survives here as a METRIC and not as a panel rule.
+#   r_precision         causal in top R / R                (classic: linked hits count as misses)
+#   r_precision_strict  causal / (causal + background)     (linked hits neither, as in AUC-PR)
+# R is capped at the number of ranked SNPs.
+r_precision_from_rank <- function(ranked_keys, truth, n_testable) {
+    if (!length(ranked_keys) || n_testable == 0)
+        return(list(r_precision = NA_real_, r_precision_strict = NA_real_, r = 0L))
+    r   <- min(as.integer(n_testable), length(ranked_keys))
+    top <- ranked_keys[seq_len(r)]
+    tp  <- sum(top %in% truth$causal$key)
+    fp  <- sum(top %in% truth$bg_keys)
+    list(r_precision = tp / r,
+         r_precision_strict = if (tp + fp > 0) tp / (tp + fp) else NA_real_,
+         r = r)
+}
+
+# The step points AUC-PR integrates: one row per retrieved causal locus, in rank order, with
+# the strict precision (background_neutral = the only false positives) and the recall against
+# n_testable at that rank. sum(precision) / n_testable over these rows IS auc_pr_from_rank().
+pr_curve_from_rank <- function(ranked_keys, truth, n_testable) {
+    empty <- data.table(rank = integer(0), tp = integer(0), fp_background = integer(0),
+                        precision = numeric(0), recall = numeric(0))
+    if (!length(ranked_keys) || n_testable == 0) return(empty)
+    is_causal <- ranked_keys %in% truth$causal$key
+    is_bg     <- ranked_keys %in% truth$bg_keys
+    tp_cum <- cumsum(is_causal); fp_cum <- cumsum(is_bg)
+    at <- which(is_causal)
+    if (!length(at)) return(empty)
+    data.table(rank = at, tp = tp_cum[at], fp_background = fp_cum[at],
+               precision = tp_cum[at] / (tp_cum[at] + fp_cum[at]),
+               recall = tp_cum[at] / n_testable)
 }
 
 # ------------------------------------------------------------------- plotting
