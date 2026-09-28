@@ -33,6 +33,14 @@
 # re-picks the points using each replicate's own truth and is deliberately NOT used --
 # it would leak the answer into the candidates.
 #
+# ---- SUPERSEDED 2026-09-28 -- the paragraph below (to "...polygenic ones.") -------------
+#   Do not cite its numbers ("0-34 calls", "RDA 0 on 8 of 14", "qval 0.1 -> 0", "6 to 395").
+#   Why: every value here was measured on the retired SS-Mtn arm (14 seeds, anchor seed
+#   1232548) and never on SS-Clines. Re-derived on the 600 SS-Clines replicates in
+#   docs/gea-simulation-reanalysis.md ("Superseded sources") -> journals 17/18.
+#   Also measured under the pre-fix strict `<` in lib_detection.R call_by_threshold().
+#   SS-Clines n_causal is 3-771 (median 43), not 6-395.
+# ------------------------------------------------------------------------------------------
 # Why not the pipeline's own bonf 0.05, which would have been the more natural default:
 # measured on all 14 seeds at their default rungs, it calls 0-34 SNPs per method and RDA
 # calls 0 on 8 of 14, so `best` (agreement of >= 2 methods) comes out EMPTY on most seeds --
@@ -85,6 +93,12 @@ WANT    <- if (nzchar(SETS_A)) strsplit(SETS_A, ",", fixed = TRUE)[[1]] else NUL
 PARAMS  <- opt("params", file.path(PIPELINE_ROOT, "benchmarks/mvp_eval/params07"))
 PARAMS_ANCHOR <- opt("params_anchor", file.path(PIPELINE_ROOT, "benchmarks/mvp_eval/params"))
 
+# ---- SUPERSEDED 2026-09-28 -- POINTS / SUBSET / SOLO / WINDOW_KB below: scheme S1, withdrawn.
+#   Why: every value here was measured on the retired SS-Mtn arm (14 seeds, anchor seed
+#   1232548) and never on SS-Clines. Re-derived on the 600 SS-Clines replicates in
+#   docs/gea-simulation-reanalysis.md ("Superseded sources") -> journals 17/18.
+#   Phase 4a of that plan replaces this block with the rule and window chosen from journal 18.
+# ------------------------------------------------------------------------------------------
 # S1's per-method operating points, verbatim from benchmarks/mvp_anchor_schemes.tsv.
 POINTS <- list(LFMM  = c("top",    "100"),
                RDA   = c("top",    "100"),

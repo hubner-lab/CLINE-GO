@@ -7,6 +7,12 @@
 # for a stated reason, and the reason is written into the emitted YAML as a comment -- these
 # configs are benchmark artifacts that have to be defensible in a paper.
 #
+# SUPERSEDED 2026-09-28: the sNMF comment emitted into every config ("k_best is in any case
+# only the CENTRE of the PreGEA sweeps ... not to trust this value") is withdrawn -- no ladder
+# was ever run on SS-Clines and PreGEA is out of scope; k_best = max(2, K_authors) is the
+# operating value. The ~692 config_MVP*.yaml already on disk still carry the old sentence.
+# See docs/gea-simulation-reanalysis.md ("Superseded sources").
+#
 # The MVP genome is 20 linkage groups x 50,000 sites = 1 Mb total (Lotterhos 2023, Methods).
 # Several pipeline defaults are sized for real genomes and would span an entire linkage group
 # here; those are rescaled below.
@@ -105,6 +111,9 @@ LD:
 # k_best is in any case only the CENTRE of the PreGEA sweeps (LFMM K = k_best +/- k_offset,
 # EMMAX/RDA PCs = 0..n_pcs_max); the benchmark exists to find the best setting by scoring
 # against truth, not to trust this value.
+# SUPERSEDED 2026-09-28 (the paragraph above): no K / PC ladder was ever run on SS-Clines and
+# PreGEA is out of scope for it. k_best = max(2, K_authors) IS the operating value of every
+# method; whether a ladder is needed is measured, see docs/gea-simulation-reanalysis.md.
 #-----------------------------------------------------------------------------
 sNMF:
   k_start: 2

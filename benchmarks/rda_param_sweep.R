@@ -10,6 +10,15 @@
 #                    pmax(p_partial, p_unconstrained) -- the continuous-p analogue of the
 #                    tutorial's Reduce(intersect, ...). Lotterhos reports each arm separately.
 #
+# ---- SUPERSEDED 2026-09-28 ----------------------------------------------------------------
+#   A one-seed SS-Mtn probe (anchor seed 1232548). Its cells describe pmax as "current CLINE-GO
+#   default"; that default is being replaced by a single RDA fit (condition_pcs = 0 ->
+#   unconditional, > 0 -> conditional), and its gif_lambda / gif_lambda_unconstrained columns
+#   are not a measurement on SS-Clines. pmax itself is a valid intersection-union test, not a
+#   bug (knowledge note 109); the guard's cost is measured on the 600 SS-Clines replicates
+#   instead -- docs/gea-simulation-reanalysis.md, Phase 3. Do not cite this probe's numbers.
+# ------------------------------------------------------------------------------------------
+#
 # This is a BENCHMARK PROBE, not pipeline code. It replicates scripts/rda.R's data loading
 # and re-uses the pipeline's own rdadapt() and load_pca_covariates() verbatim, so the only
 # things that vary across cells are the three parameters above. It writes nothing into any

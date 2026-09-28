@@ -1,9 +1,0 @@
-scheme_id	label	subset	rule	combine_window_kb	assignment	source
-S1	LFMM+RDA+EMMAX, at_least_2, 5kb	LFMM+RDA+EMMAX	at_least_2	5	LFMM:top_100;RDA:top_100;EMMAX:custom_1e-04	anchor m05 c4, best F1 in journal 06 (0.625)
-S2	LFMM+EMMAX, union, 0kb	LFMM+EMMAX	union	0	LFMM:custom_0.001;EMMAX:bonf_0.5	anchor m05 c3 (default rung), F1 0.542 at precision 1.000
-S3	LFMM+EMMAX+MLMM, at_least_2, 5kb	LFMM+EMMAX+MLMM	at_least_2	5	LFMM:top_100;EMMAX:qval_0.1;MLMM:top_50	anchor m05 c1, F1 0.597
-S4	LFMM+RDA+EMMAX, at_least_2, 5kb, capped	LFMM+RDA+EMMAX	at_least_2	5	LFMM:top_30;RDA:top_100;EMMAX:custom_1e-04	anchor m05 c4 under n_called<=100, F1 0.491
-S5	LFMM+RDA, union, 0kb	LFMM+RDA	union	0	LFMM:top_50;RDA:top_10	anchor m05 c2 under n_called<=100, F1 0.483
-S6	all 11, at_least_3, 5kb	ALL	at_least_3	5	*:bonf_0.05	the all-methods policy combination, pipeline-default calibration
-B1	LFMM solo, bonf 0.05	LFMM	solo	0	LFMM:bonf_0.05	pipeline default, single best method
-B2	all 11, union, 0kb, bonf 0.05	ALL	union	0	*:bonf_0.05	what mode=gea does today (SIGSNPS_METHOD='All' hardcoded, common.smk:192)
