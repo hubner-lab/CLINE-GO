@@ -189,15 +189,15 @@ HELP_NOTES <- list(
         config = "GWAS.configs"
     ),
     rda_screeplot = list(
-        desc   = "Constrained RDA eigenvalues from the PARTIAL (structure-corrected) fit; retained axes (green) vs dropped (red), per-axis anova.cca(by=\"axis\") p annotated above each bar.",
+        desc   = "Constrained RDA eigenvalues of the one RDA fit (partial, i.e. structure-corrected, when condition_pcs > 0); retained axes (green) vs dropped (red), per-axis anova.cca(by=\"axis\") p annotated above each bar.",
         config = "GEA.configs (RDA method params: axes, axis_alpha, condition_pcs)"
     ),
     rda_pval_hist = list(
-        desc   = "rdadapt p-value histogram for the B6-combined candidate rule — max(p_partial, p_unconstrained), the continuous-p-value analogue of intersecting two independent outlier lists (a SNP only stays significant if BOTH the structure-corrected and unconstrained fits call it). GIF lambda computed with genomic.control implicit in the robust-Mahalanobis calibration (not LFMM-style genomic control). Should be flat with a spike near 0; a U-shape or hump signals miscalibration (see docs/rda_research.md A4, B6).",
+        desc   = "rdadapt p-value histogram of the one RDA fit (partial when condition_pcs > 0, unconditional when 0) — these are the p-values the candidate rule is applied to. GIF lambda computed with genomic.control implicit in the robust-Mahalanobis calibration (not LFMM-style genomic control). Should be flat with a spike near 0; a U-shape or hump signals miscalibration (see docs/rda_research.md A4).",
         config = "GEA.configs (RDA method params)"
     ),
     rda_biplot = list(
-        desc   = "SNP loadings on the first two constrained axes of the PARTIAL fit (binned density, not raw points — WGS-scale marker counts), with predictor biplot vectors and candidate SNPs colored by their most-correlated predictor. Candidate status reflects the B6-combined rule (both fits must agree).",
+        desc   = "SNP loadings on the first two constrained axes of the RDA fit (binned density, not raw points — WGS-scale marker counts), with predictor biplot vectors and candidate SNPs colored by their most-correlated predictor.",
         config = "GEA.configs (RDA method params: predictor_set)"
     ),
     miami_plot = list(

@@ -13,13 +13,13 @@
 
 #' qvalue fallback chain — storey -> qvalue(lambda=0) -> BH.
 #'
-#' Extracted out of rdadapt() so callers combining p-values from more than one
-#' rdadapt() call (e.g. rda.R's B6 partial+unconstrained intersection: q-values
-#' recomputed on pmax(p_partial, p_unconstrained), which is not itself a
-#' rdadapt() output) can reuse the exact same fallback logic instead of
+#' Extracted out of rdadapt() so a caller combining p-values from more than one
+#' rdadapt() call can reuse the exact same fallback logic instead of
 #' duplicating the 3-branch tryCatch (CLAUDE.md Rule 1: compute once, reuse
-#' downstream). rdadapt() below calls this internally — no change to its
-#' return shape or its two existing callers (rda.R, pregea_rda_setup.R).
+#' downstream). Its one such caller, rda.R's pmax(p_partial, p_unconstrained)
+#' combination, was removed 2026-09-29 (rda.R now fits once); rdadapt() below
+#' still calls this internally, so the q-values of both callers (rda.R,
+#' pregea_rda_setup.R) come from here.
 #'
 #' @param p Numeric vector of p-values.
 #' @return list(qvalues, method) — method is one of "storey", "storey_lambda0", "BH".

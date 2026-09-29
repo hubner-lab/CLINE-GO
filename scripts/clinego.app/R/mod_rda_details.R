@@ -175,10 +175,7 @@ mod_rda_details_server <- function(id, project_data, methods) {
                             "vif_flagged_predictors", "aliased_terms",
                             "axes_requested", "axis_alpha", "rda_axes", "rda_axes_max",
                             "K_selection", "K_floored", "permutations", "seed",
-                            "k_best", "cpu", "marker_envelope_status",
-                            # B6 — second unconstrained fit (rda.R section 14)
-                            "k_partial", "k_unconstrained", "k_pin_capped",
-                            "gif_lambda_partial", "gif_lambda_unconstrained")),
+                            "k_best", "cpu", "marker_envelope_status")),
                         htmltools::tagList(
                             .kv_table("Applied significance rule", c(
                                 "candidate_rule", "candidate_adjust",
@@ -187,9 +184,7 @@ mod_rda_details_server <- function(id, project_data, methods) {
                                 "candidate_n_na_dropped", "n_candidates_total",
                                 "n_candidates_written", "gif_lambda",
                                 "qvalue_method", "candidate_qvalue_engine",
-                                "pval_hist_flatness_chisq",
-                                # B6 — candidates now require both fits to agree
-                                "unconstrained_fit_status")),
+                                "pval_hist_flatness_chisq")),
                             .ladder_table()
                         )
                     )
@@ -202,13 +197,9 @@ mod_rda_details_server <- function(id, project_data, methods) {
             shiny::req(has_rda())
             fit_mode <- d("fit_mode", "full")
             envelope <- d("marker_envelope_status", "")
-            unc_status <- d("unconstrained_fit_status", "")
             msgs <- character(0)
             if (identical(fit_mode, "pruned")) msgs <- c(msgs, trimws(d("fallback_warning", "")))
             if (identical(envelope, "ABOVE_VALIDATED")) msgs <- c(msgs, d("marker_envelope_note", ""))
-            if (startsWith(unc_status, "failed:")) msgs <- c(msgs, paste0(
-                "B6 unconstrained RDA fit failed — candidates fall back to the partial fit ",
-                "alone (not the intersection): ", unc_status))
             msgs <- msgs[nzchar(msgs)]
             if (length(msgs) == 0) return(NULL)
             bslib::card(

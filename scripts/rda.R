@@ -2,23 +2,32 @@
 # RDA genome scan — multivariate GEA method (Capblancq & Forester 2021 "Swiss
 # Army Knife for landscape genomics" / Capblancq et al. 2018 rdadapt).
 #
-# Fits a PARTIAL RDA across ALL configured climate predictors jointly
-# (Condition(PC1..PCk) from the LD-pruned LEA PCA for structure correction),
-# then calls candidate SNPs via a robust-Mahalanobis distance of SNP loadings
-# over the retained constrained axes (rdadapt), GIF-rescaled, converted to a
-# chi-squared p-value. B6 (docs/rda_research.md, 2026-07-29 session): a SECOND,
-# UNCONSTRAINED fit (same predictors, no Condition()) is run whenever
-# condition_pcs > 0, K pinned to the partial fit's K, and the two rdadapt()
-# p-value vectors are combined via pmax() before being written as
-# "climate_multivariate" — a SNP only stays significant if BOTH fits call it,
-# the continuous-p-value analogue of Capblancq & Forester 2021's
-# Reduce(intersect, ...) tutorial pattern. Unlike EMMAX/LFMM this is genuinely
-# multivariate — RDA emits ONE p-value per SNP (the "climate_multivariate"
-# pseudo-trait), not one column per predictor. See docs/rda_research.md Part A
-# for the full decision table and literature citations behind every design
-# choice below (referenced inline as A1, A6, A11, etc.), and the B6 row in
-# Part B for the candidate-intersection rationale (scoped there to the offset;
-# applied here to the GEA scan itself, this session's deliberate broadening).
+# Fits ONE RDA across ALL configured climate predictors jointly — partial
+# (Condition(PC1..PCk) from the LD-pruned LEA PCA) when condition_pcs > 0,
+# unconditional when condition_pcs = 0 — then calls candidate SNPs via a
+# robust-Mahalanobis distance of SNP loadings over the retained constrained
+# axes (rdadapt), GIF-rescaled, converted to a chi-squared p-value. Unlike
+# EMMAX/LFMM this is genuinely multivariate — RDA emits ONE p-value per SNP
+# (the "climate_multivariate" pseudo-trait), not one column per predictor.
+# See docs/rda_research.md Part A for the full decision table and literature
+# citations behind every design choice below (referenced inline as A1, A6,
+# A11, etc.).
+#
+# One fit, not two (changed 2026-09-29). From 2026-07-29 until then, every
+# condition_pcs > 0 run also fitted a SECOND, unconstrained RDA (same
+# predictors, no Condition(), K pinned to the partial fit's) and wrote
+# pmax(p_partial, p_unconstrained) — a continuous form of the intersection of
+# the partial and unconstrained candidate lists in Capblancq & Forester 2021's
+# tutorial code (Reduce(intersect, ...)), applied one level up, to the scan
+# itself rather than to the offset where the tutorial uses it (docs/
+# rda_research.md B6). That combination is a VALID, conservative p-value —
+# it is the intersection-union test statistic (Berger 1982) — so its removal
+# is a design tradeoff, not a bug fix: the rule as written could not be cited
+# to any published method, and what the second fit cost in power was never
+# measured. The SS-Clines simulation re-analysis measures it against the
+# frozen pmax arm (docs/gea-simulation-reanalysis.md). Consequence: RDA
+# outputs produced before this change (p-values, candidates, diagnostics,
+# anova) are not comparable with those produced after it.
 #
 # Full spec: docs/rda_research.md Part A. Literature default (A6, verified
 # from Capblancq & Forester 2021's own code comments) is to fit the ordination
@@ -257,7 +266,7 @@ if (n_samples <= min_n) {
 }
 
 ################################################################################
-# 7. Fit the partial RDA (A8, A9, A12)
+# 7. Fit the RDA — partial when condition_pcs > 0 (A8, A9, A12)
 ################################################################################
 message("INFO: Fitting RDA")
 Variables <- as.data.frame(Env)
@@ -352,7 +361,6 @@ anova_dt <- rbindlist(list(
     anova_row("axis",   anova_axis),
     anova_row("margin", anova_margin)
 ), fill = TRUE)
-if (nrow(anova_dt) > 0) anova_dt[, model := "partial"]
 n_margin_degenerate <- if (nrow(anova_dt) > 0) sum(anova_dt$test == "margin" & anova_dt$status == "degenerate") else 0L
 add_diag("n_margin_rows_degenerate", n_margin_degenerate)
 
@@ -383,123 +391,18 @@ add_diag("K_selection", K_selection)
 add_diag("K_floored", K_floored)
 
 ################################################################################
-# 13. rdadapt on the PARTIAL (structure-corrected) fit — extracted to
-#     scripts/R/lib/rdadapt.R so preGEA's RDA-setup block (Block 3) can share
-#     the exact same candidate-calling math instead of duplicating it.
-#     Verbatim port from Capblancq/RDA-genome-scan/Script_RDA.R (see that
-#     file's header for the drop=FALSE deviation note).
+# 13. rdadapt on the one fit — extracted to scripts/R/lib/rdadapt.R so
+#     preGEA's RDA-setup block (Block 3) can share the exact same
+#     candidate-calling math instead of duplicating it. Verbatim port from
+#     Capblancq/RDA-genome-scan/Script_RDA.R (see that file's header for the
+#     drop=FALSE deviation note). Its p-values are the written
+#     "climate_multivariate" column; its q-values (storey -> lambda=0 -> BH
+#     fallback chain) are the candidates table's q_value column.
 ################################################################################
-message("INFO: Running rdadapt on partial fit (robust Mahalanobis distance over retained axes)")
-rdadapt_partial <- rdadapt(RDA_env, K_sel)
-K_partial <- K_sel
-add_diag("gif_lambda", rdadapt_partial$gif_lambda)          # headline lambda = partial fit's (A8/A9)
-add_diag("gif_lambda_partial", rdadapt_partial$gif_lambda)
-add_diag("k_partial", K_partial)
-
-################################################################################
-# 14. B6 — second, UNCONSTRAINED rda() fit (same predictors, no Condition())
-#     + intersection-style candidate combination. Capblancq & Forester 2021's
-#     tutorial calls Reduce(intersect, ...) on two independently-thresholded
-#     candidate lists (partial + unconstrained); the continuous-p-value
-#     equivalent is an elementwise max — a SNP only stays maximally
-#     significant if BOTH fits call it significant. K is PINNED to K_partial
-#     rather than letting the unconstrained fit choose its own axis count via
-#     anova.cca(by="axis"): two fits at different K sit on different
-#     chi-squared df and are not comparable (this session's design decision —
-#     see docs/rda_research.md B6). Skipped when condition_pcs=0: the partial
-#     fit IS already unconstrained, so a second identical fit is dead work
-#     (Code Structure Rule 3).
-################################################################################
-unc_error_msg <- NULL
-K_unconstrained <- NA_integer_
-k_pin_capped <- FALSE
-rdadapt_unconstrained <- NULL
-anova_dt_unc <- data.table()
-
-if (N_COND_PCS == 0) {
-    unconstrained_fit_status <- "skipped_condition_pcs_zero (partial fit already unconstrained)"
-} else {
-    message("INFO: Fitting unconstrained RDA (B6 — no Condition() term)")
-    RDA_unc <- tryCatch(
-        rda(as.formula(paste("Y ~", paste(predictor_names, collapse = " + "))),
-            data = Variables, scale = TRUE),
-        error = function(e) { unc_error_msg <<- conditionMessage(e); NULL }
-    )
-    if (is.null(RDA_unc)) {
-        unconstrained_fit_status <- paste0("failed: ", unc_error_msg)
-    } else {
-        K_max_unc <- RDA_unc$CCA$rank
-        K_unconstrained <- min(K_partial, K_max_unc)
-        k_pin_capped <- K_unconstrained < K_partial
-        if (K_unconstrained < 2) {
-            unconstrained_fit_status <- paste0("failed: only ", K_max_unc,
-                                               " constrained axis/axes retained (< 2)")
-            K_unconstrained <- NA_integer_
-        } else {
-            message("INFO: Running rdadapt on unconstrained fit (K=", K_unconstrained,
-                   ", pinned from partial K=", K_partial, ")")
-            rdadapt_unconstrained <- rdadapt(RDA_unc, K_unconstrained)
-            unconstrained_fit_status <- "fitted"
-
-            # Same 3-way anova.cca as section 11, on the unconstrained fit —
-            # tagged model="unconstrained" below so RDA_anova.tsv carries both
-            # models' diagnostics without a second output file.
-            set.seed(SEED)
-            anova_full_unc <- tryCatch(
-                anova.cca(RDA_unc, permutations = PERMUTATIONS, parallel = max(1, CPU)),
-                error = function(e) { message("WARNING: unconstrained full-model anova.cca failed: ", e$message); NULL }
-            )
-            set.seed(SEED)
-            anova_axis_unc <- tryCatch(
-                anova.cca(RDA_unc, by = "axis", permutations = PERMUTATIONS),
-                error = function(e) { message("WARNING: unconstrained by-axis anova.cca failed: ", e$message); NULL }
-            )
-            set.seed(SEED)
-            anova_margin_unc <- tryCatch(
-                anova.cca(RDA_unc, by = "margin", permutations = PERMUTATIONS),
-                error = function(e) { message("WARNING: unconstrained by-margin anova.cca failed: ", e$message); NULL }
-            )
-            anova_dt_unc <- rbindlist(list(
-                anova_row("full",   anova_full_unc),
-                anova_row("axis",   anova_axis_unc),
-                anova_row("margin", anova_margin_unc)
-            ), fill = TRUE)
-            if (nrow(anova_dt_unc) > 0) anova_dt_unc[, model := "unconstrained"]
-        }
-    }
-}
-add_diag("unconstrained_fit_status", unconstrained_fit_status)
-add_diag("k_unconstrained", K_unconstrained)
-add_diag("k_pin_capped", k_pin_capped)
-add_diag("gif_lambda_unconstrained",
-         if (!is.null(rdadapt_unconstrained)) rdadapt_unconstrained$gif_lambda else NA_real_)
-
-if (!is.null(rdadapt_unconstrained)) {
-    p_combined <- pmax(rdadapt_partial$p.values, rdadapt_unconstrained$p.values)
-    # Report whichever fit's distance is "binding" (drove the higher, less-
-    # significant p-value per SNP) — the pmax winner, not always the partial fit.
-    driving_unc <- rdadapt_unconstrained$p.values >= rdadapt_partial$p.values
-    mahalanobis_combined <- ifelse(driving_unc, rdadapt_unconstrained$distance, rdadapt_partial$distance)
-} else {
-    p_combined <- rdadapt_partial$p.values
-    mahalanobis_combined <- rdadapt_partial$distance
-}
-q_combined_res <- qvalue_with_fallback(p_combined)
-add_diag("qvalue_method", q_combined_res$method)
-
-# rdadapt_res is now the COMBINED result — every downstream section (15-21)
-# that reads p.values/q.values/distance operates on the B6 combination, not a
-# single fit. p.values_partial/p.values_unconstrained/distance_partial/
-# distance_unconstrained carry the per-fit values through to the candidates
-# table (section 17) so a reader can see which fit drove each SNP's call.
-rdadapt_res <- list(
-    p.values = p_combined, q.values = q_combined_res$qvalues, distance = mahalanobis_combined,
-    gif_lambda = rdadapt_partial$gif_lambda, qvalue_method = q_combined_res$method,
-    p.values_partial = rdadapt_partial$p.values,
-    p.values_unconstrained = if (!is.null(rdadapt_unconstrained)) rdadapt_unconstrained$p.values else rep(NA_real_, m),
-    distance_partial = rdadapt_partial$distance,
-    distance_unconstrained = if (!is.null(rdadapt_unconstrained)) rdadapt_unconstrained$distance else rep(NA_real_, m)
-)
+message("INFO: Running rdadapt (robust Mahalanobis distance over retained axes)")
+rdadapt_res <- rdadapt(RDA_env, K_sel)
+add_diag("gif_lambda", rdadapt_res$gif_lambda)          # A8/A9
+add_diag("qvalue_method", rdadapt_res$qvalue_method)
 
 ################################################################################
 # 15. Marker-envelope statement (A7, A15) — always written, regardless of m.
@@ -556,14 +459,12 @@ add_diag("sensitivity_ladder_note",
 # 16c. Applied candidate rule — SHARED with find_sig_snps.R.
 #      compute_pval_threshold() is the same function find_sig_snps.R calls on
 #      OUT_PVALUES, so the candidates table and *_sig_snps_{adjust}.tsv are the
-#      same SNP set by construction. That equality is preserved by B6 (section
-#      14): p_combined is computed ONCE, above, and both this section and
-#      section 18's OUT_PVALUES write read the same rdadapt_res$p.values
-#      (=p_combined) — there is no second, independent combination step. The
-#      equality further rests on the pre-existing invariant: section 18 below
-#      re-expands variance-dropped SNPs as NA, and compute_pval_threshold()
-#      NA-drops before counting, so its n_tested equals m here. Never write 0
-#      instead of NA in section 18.
+#      same SNP set by construction: this section and section 18's
+#      OUT_PVALUES write both read the same rdadapt_res$p.values (section 13),
+#      and nothing transforms it in between. The equality further rests on
+#      the invariant that section 18 below re-expands variance-dropped SNPs as
+#      NA, and compute_pval_threshold() NA-drops before counting, so its
+#      n_tested equals m here. Never write 0 instead of NA in section 18.
 ################################################################################
 cand_res <- compute_pval_threshold(rdadapt_res$p.values, CAND_ADJUST, CAND_VALUE)
 
@@ -575,9 +476,9 @@ add_diag("candidate_threshold_status", cand_res$status)
 add_diag("candidate_n_tested",         cand_res$n_tested)
 add_diag("candidate_n_na_dropped",     cand_res$n_na_dropped)
 
-# The q-value COLUMN in the candidates table comes from section 14's
-# qvalue_with_fallback(p_combined) call (storey -> lambda=0 -> BH), applied to
-# the COMBINED p-values, NOT from pval_threshold.R's bare qvalue()
+# The q-value COLUMN in the candidates table comes from rdadapt()'s own
+# qvalue_with_fallback() call (section 13: storey -> lambda=0 -> BH), NOT from
+# pval_threshold.R's bare qvalue()
 # (max_pvalue_fdr, no fallback). Under adjust="qval" the applied cutoff is
 # computed via the shared function (so it agrees with find_sig_snps.R), but it
 # can be a DIFFERENT estimate than the q_value column whenever the fallback
@@ -587,8 +488,8 @@ add_diag("candidate_qvalue_engine",
          if (identical(CAND_ADJUST, "qval"))
              paste0("pval_threshold::max_pvalue_fdr — bare qvalue(), NO fallback chain. ",
                     "The q_value COLUMN in the candidates table is qvalue_with_fallback's ",
-                    "(method=", rdadapt_res$qvalue_method, ", applied to the B6-combined ",
-                    "p-values) and may use a different estimator.")
+                    "(method=", rdadapt_res$qvalue_method, ") and may use a different ",
+                    "estimator.")
          else "n/a (adjust != qval)")
 
 if (!identical(cand_res$status, "ok")) {
@@ -650,12 +551,7 @@ if (length(candidate_idx) > 0) {
                                 mahalanobis    = rdadapt_res$distance[candidate_idx],
                                 p_value        = rdadapt_res$p.values[candidate_idx],
                                 q_value        = rdadapt_res$q.values[candidate_idx],
-                                pval_threshold = cand_res$threshold,
-                                # B6 split columns — which fit drove the combined call for this SNP.
-                                mahalanobis_partial       = rdadapt_res$distance_partial[candidate_idx],
-                                mahalanobis_unconstrained = rdadapt_res$distance_unconstrained[candidate_idx],
-                                p_value_partial           = rdadapt_res$p.values_partial[candidate_idx],
-                                p_value_unconstrained     = rdadapt_res$p.values_unconstrained[candidate_idx])
+                                pval_threshold = cand_res$threshold)
     candidates_dt <- cbind(candidates_dt, as.data.table(cand_loadings), as.data.table(cor_mat))
     candidates_dt[, assigned_predictor := assigned_predictor]
     candidates_dt[, assigned_cor := assigned_cor]
@@ -671,9 +567,7 @@ if (length(candidate_idx) > 0) {
     candidates_dt <- data.table(
         SNPID = character(), chr = character(), pos = integer(),
         mahalanobis = numeric(), p_value = numeric(), q_value = numeric(),
-        pval_threshold = numeric(),
-        mahalanobis_partial = numeric(), mahalanobis_unconstrained = numeric(),
-        p_value_partial = numeric(), p_value_unconstrained = numeric()
+        pval_threshold = numeric()
     )
     for (i in seq_len(K_sel)) candidates_dt[[paste0("RDA", i)]] <- numeric()
     for (p in predictor_names) candidates_dt[[paste0("cor_", p)]] <- numeric()
@@ -710,7 +604,6 @@ setnames(diag_dt, c("key", "value"))
 fwrite(diag_dt, OUT_DIAGNOSTICS, sep = '\t', quote = FALSE)
 
 message("INFO: Writing anova table: ", OUT_ANOVA)
-anova_dt <- rbindlist(list(anova_dt, anova_dt_unc), fill = TRUE)  # B6 — partial + unconstrained rows
 fwrite(anova_dt, OUT_ANOVA, sep = '\t', quote = FALSE)
 
 ################################################################################
@@ -797,7 +690,6 @@ ggsave(sub("\\.png$", ".svg", O_biplot), g_biplot, width = 7, height = 6,
 message("INFO: RDA genome scan complete.")
 message(paste0("INFO: m=", m, " K=", K_sel, " (max=", K_max, ") gif=",
                round(rdadapt_res$gif_lambda, 4),
-               " | B6 unconstrained_fit=", unconstrained_fit_status,
                " | APPLIED ", CAND_ADJUST, "_", CAND_VALUE, " -> ", n_candidates_total,
                " candidates | ladder: bonf0.01=", n_bonf_001, " bonf0.05=", n_bonf_005,
                " q0.05=", n_qval_005, " q0.10=", n_qval_010))
