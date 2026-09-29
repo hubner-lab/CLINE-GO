@@ -77,6 +77,10 @@ HARVEST_WZA="${HARVEST_WZA:-0}"
 # arms sharing a project_name would collide on the lock and overwrite each other's tables.
 PROJ_SUFFIX="${PROJ_SUFFIX:-}"
 SKIP_PREGEA="${SKIP_PREGEA:-0}"
+# HARVEST_DIAG=1 (added 2026-09-29, SS-Clines re-analysis Phase 2a) additionally copies out,
+# per cell, what Phase 3 needs to audit one-fit RDA and to read structure beside the p-values.
+# See harvest_diag() below.
+HARVEST_DIAG="${HARVEST_DIAG:-0}"
 
 mkdir -p "$PARAMS_DIR" "$RUNLOG_DIR"
 
@@ -102,6 +106,37 @@ snake() {   # snake <seed> <mode> <configfile> <logfile>
             --config mode="$2" --configfile "$3" --scheduler greedy \
             --rerun-incomplete \
         >> "$4" 2>&1
+}
+
+harvest_diag() {   # harvest_diag <proj> <res> <k> <dest> <log>
+    # Only RDA writes side tables (rda.R: candidates / diagnostics / anova). ld_decay comes
+    # from Structure/tables but is pulled into mode=gea by assoc_wza (auto_genome_wide), so
+    # it is current for the cell. eigenvalues / tracywidom are the LD-pruned LEA PCA's; the
+    # _work/ path encodes the filter and LD parameters, so it is globbed and must resolve to
+    # exactly ONE .pca directory. Every file is FATAL when missing -- the completion gate
+    # counts them, and a skipped copy would look like a harvested cell.
+    local proj="$1" res="$2" k="$3" dest="$4" log="$5" f src
+    if [[ " ${METHODS[*]} " == *" RDA "* ]]; then
+        for f in candidates diagnostics anova; do
+            src="$res/GEA/tables/methods/RDA/RDA_${f}_K${k}.tsv"
+            [[ -s "$src" ]] || { echo "[$proj] FATAL: HARVEST_DIAG missing/empty $src" | tee -a "$log"; return 1; }
+            cp "$src" "$dest/RDA_${f}.tsv"
+        done
+    fi
+    src="$res/Structure/tables/ld_decay_half_distances.tsv"
+    [[ -s "$src" ]] || { echo "[$proj] FATAL: HARVEST_DIAG missing/empty $src" | tee -a "$log"; return 1; }
+    cp "$src" "$dest/ld_decay_half_distances.tsv"
+    local pca=( "$res"/_work/*/*/*.pca )
+    if (( ${#pca[@]} != 1 )) || [[ ! -d "${pca[0]}" ]]; then
+        echo "[$proj] FATAL: HARVEST_DIAG expected exactly one _work/*/*/*.pca dir, found: ${pca[*]}" | tee -a "$log"
+        return 1
+    fi
+    for f in eigenvalues tracywidom; do
+        src=( "${pca[0]}"/*."$f" )
+        [[ ${#src[@]} -eq 1 && -s "${src[0]}" ]] \
+            || { echo "[$proj] FATAL: HARVEST_DIAG missing/empty ${pca[0]}/*.$f" | tee -a "$log"; return 1; }
+        cp "${src[0]}" "$dest/pca.$f"
+    done
 }
 
 run_seed() {
@@ -176,6 +211,11 @@ run_seed() {
         echo "[$proj] c$i gea finished  $(date -Is)" | tee -a "$log"
 
         mkdir -p "$dest/manhattan"
+        # Before the p-value tables, so the skip sentinel above ({last method}_pvalues.tsv)
+        # still means "cell complete" when a diag file is missing.
+        if [[ "$HARVEST_DIAG" == "1" ]]; then
+            harvest_diag "$proj" "$res" "$k" "$dest" "$log" || return 1
+        fi
         for m in "${METHODS[@]}"; do
             # [changed 2026-08-04] The exclusion test used to live INSIDE the `! -s "$src"`
             # branch, i.e. it was only consulted when the table was missing. But a method
