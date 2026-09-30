@@ -86,6 +86,66 @@ mkdir -p "$PARAMS_DIR" "$RUNLOG_DIR"
 
 DOCKER=(nix shell nixpkgs#docker-client -c docker)
 
+# ---- gea gate (added 2026-09-29, SS-Clines re-analysis Phase 2b). Off unless GEA_SLOTS > 0.
+# mode=gea holds ~25-29 GB for ~18 of its ~48 min (the rda() fit, 32k-SNP seeds) while every
+# upstream mode stays under ~3 GB, so memory is set by how many seeds are in gea AT ONCE, not by
+# how many are in flight. The gate lets upstream run wide and admits a seed to gea only when
+#   (a) fewer than GEA_SLOTS gea tickets are held, and
+#   (b) at least GEA_STAGGER_S seconds have passed since the last admission -- seeds launched
+#       together otherwise reach the rda() fit together and their peaks coincide.
+# A ticket is a file GATE_DIR/tickets/<proj>. Any driver pointing at the same GATE_DIR shares the
+# count, and a ticket written by hand for a seed another process is running counts the same way.
+# A ticket is dropped when no container of its project has been seen running for 180 s, so a
+# killed driver or a hand-written ticket never leaks a slot. Live overrides, re-read on every
+# check: GATE_DIR/{gea_slots,gea_stagger_s,seed_jobs} -- one integer each.
+GEA_SLOTS="${GEA_SLOTS:-0}"
+GEA_STAGGER_S="${GEA_STAGGER_S:-60}"
+GATE_DIR="${GATE_DIR:-$PARAMS_DIR/.gea_gate}"
+DOCKER_BIN=""
+
+gate_val() {   # gate_val <name> <default>: GATE_DIR/<name> overrides the env default, live
+    local f="$GATE_DIR/$1"
+    if [[ -s "$f" ]]; then tr -d '[:space:]' < "$f"; else echo "$2"; fi
+}
+
+gate_on() { (( $(gate_val gea_slots "$GEA_SLOTS") > 0 )); }
+
+gea_acquire() {   # gea_acquire <proj> <log>: block until a gea slot is free and the stagger has passed
+    gate_on || return 0
+    local proj="$1" log="$2" waited=0
+    [[ -n "$DOCKER_BIN" ]] || DOCKER_BIN=$(nix shell nixpkgs#docker-client -c sh -c 'command -v docker')
+    mkdir -p "$GATE_DIR/tickets"
+    while :; do
+        if (
+            flock 9
+            live=$("$DOCKER_BIN" ps --format '{{.Names}}' 2>/dev/null) || exit 1
+            now=$(date +%s); held=0
+            for t in "$GATE_DIR"/tickets/*; do
+                [[ -e "$t" ]] || continue
+                p=$(basename "$t")
+                if grep -q "^mvp-sweep-${p}-" <<< "$live"; then
+                    touch "$t"
+                elif (( now - $(date -r "$t" +%s) > 180 )); then
+                    rm -f "$t"; continue
+                fi
+                held=$((held + 1))
+            done
+            slots=$(gate_val gea_slots "$GEA_SLOTS")
+            stagger=$(gate_val gea_stagger_s "$GEA_STAGGER_S")
+            last=0; [[ -e "$GATE_DIR/.last_admit" ]] && last=$(date -r "$GATE_DIR/.last_admit" +%s)
+            if (( held < slots && now - last >= stagger )); then
+                : > "$GATE_DIR/tickets/$proj"; touch "$GATE_DIR/.last_admit"; exit 0
+            fi
+            exit 1
+        ) 9>"$GATE_DIR/.lock"; then break; fi
+        (( waited )) || echo "[$proj] gea gate: waiting for a slot  $(date -Is)" | tee -a "$log"
+        waited=1; sleep 20
+    done
+    echo "[$proj] gea gate: admitted  $(date -Is)" | tee -a "$log"
+}
+
+gea_release() { gate_on || return 0; rm -f "$GATE_DIR/tickets/$1"; }
+
 if [[ "$SEEDS_ARG" == "all" ]]; then
     mapfile -t SEEDS < <(awk 'NR>1 && NF {print $1}' "$MANIFEST")
 else
@@ -203,11 +263,13 @@ run_seed() {
             prev_dir="$dest"; continue
         fi
 
+        gea_acquire "$proj" "$log"
         echo "[$proj] c$i  $(date -Is)" | tee -a "$log"
         local stamp="$res/.cell_start"
         touch "$stamp"
-        snake "$seed" gea "$cfg" "$log" \
-            || { echo "[$proj] FAILED at c$i" | tee -a "$log"; return 1; }
+        snake "$seed" gea "$cfg" "$log"; local rc=$?
+        gea_release "$proj"
+        (( rc == 0 )) || { echo "[$proj] FAILED at c$i" | tee -a "$log"; return 1; }
         echo "[$proj] c$i gea finished  $(date -Is)" | tee -a "$log"
 
         mkdir -p "$dest/manhattan"
@@ -285,7 +347,8 @@ echo "INFO: ${#SEEDS[@]} seeds, $SEED_JOBS at a time, $CELLS cells each"
 echo "INFO: per seed --cpus=$CPUS_PER_SEED --memory=$MEM_PER_SEED, snakemake -c$SNAKE_CORES"
 fail=0
 for seed in "${SEEDS[@]}"; do
-    while (( $(jobs -rp | wc -l) >= SEED_JOBS )); do wait -n; done
+    # seed_jobs is re-read every 15 s (gate_val), so concurrency can be raised or lowered live.
+    while (( $(jobs -rp | wc -l) >= $(gate_val seed_jobs "$SEED_JOBS") )); do sleep 15; done
     run_seed "$seed" &
 done
 wait
