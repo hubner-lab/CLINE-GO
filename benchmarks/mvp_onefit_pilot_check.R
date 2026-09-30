@@ -16,6 +16,11 @@
 #      pca.{eigenvalues,tracywidom}, and no BLINK table.
 #   A2 RDA p_new <= pmax_old on EVERY SNP, same keys in the same order. The frozen arm wrote
 #      pmax(p_partial, p_unconstrained); the partial fit is unchanged, so p_new = p_partial.
+#      Compared with a relative tolerance (--tol, default 1e-9): block ssclines_ncline_ctredge
+#      was frozen with snakemake -c4 (runbook default) while every other block and this re-run
+#      used -c2, and its RDA p differs from the -c2 fit at ~1e-13 relative (max 6.3e-13 over
+#      its 120 seeds) with LFMM/EMMAX still byte-identical. n_violations_exact keeps the bitwise
+#      count so that difference stays visible.
 #   A3 the removed keys / columns are gone: no *_partial / *_unconstrained diagnostics keys,
 #      no split candidate columns, no anova `model` column -- i.e. the NEW rda.R ran.
 #   A4 anchor seed (exact): its pmax-era side tables, stashed before the re-run, carry the
@@ -44,6 +49,7 @@ ANCHOR  <- strsplit(opt("anchor", "1231418:benchmarks/mvp_eval/onefit_pilot/pmax
                     ":", fixed = TRUE)[[1]]
 RUNLOGS <- file.path(ROOT, opt("runlogs", "benchmarks/mvp_eval/onefit_pilot/runlogs"))
 OUT     <- file.path(ROOT, opt("out", "benchmarks/mvp_eval/onefit_pilot"))
+TOL     <- as.numeric(opt("tol", "1e-9"))
 
 source(file.path(ROOT, "scripts/R/utils/pval_threshold.R"))  # compute_pval_threshold()
 suppressPackageStartupMessages(library(qvalue))                # its qval branch needs it
@@ -87,8 +93,10 @@ check_seed <- function(seed) {
     check(same_keys, paste0(tag, " A2 RDA SNP keys differ from the frozen table"))
     old <- po$climate_multivariate; new <- pn$climate_multivariate
     check(identical(is.na(old), is.na(new)), paste0(tag, " A2 NA pattern differs"))
-    n_viol <- sum(new > old, na.rm = TRUE)
-    check(n_viol == 0, paste0(tag, " A2 ", n_viol, " SNPs with p_new > pmax_old"))
+    n_viol_exact <- sum(new > old, na.rm = TRUE)
+    n_viol <- sum(new > old * (1 + TOL), na.rm = TRUE)
+    max_rel_excess <- if (n_viol_exact > 0) max(((new - old) / old)[which(new > old)]) else 0
+    check(n_viol == 0, paste0(tag, " A2 ", n_viol, " SNPs with p_new > pmax_old * (1 + ", TOL, ")"))
 
     # ---- A3
     dg <- read_diag(file.path(dn, "RDA_diagnostics.tsv"))
@@ -123,6 +131,7 @@ check_seed <- function(seed) {
         seed = seed, harvest_ok = TRUE, anchored = anchored, n_snps = m,
         k_best = dg[["k_best"]], condition_pcs = dg[["condition_pcs"]], rda_axes = dg[["rda_axes"]],
         gif_lambda = as.numeric(dg[["gif_lambda"]]), n_violations = n_viol,
+        n_violations_exact = n_viol_exact, max_rel_excess = max_rel_excess,
         n_equal = sum(new == old, na.rm = TRUE),            # partial fit was the binding one
         n_lower = sum(new < old, na.rm = TRUE),             # unconstrained fit was binding
         median_p_old = median(old, na.rm = TRUE), median_p_new = median(new, na.rm = TRUE),
