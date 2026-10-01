@@ -16,6 +16,12 @@
 # and killing one would corrupt a block's close-out. Every action is logged with the full
 # candidate list so a wrong victim is auditable after the fact.
 #
+# NAME_PREFIX (added 2026-09-30, Phase 3b RDA-uncorrected run): when set, the ONLY candidates
+# are running containers whose name starts with it (e.g. mvp-rdaunc-), whatever their image --
+# the ancestor filter alone also matches other projects' containers of the same image. The
+# RDA-uncorrected driver writes DONE only after rda.R exits 0, so a stopped seed is re-run by
+# launching the driver again (it skips every DONE seed).
+#
 # Consequence of a stop: mvp_run_sweep.sh's snake() sees a nonzero exit, marks the seed
 # FAILED at that mode, and the driver reports it as INCOMPLETE at the end. The seed is
 # re-runnable -- Snakemake's DAG resumes, and the driver clears the stale lock at seed start.
@@ -24,15 +30,16 @@ export PIPELINE_ROOT=/mnt/data/eugene/ADAPTOGENE
 cd "$PIPELINE_ROOT" || exit 1
 
 IMAGE=cline-go:latest
+NAME_PREFIX=${NAME_PREFIX:-}
 SOFT=${SOFT:-780}          # GB host used -- warn
 HARD=${HARD:-880}          # GB host used -- stop the largest of our containers
 INTERVAL=${INTERVAL:-20}
-LOG=work/ram_guard.log
+LOG=${LOG:-work/ram_guard.log}
 DK=(nix shell nixpkgs#docker-client -c docker)
 
 log() { echo "$(date -Is) $*" | tee -a "$LOG"; }
 
-log "GUARD START soft=${SOFT}G hard=${HARD}G interval=${INTERVAL}s image=$IMAGE"
+log "GUARD START soft=${SOFT}G hard=${HARD}G interval=${INTERVAL}s image=$IMAGE name_prefix=${NAME_PREFIX:-<none>}"
 warned=0
 while true; do
     used=$(free -g | awk '/^Mem:/ {print $3}')
@@ -41,9 +48,14 @@ while true; do
     if (( used >= HARD )); then
         # Candidates: running containers of our image, excluding the scoring/tables//prep
         # singletons. Sorted by resident size, biggest first.
-        mapfile -t cand < <("${DK[@]}" ps --filter "ancestor=$IMAGE" \
-                              --format '{{.ID}}\t{{.Names}}' 2>/dev/null \
-                            | grep -vE 'mvp-(score|tables|fitness|identity|snpsets|gcfg|genv)')
+        if [[ -n "$NAME_PREFIX" ]]; then
+            mapfile -t cand < <("${DK[@]}" ps --format '{{.ID}}\t{{.Names}}' 2>/dev/null \
+                                | awk -F'\t' -v p="$NAME_PREFIX" 'index($2, p) == 1')
+        else
+            mapfile -t cand < <("${DK[@]}" ps --filter "ancestor=$IMAGE" \
+                                  --format '{{.ID}}\t{{.Names}}' 2>/dev/null \
+                                | grep -vE 'mvp-(score|tables|fitness|identity|snpsets|gcfg|genv)')
+        fi
         if (( ${#cand[@]} == 0 )); then
             log "HARD ${used}G but no eligible container to stop -- nothing done"
             sleep "$INTERVAL"; continue
