@@ -18,8 +18,9 @@
 #   rank_metrics.tsv      AUC-PR, R-precision (threshold-free)
 #   pr_curves.tsv         the AUC-PR step points (one row per retrieved causal locus)
 #   lambda_pi0.tsv        genomic-control lambda and qvalue pi0 per method x trait
-#   rda_pmax_dist.tsv     the combined RDA p (pmax of the partial and unconstrained fit):
-#                         the "before" baseline for the Phase 2 one-fit change
+#   rda_{ARM}_dist.tsv    the RDA p distribution of the arm read. ARM=pmax (the frozen arm): the
+#                         combined p, pmax of the partial and unconstrained fit -- the "before"
+#                         baseline. ARM=onefit (Phase 2): the one fit's rdadapt p -- the "after".
 #   covariates.tsv        design cell, demography, K_authors, k_best, manifest structure stats
 #   assert_*.tsv          what the assertions below checked
 #
@@ -44,14 +45,26 @@
 #   A2 >=2 of 3 at every window and rung equals the pipeline's own
 #      scripts/R/lib/combine_sigsnps.R .overlap_cross_method() SNP set, on 12 replicates (one per
 #      genic-level x architecture design cell).
-#   A3 AUC-PR equals benchmarks/mvp_eval/detection600/aucpr_per_seed.tsv to 1e-12 on all 1800
-#      rows: same tables, same function, and rank-based metrics are untouched by the `<=` fix.
+#   A3 AUC-PR equals benchmarks/mvp_eval/detection600/aucpr_per_seed.tsv to 1e-12 on every row
+#      of the A3_METHODS: same tables, same function, and rank-based metrics are untouched by the
+#      `<=` fix. detection600 was scored on the FROZEN pmax arm, so A3 can only assert a method
+#      whose p-table is unchanged in the arm being read: all three on ARM=pmax, LFMM and EMMAX on
+#      ARM=onefit (byte-identical to the frozen arm, Phase 2b gate). One-fit RDA's AUC-PR is
+#      expected to differ -- that difference is a measured result, written to the same table
+#      with asserted = FALSE, never a relaxed assertion.
 #   A4 600 replicates x 3 methods, no replicate missing, no scoring error.
 # journal 16's legacy-seed reproduction gate (mvp_detection_600.R) does NOT apply here: the
 # `<=` fix deliberately changes threshold counts, so reproducing journal 07's would be a failure.
 #
 #   PARAMS_DIR  default benchmarks/mvp_eval/params         (the frozen pmax arm, read-only)
-#   OUT_DIR     default benchmarks/mvp_eval/remeasure600/pmax
+#   ARM         default pmax -- label of the arm read; names OUT_DIR's default and the RDA file
+#   OUT_DIR     default benchmarks/mvp_eval/remeasure600/{ARM}
+#   A3_METHODS  default LFMM,EMMAX,RDA -- methods A3 asserts (ARM=onefit: LFMM,EMMAX)
+#   TOP_SHARES  default unset = the 20-rung GRID below. A comma list of shares (e.g.
+#               0.0015,0.002,0.0025) replaces the GRID with those `top` rungs only -- the Phase 3b
+#               detection ledger (plan ~/.claude/plans/glittery-fluttering-seahorse.md).
+#   WINDOWS_KB  default unset = 0,1,2.5,5,10. A comma list replaces it; 0 is always added, because
+#               A1 (window 0 == exact-key tally) is checked there and nowhere else.
 #   CELL        default c1
 #   NCORES      default 16
 #   N_SEEDS     default all (a smaller number runs the first N replicates -- timing only;
@@ -64,12 +77,21 @@ suppressPackageStartupMessages({ library(dplyr); library(data.table); library(pa
 ROOT   <- Sys.getenv("PIPELINE_ROOT", "/pipeline")
 EVAL   <- file.path(ROOT, "benchmarks/mvp_eval")
 PDIR   <- Sys.getenv("PARAMS_DIR", file.path(EVAL, "params"))
-OUT    <- Sys.getenv("OUT_DIR", file.path(EVAL, "remeasure600", "pmax"))
+ARM    <- Sys.getenv("ARM", "pmax")
+if (!grepl("^[a-z0-9_]+$", ARM)) stop("ARM must match ^[a-z0-9_]+$, got: ", ARM)
+OUT    <- Sys.getenv("OUT_DIR", file.path(EVAL, "remeasure600", ARM))
 CELL   <- Sys.getenv("CELL", "c1")
 NCOR   <- as.integer(Sys.getenv("NCORES", "16"))
 NSEEDS <- Sys.getenv("N_SEEDS", "all")
 METHODS <- c("LFMM", "EMMAX", "RDA")
+A3_METHODS <- trimws(strsplit(Sys.getenv("A3_METHODS", paste(METHODS, collapse = ",")), ",")[[1]])
+if (!length(A3_METHODS) || !all(A3_METHODS %in% METHODS))
+    stop("A3_METHODS must be a non-empty subset of ", paste(METHODS, collapse = ","))
 WINDOWS_KB <- c(0, 1, 2.5, 5, 10)
+if (nzchar(Sys.getenv("WINDOWS_KB"))) {
+    WINDOWS_KB <- sort(unique(c(0, as.numeric(strsplit(Sys.getenv("WINDOWS_KB"), ",")[[1]]))))
+    if (anyNA(WINDOWS_KB) || any(WINDOWS_KB < 0)) stop("WINDOWS_KB must be non-negative numbers")
+}
 
 source(file.path(ROOT, "scripts/R/utils/pval_threshold.R"))
 source(file.path(ROOT, "benchmarks/lib_detection.R"))
@@ -82,6 +104,11 @@ GRID <- rbind(
     data.table(adjust = "qval",   value = c(0.01, 0.02, 0.05, 0.1, 0.15, 0.2)),
     data.table(adjust = "top",    value = c(0.001, 0.0025, 0.005, 0.01, 0.02)),   # shares
     data.table(adjust = "custom", value = c(1e-6, 1e-5, 1e-4, 1e-3)))
+if (nzchar(Sys.getenv("TOP_SHARES"))) {
+    shares <- as.numeric(strsplit(Sys.getenv("TOP_SHARES"), ",")[[1]])
+    if (anyNA(shares) || any(shares <= 0 | shares >= 1)) stop("TOP_SHARES must be shares in (0, 1)")
+    GRID <- data.table(adjust = "top", value = sort(unique(shares)))
+}
 GRID[, rung := paste0(adjust, "_", vapply(value, format, "", scientific = FALSE, drop0trailing = TRUE))]
 stopifnot(!anyDuplicated(GRID$rung))
 
@@ -206,7 +233,7 @@ remeasure_seed <- function(seed, check_pipeline) {
         }
     }
 
-    # ---- the "before" RDA p: pmax(p_partial, p_unconstrained), as harvested
+    # ---- the RDA p of this arm, as harvested (pmax: pmax(p_partial, p_unconstrained); onefit: one fit)
     prda <- L$RDA$pv[[L$RDA$trait_cols[1]]]; prda <- prda[!is.na(prda)]
     qq <- quantile(prda, c(0.001, 0.01, 0.05, 0.25, 0.5, 0.75))
     rda_row <- data.table(seed = seed, n = length(prda), min_p = min(prda),
@@ -275,22 +302,28 @@ a3  <- merge(R[, .(seed, method, aucpr, n_testable)],
              ref[, .(seed, method, ref_aucpr = aucpr, ref_testable = n_testable)],
              by = c("seed", "method"), all.x = TRUE)
 a3[, abs_diff := abs(aucpr - ref_aucpr)]
-if (anyNA(a3$ref_aucpr) || any(a3$abs_diff > 1e-12) || any(a3$n_testable != a3$ref_testable))
+a3[, asserted := method %in% A3_METHODS]
+a3c <- a3[asserted == TRUE]
+if (anyNA(a3c$ref_aucpr) || any(a3c$abs_diff > 1e-12) || any(a3c$n_testable != a3c$ref_testable))
     stop("A3 FAILED: AUC-PR does not reproduce detection600 (max |diff| = ",
-         format(max(a3$abs_diff, na.rm = TRUE)), ")")
-message("A3 PASSED: AUC-PR reproduces detection600 on ", nrow(a3), " rows")
+         format(max(a3c$abs_diff, na.rm = TRUE)), ")")
+message(sprintf("A3 PASSED: AUC-PR reproduces detection600 on %d rows (%s); %d rows measured, not asserted",
+                nrow(a3c), paste(A3_METHODS, collapse = ","), sum(!a3$asserted)))
 
 # ------------------------------------------------------------------ write
 w <- function(d, f) { fwrite(d, file.path(OUT, f), sep = "\t"); message("wrote ", f, " (", nrow(d), " rows)") }
 w(cov[seed %in% SEEDS], "covariates.tsv")
 w(R, "rank_metrics.tsv");  w(PR, "pr_curves.tsv");      w(LAM, "lambda_pi0.tsv")
 w(TR, "calls_per_trait.tsv"); w(M, "calls_per_method.tsv"); w(C, "calls_combine.tsv")
-w(RDA, "rda_pmax_dist.tsv")
+w(RDA, sprintf("rda_%s_dist.tsv", ARM))
 w(AS[, .(seed, a1_rungs, a2_checks, check_replicate = seed %in% CHECK)], "assert_combine.tsv")
 w(a3, "assert_aucpr_detection600.tsv")
 w(GRID, "grid.tsv")
-writeLines(c(sprintf("params_dir\t%s", PDIR), sprintf("cell\t%s", CELL),
-             sprintf("arm\t%s", mvp_arm_label()), sprintf("n_replicates\t%d", length(SEEDS)),
+writeLines(c(sprintf("arm\t%s", ARM), sprintf("params_dir\t%s", PDIR), sprintf("cell\t%s", CELL),
+             sprintf("corpus\t%s", mvp_arm_label()), sprintf("a3_methods\t%s", paste(A3_METHODS, collapse = ",")),
+             sprintf("n_replicates\t%d", length(SEEDS)),
+             sprintf("grid\t%s", paste(GRID$rung, collapse = ",")),
+             sprintf("windows_kb\t%s", paste(WINDOWS_KB, collapse = ",")),
              sprintf("check_replicates\t%s", paste(CHECK, collapse = ",")),
              sprintf("run_at\t%s", format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z"))),
            file.path(OUT, "provenance.tsv"))
