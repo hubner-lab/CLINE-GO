@@ -65,6 +65,11 @@
 #               detection ledger (plan ~/.claude/plans/glittery-fluttering-seahorse.md).
 #   WINDOWS_KB  default unset = 0,1,2.5,5,10. A comma list replaces it; 0 is always added, because
 #               A1 (window 0 == exact-key tally) is checked there and nowhere else.
+#   SHARE_MULT  default unset = 1 for every method. `METHOD=x[,METHOD=y]` multiplies that method's
+#               `top` share only (rung names keep the base share). Phase 4a (2026-10-01): RDA=2 --
+#               RDA tests both predictors in ONE multivariate p, so it gets the same total budget
+#               as LFMM/EMMAX's 0.25 % per predictor x 2 predictors (plan
+#               ~/.claude/plans/we-are-now-starting-radiant-pillow.md). Non-`top` rungs ignore it.
 #   CELL        default c1
 #   NCORES      default 16
 #   N_SEEDS     default all (a smaller number runs the first N replicates -- timing only;
@@ -88,6 +93,15 @@ A3_METHODS <- trimws(strsplit(Sys.getenv("A3_METHODS", paste(METHODS, collapse =
 if (!length(A3_METHODS) || !all(A3_METHODS %in% METHODS))
     stop("A3_METHODS must be a non-empty subset of ", paste(METHODS, collapse = ","))
 WINDOWS_KB <- c(0, 1, 2.5, 5, 10)
+SHARE_MULT <- setNames(rep(1, length(METHODS)), METHODS)
+if (nzchar(Sys.getenv("SHARE_MULT"))) {
+    kv <- strsplit(strsplit(Sys.getenv("SHARE_MULT"), ",", fixed = TRUE)[[1]], "=", fixed = TRUE)
+    if (any(lengths(kv) != 2L)) stop("SHARE_MULT must be METHOD=x[,METHOD=y]")
+    mv <- setNames(as.numeric(vapply(kv, `[`, "", 2L)), vapply(kv, `[`, "", 1L))
+    if (anyNA(mv) || any(mv <= 0) || !all(names(mv) %in% METHODS))
+        stop("SHARE_MULT: unknown method or non-positive multiplier: ", Sys.getenv("SHARE_MULT"))
+    SHARE_MULT[names(mv)] <- mv
+}
 if (nzchar(Sys.getenv("WINDOWS_KB"))) {
     WINDOWS_KB <- sort(unique(c(0, as.numeric(strsplit(Sys.getenv("WINDOWS_KB"), ",")[[1]]))))
     if (anyNA(WINDOWS_KB) || any(WINDOWS_KB < 0)) stop("WINDOWS_KB must be non-negative numbers")
@@ -153,7 +167,7 @@ remeasure_seed <- function(seed, check_pipeline) {
         called[[rung]] <- list()
         for (m in METHODS) {
             lp  <- L[[m]]
-            val <- if (adj == "top") ceiling(GRID$value[g] * nrow(lp$pv)) else GRID$value[g]
+            val <- if (adj == "top") ceiling(GRID$value[g] * SHARE_MULT[[m]] * nrow(lp$pv)) else GRID$value[g]
             res <- call_by_threshold(lp$pv, lp$trait_cols, adj, val, quiet = TRUE)
             called[[rung]][[m]] <- res$called
             for (tc in lp$trait_cols) {
@@ -201,7 +215,7 @@ remeasure_seed <- function(seed, check_pipeline) {
                     lp <- L[[m]]
                     rbindlist(lapply(lp$trait_cols, function(tc) {
                         th <- call_by_threshold(lp$pv, tc, adj,
-                                  if (adj == "top") ceiling(GRID$value[gi] * nrow(lp$pv))
+                                  if (adj == "top") ceiling(GRID$value[gi] * SHARE_MULT[[m]] * nrow(lp$pv))
                                   else GRID$value[gi])$info[[tc]]
                         if (!identical(th$status, "ok") || is.na(th$threshold)) return(NULL)
                         hit <- !is.na(lp$pv[[tc]]) & lp$pv[[tc]] <= th$threshold
@@ -324,6 +338,7 @@ writeLines(c(sprintf("arm\t%s", ARM), sprintf("params_dir\t%s", PDIR), sprintf("
              sprintf("n_replicates\t%d", length(SEEDS)),
              sprintf("grid\t%s", paste(GRID$rung, collapse = ",")),
              sprintf("windows_kb\t%s", paste(WINDOWS_KB, collapse = ",")),
+             sprintf("share_mult\t%s", paste(names(SHARE_MULT), SHARE_MULT, sep = "=", collapse = ",")),
              sprintf("check_replicates\t%s", paste(CHECK, collapse = ",")),
              sprintf("run_at\t%s", format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z"))),
            file.path(OUT, "provenance.tsv"))
