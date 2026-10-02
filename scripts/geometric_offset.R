@@ -31,15 +31,27 @@ args <- commandArgs(trailingOnly = TRUE)
 # A single-scenario call passes one path in each list and behaves exactly as it
 # did before scenarios existed.
 #
-# WHAT IS AND IS NOT HOISTED OUT OF THE SCENARIO LOOP.
+# WHAT IS HOISTED OUT OF THE SCENARIO LOOP.
 # The genotype matrix load, the chr:pos index build, the candidate.loci vector,
 # the present-climate tables and the raster template are scenario-invariant and
-# are computed once. The LFMM2 fit is NOT hoisted: LEA::genetic.gap() takes
-# env/new.env/pred.env together and fits and projects in a single call, so there
-# is no fitted object to reuse across futures. (Stacking all scenarios into one
-# call would fit once, but it also changes what gap$eigenvalues/$vectors are
-# computed over, so it is not a drop-in substitution — it would need validating
-# against the per-scenario numbers before being adopted.)
+# are computed once -- and, since 2026-10-01, so is the LFMM2 fit.
+#
+# LEA::genetic.gap() starts every call with lfmm2(input = Y, env = X, K) on the WHOLE
+# genotype matrix and only then subsets B[candidate.loci, ] and projects new.env/pred.env.
+# The fit depends on Y, the present-site environment and K alone, so with N scenarios the
+# old loop refitted the identical model N times (measured on the SS-Clines garden sweep:
+# 112 identical genome-wide fits per job, ~92 % of the sweep's compute;
+# docs/pipeline_improvement_requests.md, 2026-10-01). With N > 1 the fit now runs once (§7a)
+# and every scenario is projected with genetic.gap()'s own post-fit lines, copied verbatim.
+# Scenario 1 still goes through the real LEA::genetic.gap(), which (a) keeps gap_first --
+# the eigen-pair the diagnostics and the importance plot read -- exactly as before, and
+# (b) GUARDS the hoisted path: if the two disagree beyond HOIST_TOL the job stops, so a
+# future LEA whose genetic.gap() changes cannot drift silently away from the copy below.
+# With N = 1 nothing changes: one genetic.gap() call, as before.
+#
+# The previous note here objected to STACKING all scenarios into one genetic.gap() call
+# (it changes the rows the call sees). That objection does not apply to this hoist: B, and
+# so eigen(cov(B)), is the same object whichever scenario is projected with it.
 ##############################################################################
 LFMM_IMP_FULL  <- args[1]
 VCFSNP         <- args[2]
@@ -190,6 +202,41 @@ site_ids <- samples[, c('site', 'sample')] %>% unique()
 # the fit, which is scenario-free, so it is written once from this one.
 gap_first <- NULL; newenv_first <- NULL; predenv_first <- NULL
 
+# ── 7a. One LFMM2 fit for every scenario (N > 1 only) ────────────────────────
+# The lines marked VERBATIM are LEA::genetic.gap()'s own (LEA 3.22.0, the scalar-K branch),
+# so the hoisted offset is the same arithmetic on the same inputs. Scenario 1 asserts it.
+HOIST     <- N_SCEN > 1
+HOIST_TOL <- 1e-10   # max |hoisted - genetic.gap| / max |genetic.gap| on scenario 1
+if (HOIST) {
+    if (length(K) != 1L || is.na(K)) stop('FATAL: geometric offset needs one integer K, got: ', args[12])
+    Y_fit <- as.matrix(lfmm_imp)                              # VERBATIM
+    Y_fit[Y_fit == 9] <- NA                                   # VERBATIM
+    Y_fit[Y_fit == -9] <- NA                                  # VERBATIM
+    if (anyNA(Y_fit)) stop('FATAL: imputed genotype matrix contains missing values (NA, 9 or -9).')
+    X_fit <- as.matrix(env)                                   # VERBATIM
+    if (anyNA(X_fit)) stop('FATAL: present site environment contains NA.')
+    if (SCALE == TRUE) {
+        m.x  <- apply(X_fit, 2, mean)                         # VERBATIM
+        sd.x <- apply(X_fit, 2, sd)                           # VERBATIM
+        if (sum(sd.x == 0) > 0) stop('FATAL: scale = TRUE but a predictor is constant across sites.')
+        X_fit <- t(t(X_fit) - m.x) %*% diag(1/sd.x)           # VERBATIM
+    }
+    message(paste0('INFO: Fitting LFMM2 once (K=', K, ') for all ', N_SCEN, ' scenarios'))
+    fit_once <- LEA::lfmm2(input = Y_fit, env = X_fit, K = K, effect.sizes = TRUE)   # VERBATIM
+    B_cand   <- as.matrix(fit_once@B[candidate, ])            # VERBATIM: B = as.matrix(B[candidate.loci, ])
+    rm(Y_fit)
+    project_offset <- function(new.env, pred.env) {
+        X.new  <- as.matrix(new.env)                          # VERBATIM
+        X.pred <- as.matrix(pred.env)                         # VERBATIM
+        if (anyNA(X.new) || anyNA(X.pred)) stop('FATAL: new/predicted environment contains NA.')
+        if (SCALE == TRUE) {
+            X.new  <- t(t(X.new)  - m.x) %*% diag(1/sd.x)     # VERBATIM
+            X.pred <- t(t(X.pred) - m.x) %*% diag(1/sd.x)     # VERBATIM
+        }
+        rowSums(((X.new - X.pred) %*% t(B_cand))^2)/nrow(B_cand)   # VERBATIM: gg
+    }
+}
+
 # ── 7-10. Per-scenario: fit + project, then write site/raster/map ─────────────
 for (i in seq_len(N_SCEN)) {
     message(paste0('INFO: [', i, '/', N_SCEN, '] scenario ', SCENARIOS[i]))
@@ -234,16 +281,33 @@ for (i in seq_len(N_SCEN)) {
     new.env  <- as.matrix(rbind(env_site_pres, env_all_pres_ok[, -1]))
     pred.env <- as.matrix(rbind(env_site_fut,  env_all_fut_ok[,  -1]))
 
-    message('INFO: Running LEA::genetic.gap() — this may take several minutes on large datasets')
-    gap <- LEA::genetic.gap(
-        input          = lfmm_imp,
-        env            = env,
-        new.env        = new.env,
-        pred.env       = pred.env,
-        K              = K,
-        scale          = SCALE,
-        candidate.loci = candidate
-    )
+    if (!HOIST || i == 1L) {
+        message('INFO: Running LEA::genetic.gap() — this may take several minutes on large datasets')
+        gap <- LEA::genetic.gap(
+            input          = lfmm_imp,
+            env            = env,
+            new.env        = new.env,
+            pred.env       = pred.env,
+            K              = K,
+            scale          = SCALE,
+            candidate.loci = candidate
+        )
+        offset_all <- gap$offset
+        if (HOIST) {
+            # The guard: the hoisted fit must reproduce genetic.gap() on this scenario.
+            hoisted <- project_offset(new.env, pred.env)
+            dev <- max(abs(hoisted - gap$offset))
+            rel <- dev / max(max(abs(gap$offset)), .Machine$double.xmin)
+            message(sprintf(paste0('INFO: hoisted LFMM2 fit vs LEA::genetic.gap() on scenario 1: ',
+                                   'max |diff| = %.3g (relative %.3g, tolerance %.0e)'), dev, rel, HOIST_TOL))
+            if (length(hoisted) != length(gap$offset) || !is.finite(rel) || rel > HOIST_TOL)
+                stop('FATAL: the hoisted LFMM2 projection does not reproduce LEA::genetic.gap() ',
+                     '(relative difference ', signif(rel, 3), ' > ', HOIST_TOL, '). LEA\'s ',
+                     'genetic.gap() has probably changed -- re-copy its post-fit lines into §7a.')
+        }
+    } else {
+        offset_all <- project_offset(new.env, pred.env)
+    }
     # The conditioning diagnostic below decomposes the FIRST scenario's fit, so it needs
     # that scenario's new.env/pred.env too -- both are loop-local and would otherwise hold
     # the LAST scenario's values by the time the diagnostic runs.
@@ -253,11 +317,11 @@ for (i in seq_len(N_SCEN)) {
         predenv_first <- pred.env
     }
 
-    message(paste0('INFO: genetic.gap complete. Offset length: ', length(gap$offset)))
+    message(paste0('INFO: offset computed. Length: ', length(offset_all)))
 
     # Slice: first n_site = per-site, remainder = landscape
-    offset_site      <- gap$offset[seq_len(n_site)]
-    offset_landscape <- gap$offset[(n_site + 1):length(gap$offset)]
+    offset_site      <- offset_all[seq_len(n_site)]
+    offset_landscape <- offset_all[(n_site + 1):length(offset_all)]
 
     message(paste0('INFO: Site offset range: ',
                    round(min(offset_site, na.rm = TRUE), 4), ' – ',
