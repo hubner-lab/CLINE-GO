@@ -17,10 +17,17 @@
 # DATA SOURCES (fixed; the same rung name exists in two directories):
 #   RDA comparison   remeasure600/{onefit,rdaunc}/rank_metrics.tsv, onefit/covariates.tsv,
 #                    onefit_diag/rda_diag.tsv, rdaunc_check/{check,binding}.tsv
-#   detection        remeasure600/rdaunc/ -- default 20-rung grid, whose top_0.0025 rung IS
-#                    0.25 % and which carries the 5 kb window. NOT ledger_rdaunc/ (windows 1/2.5/4).
+#   detection        remeasure600/rdaunc_rda2x/ (uncorrected RDA) and onefit_rda2x/ (corrected RDA,
+#                    for the record of the switch) -- rung top_0.0025 = 0.25 % per predictor for
+#                    LFMM/EMMAX and 0.5 % for RDA (SHARE_MULT=RDA=2), windows 0/1/2.5/5/10 kb.
 #                    Rules from calls_combine.tsv, single methods from calls_per_method.tsv.
-#   window table     remeasure600/{onefit,rdaunc}/calls_combine.tsv, top_0.0025, windows 0-10 kb
+#   window table     remeasure600/{onefit,rdaunc}_rda2x/calls_combine.tsv, top_0.0025, windows 0-10 kb
+#
+# [changed 2026-10-02, user decision at the Phase 4a gate 2026-10-01] RDA tests both predictors in
+# ONE multivariate p, so at the same per-predictor share it called half the SNPs of LFMM/EMMAX
+# (median 64 vs 127). Detection now gives it the same total budget: share x number of predictors
+# (0.5 %). The RDA-ranking parts (sections 1, AUC-PR / R-precision, the figure) are rank-based and
+# unchanged. The previous outputs (RDA at 0.25 %) are kept read-only in FIG_OUT/_rda1x/.
 #   LD / geometry    onefit_diag/ld_decay.tsv, params_rdaunc p-table keys, config_MVP{seed}_c1.yaml
 #
 # SCORING CONVENTIONS -- every number in the brief carries one tag:
@@ -57,8 +64,11 @@ OUT  <- Sys.getenv("FIG_OUT", file.path(EVAL, "figures_ssclines_rda"))
 BOOT_SEED   <- as.integer(Sys.getenv("BOOT_SEED", "20261001"))
 N_BOOT      <- as.integer(Sys.getenv("N_BOOT", "2000"))
 JITTER_SEED <- 16L                       # as mvp_ms_sim_figures.R
-RUNG   <- "top_0.0025"                   # top 0.25 % of each method's SNPs
+RUNG   <- "top_0.0025"                   # top 0.25 % per predictor (RDA: x RDA_MULT)
 WIN_KB <- 5                              # agreement window
+RDA_MULT <- 2                            # RDA share = 0.25 % x number of predictors (2)
+ARM_UNC  <- "rdaunc_rda2x"               # remeasure arm, uncorrected RDA, RDA x 2
+ARM_CORR <- "onefit_rda2x"               # remeasure arm, corrected (one-fit) RDA, RDA x 2
 source(file.path(ROOT, "benchmarks/ms_style.R"))
 source(file.path(ROOT, "benchmarks/mvp_arm.R"))
 dir.create(OUT, recursive = TRUE, showWarnings = FALSE)
@@ -260,7 +270,17 @@ detection_for <- function(arm) {
           score_rows(pm[method == "RDA"], "RDA")[, rule := "RDA"],
           score_rows(pm[method == "EMMAX"], "EMMAX")[, rule := "EMMAX"])
 }
-DET <- detection_for("rdaunc")
+for (arm in c(ARM_UNC, ARM_CORR)) {
+    pv <- readLines(file.path(RM, arm, "provenance.tsv"))
+    if (!any(pv == sprintf("share_mult\tLFMM=1,EMMAX=1,RDA=%g", RDA_MULT)))
+        stop(arm, ": provenance does not record share_mult RDA=", RDA_MULT)
+    pm <- rd(file.path(RM, arm, "calls_per_method.tsv"))[rung == RUNG]
+    nt <- rd(file.path(RM, arm, "rank_metrics.tsv"))[, .(seed, method, n_snps)]
+    chk <- merge(pm, nt, by = c("seed", "method"))
+    chk[, want := ceiling(0.0025 * fifelse(method == "RDA", RDA_MULT, 1) * n_snps)]
+    if (nrow(chk) != 3L * N || any(chk$value_applied != chk$want)) stop(arm, ": top N is not the RDA x ", RDA_MULT, " budget")
+}
+DET <- detection_for(ARM_UNC)
 stopifnot(all(table(DET$rule) == N), nrow(DET) == 6 * N, setequal(unique(DET$seed), SEEDS))
 DET <- merge(DET, cv[, .(seed, arch)], by = "seed")
 det_sum <- function(D) D[, .(n_median = median(n), causal_median = median(causal), linked_median = median(linked),
@@ -271,7 +291,7 @@ DT <- rbind(det_sum(DET)[, arch := "pooled"], DET[, det_sum(.SD), by = arch][, a
 DT[, rule := factor(rule, levels = RULES)][, arch := factor(arch, levels = c("pooled", ARCH))]
 setorder(DT, arch, rule)
 fwrite(DT, file.path(OUT, "detection_table.tsv"), sep = "\t")
-SRC_DET <- "remeasure600/rdaunc/{calls_combine,calls_per_method}.tsv, top_0.0025, window 5 kb"
+SRC_DET <- "remeasure600/rdaunc_rda2x/{calls_combine,calls_per_method}.tsv, top_0.0025 (RDA x 2), window 5 kb"
 for (i in seq_len(nrow(DT))) {
     k <- paste0("det_", gsub("[ /]", "_", DT$rule[i]), "_", gsub(" ", "_", DT$arch[i]))
     put(paste0(k, "_n"), DT$n_median[i], f0(DT$n_median[i]), "SNPs", "[A1]", SRC_DET)
@@ -280,28 +300,40 @@ for (i in seq_len(nrow(DT))) {
     put(paste0(k, "_F1"), DT$F1_median[i], f3(DT$F1_median[i]), "", "[causal]", SRC_DET)
     put(paste0(k, "_empty"), DT$empty[i], f0(DT$empty[i]), "replicates", "", SRC_DET)
 }
+# 2/3 and 3/3 keep each method's OWN SNPs near the others' calls (co-localization), so they can be
+# larger than any single-method panel -- counted here so the brief can say so with a number
+CL <- dcast(DET, seed ~ rule, value.var = "n")
+put("all3_gt_single", sum(CL[["3/3 methods"]] > pmax(CL$LFMM, CL$RDA, CL$EMMAX)),
+    f0(sum(CL[["3/3 methods"]] > pmax(CL$LFMM, CL$RDA, CL$EMMAX))), "replicates", "", SRC_DET)
+# Phase 4a panels were tied row for row to this arm (mvp_build_snp_sets.R, offset13/regression_tie.tsv)
+TIE <- rd(file.path(EVAL, "offset13/regression_tie.tsv"))
+put("panel_tie_match", sum(TIE$match), f0(sum(TIE$match)), "rows", "", "offset13/regression_tie.tsv")
+put("panel_tie_n", nrow(TIE), f0(nrow(TIE)), "rows", "", "offset13/regression_tie.tsv")
+cc0 <- rd(file.path(RM, ARM_UNC, "calls_combine.tsv"))[rung == RUNG & combine == "all3" & window_kb == 0]
+put("all3_exact_median", median(cc0$n_called), f0(median(cc0$n_called)), "SNPs", "", "remeasure600/rdaunc_rda2x, window 0")
+put("all3_exact_empty", sum(cc0$n_called == 0), f0(sum(cc0$n_called == 0)), "replicates", "", "remeasure600/rdaunc_rda2x, window 0")
 # the same rules with CORRECTED RDA as the third method -- what the switch changed (pooled)
-DC <- det_sum(detection_for("onefit"))[, rule := factor(rule, levels = RULES)][order(rule)]
+DC <- det_sum(detection_for(ARM_CORR))[, rule := factor(rule, levels = RULES)][order(rule)]
 for (i in seq_len(nrow(DC))) {
     k <- paste0("detcorr_", gsub("[ /]", "_", DC$rule[i]))
-    put(paste0(k, "_n"), DC$n_median[i], f0(DC$n_median[i]), "SNPs", "[A1]", "remeasure600/onefit")
-    put(paste0(k, "_P"), DC$P_median[i], f2(DC$P_median[i]), "", "[causal]", "remeasure600/onefit")
-    put(paste0(k, "_R"), DC$R_median[i], f3(DC$R_median[i]), "", "[causal]", "remeasure600/onefit")
-    put(paste0(k, "_F1"), DC$F1_median[i], f3(DC$F1_median[i]), "", "[causal]", "remeasure600/onefit")
-    put(paste0(k, "_empty"), DC$empty[i], f0(DC$empty[i]), "replicates", "", "remeasure600/onefit")
+    put(paste0(k, "_n"), DC$n_median[i], f0(DC$n_median[i]), "SNPs", "[A1]", "remeasure600/onefit_rda2x")
+    put(paste0(k, "_P"), DC$P_median[i], f2(DC$P_median[i]), "", "[causal]", "remeasure600/onefit_rda2x")
+    put(paste0(k, "_R"), DC$R_median[i], f3(DC$R_median[i]), "", "[causal]", "remeasure600/onefit_rda2x")
+    put(paste0(k, "_F1"), DC$F1_median[i], f3(DC$F1_median[i]), "", "[causal]", "remeasure600/onefit_rda2x")
+    put(paste0(k, "_empty"), DC$empty[i], f0(DC$empty[i]), "replicates", "", "remeasure600/onefit_rda2x")
 }
 
 # =============================================================================
 # 3. agreement-window table + LD / genome geometry + config facts
 # =============================================================================
-WT <- rbindlist(lapply(c("rdaunc", "onefit"), function(arm) {
+WT <- rbindlist(lapply(c(ARM_UNC, ARM_CORR), function(arm) {
     cc <- rd(file.path(RM, arm, "calls_combine.tsv"))[rung == RUNG & combine %in% c("ge2", "all3")]
     cc[, .(empty = sum(n_called == 0), lt3 = sum(n_called < 3), size_median = median(n_called),
            P_median = median(precision_strict, na.rm = TRUE), R_median = median(recall_testable),
            F1_median = median(fifelse(is.na(f1), 0, f1)),
            linked_share_median = median(expected_linked[n_called > 0] / n_called[n_called > 0]),
-           n_rep = .N), by = .(combine, window_kb)][, third_method := c(rdaunc = "RDA uncorrected",
-                                                                         onefit = "RDA corrected")[[arm]]]
+           n_rep = .N), by = .(combine, window_kb)][, third_method := setNames(c("RDA uncorrected", "RDA corrected"),
+                                                                                  c(ARM_UNC, ARM_CORR))[[arm]]]
 }))
 stopifnot(all(WT$n_rep == N), setequal(WT$window_kb, c(0, 1, 2.5, 5, 10)))
 WT[, rule := c(ge2 = "2/3 methods", all3 = "3/3 methods")[combine]]
@@ -337,6 +369,8 @@ put("snps_median", median(GEO$n_snps), f0(median(GEO$n_snps)), "SNPs", "", "para
 put("snps_max", max(GEO$n_snps), f0(max(GEO$n_snps)), "SNPs", "", "params_rdaunc p-table keys")
 put("top025_n_min", ceiling(0.0025 * min(GEO$n_snps)), f0(ceiling(0.0025 * min(GEO$n_snps))), "SNPs per trait", "", "derived")
 put("top025_n_max", ceiling(0.0025 * max(GEO$n_snps)), f0(ceiling(0.0025 * max(GEO$n_snps))), "SNPs per trait", "", "derived")
+put("top_rda_n_min", ceiling(0.0025 * RDA_MULT * min(GEO$n_snps)), f0(ceiling(0.0025 * RDA_MULT * min(GEO$n_snps))), "SNPs", "", "derived")
+put("top_rda_n_max", ceiling(0.0025 * RDA_MULT * max(GEO$n_snps)), f0(ceiling(0.0025 * RDA_MULT * max(GEO$n_snps))), "SNPs", "", "derived")
 
 clump <- vapply(SEEDS, function(sd) {
     l <- readLines(file.path(ROOT, paste0("config_MVP", sd, "_c1.yaml")))
@@ -428,7 +462,7 @@ brief <- c(
 "Base for writing the simulation section (SS-Clines, 600 replicates). Generated by",
 "`benchmarks/mvp_ms_rda_correction.R`; every number below is in `numbers.tsv` with its source table",
 "and scoring convention. No number in this file is typed by hand. Lab record: journal 18",
-"(`work/journal/18_ssclines_onefit_rule.Rmd`), Steps 9-12.",
+"(`work/journal/18_ssclines_onefit_rule.Rmd`), Steps 9-12 and 16 (detection recomputed with RDA x 2).",
 "",
 "## 1. Decisions (user, Phase 3b gate)",
 "",
@@ -440,6 +474,9 @@ brief <- c(
 "  corrected (one-fit) RDA in the panels.",
 "- 2026-10-01: operating point **top 0.25 %** of each method's SNPs; agreement window **5 kb**",
 sprintf("  (= `snp_clumping_distance` in all %s replicate configs; section 6).", s("clump_5000_configs")),
+"- 2026-10-01 (Phase 4a gate): RDA tests both predictors in **one multivariate p**, so it gets the same",
+"  total budget as the per-predictor methods: top 0.25 % x 2 predictors = **0.5 %**. All detection numbers",
+"  below use it (the 0.25 %-for-RDA version is archived in `_rda1x/`, journal 18 Step 16).",
 "- pmax / intersection-union combination of the two RDA fits is **not reported** (not a GEA-literature",
 "  method). It exists only in the lab record.",
 "",
@@ -461,14 +498,22 @@ sprintf("  deviation %s, %s SNPs above 1e-9, %s disagreements about which fit ga
         s("u2_max_rel_dev"), s("u2_above_tol"), s("u2_binding_disagree")),
 "- LFMM (K = `k_best`) and EMMAX (`k_best` PCs) p-values are unchanged from the one-fit arm (byte-identical).",
 sprintf("- Calling rule: top 0.25 %% of SNPs per method **per predictor** (LFMM, EMMAX test `bio_1` and `bio_2`"),
-sprintf("  separately), unioned over the two; RDA has one multivariate p. N = ceiling(0.0025 x tested SNPs) ="),
-sprintf("  %s-%s SNPs per predictor (%s-%s tested SNPs,",
-        s("top025_n_min"), s("top025_n_max"), s("snps_min"), s("snps_max")),
-sprintf("  median %s).", s("snps_median")),
+sprintf("  separately), unioned over the two: N = ceiling(0.0025 x tested SNPs) = %s-%s SNPs per predictor",
+        s("top025_n_min"), s("top025_n_max")),
+sprintf("  (%s-%s tested SNPs, median %s). RDA has one multivariate p for both predictors and takes the same",
+        s("snps_min"), s("snps_max"), s("snps_median")),
+sprintf("  total budget, top 0.5 %%: N = ceiling(0.005 x tested SNPs) = %s-%s SNPs.",
+        s("top_rda_n_min"), s("top_rda_n_max")),
 "- Rules: **1/3** = called by at least one method (union; window-independent by construction); **2/3** =",
 "  a called SNP with a call from at least one other method within 5 kb (the pipeline's `Overlap` /",
 "  `Cross-method` strategy, `workflow/rules/common.smk:299`, verified equal on 12 replicates x 100 checks);",
 "  **3/3** = calls from all three methods within 5 kb (not a pipeline strategy; strictest reference).",
+"  Both keep **each method's own SNPs** near the others' calls — co-localization, not an intersection of",
+sprintf("  SNPs: 3/3 is larger than the largest single-method panel in %s / 600 replicates, while the",
+        s("all3_gt_single")),
+sprintf("  exact-position triple intersection has a median of %s SNPs and is empty in %s / 600. Wording:",
+        s("all3_exact_median"), s("all3_exact_empty")),
+"  \"SNPs within 5 kb of calls by >= 2 / all 3 methods\", never \"SNPs found by all three\".",
 "- Scoring conventions (tags in the tables):",
 "  - `[rank]` AUC-PR = mean precision at each causal locus in the ranked SNP list, causal loci not",
 "    retrieved count 0; background-neutral SNPs are the only false positives, linked-neutral SNPs are",
@@ -519,7 +564,7 @@ md_table(tab_bind),
 "",
 "## 5. Result 3 — detection at the operating point (uncorrected RDA as third method)",
 "",
-"top 0.25 % per method, 5 kb window; medians over replicates (n = 600 pooled, 200 per architecture);",
+"top 0.25 % per predictor (RDA 0.5 %), 5 kb window; medians over replicates (n = 600 pooled, 200 per architecture);",
 "`empty` / `n < 3` = number of replicates. Source: `detection_table.tsv`.",
 "",
 "**Recall is relative to each replicate's testable causal loci, which differ by orders of magnitude",
@@ -549,14 +594,15 @@ sprintf("- LD (Hill-Weir fit, all 600): half-decay %s-%s kb (median %s kb); the 
         s("ld_half_min"), s("ld_half_max"), s("ld_half_median")),
 sprintf("  at r2 = 0.2) gives a median %s bp (max %s bp), because r2 at distance 0 is only ~%s — not usable.",
         s("ld_r2_02_median"), s("ld_r2_02_max"), s("ld_r2_intercept_median")),
-"- 5 kb is ~3x the LD half-decay. Effect of the window at top 0.25 % (`window_table.tsv`):",
+"- 5 kb is ~3x the LD half-decay. Effect of the window at top 0.25 % per predictor, RDA 0.5 % (`window_table.tsv`):",
 "",
 md_table(tab_win),
 "",
 sprintf("- With uncorrected RDA: 2/3 is never empty at any window; 3/3 is empty in %s / %s / %s / %s / %s replicates",
         s("win_unc_all3_0_empty"), s("win_unc_all3_1_empty"), s("win_unc_all3_2.5_empty"),
         s("win_unc_all3_5_empty"), s("win_unc_all3_10_empty")),
-"  at 0 / 1 / 2.5 / 5 / 10 kb — 3/3 is not \"never empty\"; at the chosen 5 kb it is empty in 2. A wider",
+sprintf("  at 0 / 1 / 2.5 / 5 / 10 kb — 3/3 is not \"never empty\"; at the chosen 5 kb it is empty in %s. A wider",
+        s("win_unc_all3_5_empty")),
 "  window raises 3/3's recall and lowers 2/3's precision.",
 "",
 "## 7. Figure — `S_rda_correction.svg` / `.png` (180 x 60 mm, one panel) — ready for the supplement",
@@ -576,9 +622,11 @@ sprintf("- With uncorrected RDA: 2/3 is never empty at any window; 3/3 is empty 
 "  (`benchmarks/mvp_write_sweep_configs.R:40-42`). **Unverified** — check the paper (`shelf grep`) before it",
 "  enters the text.",
 "- pmax (max of the two fits' p) is not a reported method (section 1).",
-"- Offset accuracy with the new panels is **pending** (Phase 4: panels rebuilt with uncorrected RDA,",
-"  top 0.25 %, 5 kb; offsets re-run). Detection figures (A1/D5/D6) are redrawn in Phase 5 from those",
-"  panels, which must reproduce the `[A1]` counts in section 5."
+"- Offset accuracy is **pending analysis**: Phase 4 panels (uncorrected RDA, top 0.25 % per predictor,",
+sprintf("  RDA 0.5 %%, 5 kb) reproduce the section 5 counts row for row (builder tie, %s / %s), and the",
+        s("panel_tie_match"), s("panel_tie_n")),
+"  garden sweep was scored 2026-10-02 (`offset13/`). Detection figures (A1/D5/D6) are redrawn in Phase 5",
+"  from those panels."
 )
 stopifnot(!any(grepl("NA", brief[grepl("^\\|", brief)], fixed = TRUE)))
 writeLines(brief, file.path(OUT, "RDA_CORRECTION_BRIEF.md"))
