@@ -85,6 +85,14 @@ message(sprintf("wrote phase1_seed_medians_solo.tsv -- %d rows, %d seeds, %d pan
 PANELS <- c("all", "neutral_all", "truth", "union", "best", "intersect3",
             "solo_lfmm", "solo_rda", "solo_emmax", "rand_best1",
             "rand_solo1", "rand_union1")
+# [changed 2026-10-01, SS-Clines Phase 4 / offset13] the random floors and `solo` were dropped
+# and deleted from disk (mvp_build_snp_sets.R); left in this list they would come back as n = 0
+# rows -- "the panel was empty" -- which is false. MVP_PANELS=offset13 selects the current roster
+# (plus the one-block size curve); unset keeps the legacy list for re-checking older dirs.
+if (identical(Sys.getenv("MVP_PANELS"), "offset13"))
+    PANELS <- c("all", "neutral_all", "truth", "union", "best", "intersect3",
+                "solo_lfmm", "solo_rda", "solo_emmax",
+                "union_top0.1pct", "union_top0.5pct", "union_top1pct", "union_top2pct")
 
 # AN EMPTY PANEL IS A RESULT, NOT MISSING DATA. `mvp_build_snp_sets.R` does not write a
 # set file when the combination rule yields nothing ("intersect3 EMPTY -- set not written"),
@@ -115,6 +123,8 @@ for (s in SEEDS) {
     for (p in PANELS) {
         f <- file.path(PIPELINE_ROOT, paste0(proj, "_results"), "_intermediate",
                        "snp_sets", p, "selected_snps.tsv")
+        # size-curve panels are built on one block only; absent elsewhere = not built, not empty
+        if (startsWith(p, "union_top") && !file.exists(f)) next
         if (file.exists(f)) {
             S <- fread(f, colClasses = c("chr" = "character"))
             k <- paste(S$chr, S$pos, sep = ":")

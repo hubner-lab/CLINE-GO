@@ -22,7 +22,14 @@
 #   {outdir}/gardens_{seed}.tsv, {outdir}/garden_fitness_{seed}.tsv   (mvp_garden_fitness.R)
 #   {outdir}/gardens/{seed}/{garden}/{method}__{set}.tsv              (mvp_garden_run.sh)
 #
-# Usage:  Rscript eval_offset_lind.R [--seeds=all|CSV] [--outdir=DIR]
+# Usage:  Rscript eval_offset_lind.R [--seeds=all|CSV] [--outdir=DIR] [--writedir=DIR] [--ncores=N]
+#   --writedir  where the three output tables go (default: --outdir, which is also where the
+#               gardens and fitness tables are READ from)
+#   --ncores    seeds scored in parallel (mclapply). [added 2026-10-02] The serial loop re-bound
+#               every row accumulated so far once per seed (quadratic) and read each harvested file
+#               twice; on the 600-seed offset13 sweep (2.1 M files) it ran > 9 h. Each seed is
+#               independent, so the parallel path computes exactly the same rows; seeds are
+#               re-assembled in input order, so the tables are byte-identical to --ncores=1.
 # =============================================================================
 
 suppressPackageStartupMessages(library(data.table))
@@ -34,6 +41,9 @@ args    <- parse_kv_args(commandArgs(trailingOnly = TRUE))
 opt     <- function(k, d) if (is.null(args[[k]]) || !nzchar(args[[k]])) d else args[[k]]
 SEEDS_A <- opt("seeds", "all")
 OUTDIR  <- opt("outdir", file.path(PIPELINE_ROOT, "benchmarks/mvp_eval/offset09"))
+WRITEDIR <- opt("writedir", OUTDIR)
+NCORES  <- as.integer(opt("ncores", "1"))
+dir.create(WRITEDIR, recursive = TRUE, showWarnings = FALSE)
 
 # Panel -> vocabulary. THEIR three terms are mapped onto the panels that match their
 # definitions, which is not the naive name match:
@@ -56,7 +66,14 @@ MARKER_SET <- c(all         = "all",
                 # loop below, so anything new must be registered here.
                 solo_lfmm   = "gea_lfmm_only",
                 solo_rda    = "gea_rda_only",
-                solo_emmax  = "gea_emmax_only")
+                solo_emmax  = "gea_emmax_only",
+                # [added 2026-10-01, SS-Clines Phase 4] size curve, one block only: the 1/3
+                # rule at other top shares (mvp_build_snp_sets.R --size_cohort). `union` itself
+                # is the 0.25 % point of the same curve.
+                union_top0.1pct = "gea_union_top0.1pct",
+                union_top0.5pct = "gea_union_top0.5pct",
+                union_top1pct   = "gea_union_top1pct",
+                union_top2pct   = "gea_union_top2pct")
 METHOD_LABEL <- c(gradient_forest = "GFoffset", geometric_offset = "LFMM2offset",
                   rda_offset = "RDA-uncorrected", rda_corrected = "RDA-corrected")
 
@@ -77,11 +94,11 @@ slope <- function(x, y) {
     unname(coef(lm(y[ok] ~ x[ok]))[2])
 }
 
-garden_rows <- list(); source_rows <- list(); miss <- list()
-
-for (s in SEEDS) {
+score_seed <- function(s) {
+    garden_rows <- list(); source_rows <- list(); miss <- list()
+    if (NCORES > 1L) setDTthreads(1L)
     gdir <- file.path(OUTDIR, "gardens", s)
-    if (!dir.exists(gdir)) { message("MVP", s, ": no harvested gardens -- skipped"); next }
+    if (!dir.exists(gdir)) { message("MVP", s, ": no harvested gardens -- skipped"); return(NULL) }
 
     GARD <- fread(file.path(OUTDIR, paste0("gardens_", s, ".tsv")))
     FIT  <- fread(file.path(OUTDIR, paste0("garden_fitness_", s, ".tsv")),
@@ -130,9 +147,9 @@ for (s in SEEDS) {
     # ---- source performance: per source population, across gardens -----------
     # Guard: a seed can have a gardens/ directory whose files are still being written by a
     # running lane, so there may be no scored rows for it yet.
-    if (!length(garden_rows)) next
+    if (!length(garden_rows)) return(list(garden = NULL, source = NULL, miss = rbindlist(miss)))
     GR <- rbindlist(garden_rows)[seed == s]
-    if (!nrow(GR)) next
+    if (!nrow(GR)) return(list(garden = GR, source = NULL, miss = rbindlist(miss)))
     for (meth in unique(GR$method)) for (st in unique(GR$set)) {
         long <- rbindlist(lapply(unique(GR[method == meth & set == st, garden_id]), function(gd) {
             f <- file.path(gdir, gd, paste0(meth, "__", st, ".tsv"))
@@ -150,24 +167,38 @@ for (s in SEEDS) {
                    set = st, marker_set = MARKER_SET[[st]])]
         source_rows[[length(source_rows) + 1L]] <- src
     }
+    list(garden = rbindlist(garden_rows), source = rbindlist(source_rows), miss = rbindlist(miss))
 }
 
-if (!length(garden_rows)) stop("No harvested offsets found under ", file.path(OUTDIR, "gardens"))
+RES <- if (NCORES > 1L) {
+    parallel::mclapply(SEEDS, score_seed, mc.cores = NCORES, mc.preschedule = FALSE)
+} else {
+    lapply(SEEDS, score_seed)
+}
+bad <- vapply(RES, function(r) inherits(r, "try-error"), logical(1))
+if (any(bad)) stop("scoring failed for seed(s): ", paste(SEEDS[bad], collapse = ", "), "\n",
+                   paste(unique(vapply(RES[bad], as.character, "")), collapse = "\n"))
+garden_rows <- lapply(RES, `[[`, "garden"); garden_rows <- garden_rows[lengths(garden_rows) > 0]
+source_rows <- lapply(RES, `[[`, "source")
+miss        <- lapply(RES, `[[`, "miss");   miss <- miss[vapply(miss, function(m) !is.null(m) && nrow(m) > 0, logical(1))]
+
+if (!length(garden_rows) || !sum(vapply(garden_rows, nrow, 0L)))
+    stop("No harvested offsets found under ", file.path(OUTDIR, "gardens"))
 
 GP <- rbindlist(garden_rows)
 GP <- merge(GP, MAN[, .(seed, arch = arch_level, demog = demog_level, final_LA,
                         n_causal_maf01, r2_pc1_temp)], by = "seed", all.x = TRUE)
 GP[, control := demog == "Est-Clines"]
-fwrite(GP, file.path(OUTDIR, "garden_performance.tsv"), sep = "\t")
+fwrite(GP, file.path(WRITEDIR, "garden_performance.tsv"), sep = "\t")
 
 SP <- rbindlist(source_rows)
 if (nrow(SP)) {
     SP <- merge(SP, MAN[, .(seed, arch = arch_level, demog = demog_level, final_LA)],
                 by = "seed", all.x = TRUE)
     SP[, control := demog == "Est-Clines"]
-    fwrite(SP, file.path(OUTDIR, "source_performance.tsv"), sep = "\t")
+    fwrite(SP, file.path(WRITEDIR, "source_performance.tsv"), sep = "\t")
 }
-if (length(miss)) fwrite(rbindlist(miss), file.path(OUTDIR, "scoring_skipped.tsv"), sep = "\t")
+if (length(miss)) fwrite(rbindlist(miss), file.path(WRITEDIR, "scoring_skipped.tsv"), sep = "\t")
 
 message("\nWrote garden_performance.tsv (", nrow(GP), " rows) and source_performance.tsv (",
         nrow(SP), " rows)")
