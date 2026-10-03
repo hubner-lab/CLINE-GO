@@ -45,6 +45,74 @@ test_that("vcf2lfmm.R writes beside its INPUT, which is why the fixture is a cop
     expect_false(file.exists(file.path(HEAVY_TESTDATA, "testdata.lfmm")))
 })
 
+test_that("the EMMAX TPED rules keep the VCF's full sample names as FID and IID", {
+    # plink's --vcf importer splits a sample ID on '_': WBDC_001 becomes
+    # FID=WBDC / IID=001, and an ID with TWO underscores is a hard error
+    # ("Multiple instances of '_' in sample ID"). emmax.R:65 reads the TFAM's
+    # first two columns, but emmax_phenotypes.R:91,96 keys its phen/covar rows on
+    # the FULL VCF sample name, so the split made the two sides unjoinable for any
+    # underscore-bearing scheme (finding d8f924). The five tped rules
+    # (gea.smk:69,113 gwas.smk:33,188 pregea.smk:71) therefore pass --double-id,
+    # which is what the removed TFAM-fixup awk was trying to reproduce.
+    #
+    # SIMDATA's own IDs carry no underscore, which is the one case that always
+    # worked and the reason this went unnoticed — so this is the only place the
+    # WBDC/PG-style schemes are exercised.
+    skip_if_not(dir.exists(SCRIPTS), "scripts/ not mounted")
+    require_tools("plink")
+    d <- withr::local_tempdir()
+
+    write_vcf <- function(path, samples) {
+        writeLines(c(
+            "##fileformat=VCFv4.2", "##contig=<ID=1>",
+            "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">",
+            paste(c("#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER",
+                    "INFO", "FORMAT", samples), collapse = "\t"),
+            paste(c("1", 100, ".", "A", "G", ".", "PASS", ".", "GT",
+                    rep(c("0/0", "0/1", "1/1"), length.out = length(samples))),
+                  collapse = "\t"),
+            paste(c("1", 200, ".", "C", "T", ".", "PASS", ".", "GT",
+                    rep(c("0/1", "1/1", "0/0"), length.out = length(samples))),
+                  collapse = "\t")), path)
+        path
+    }
+
+    # Verbatim shape of the five tped rules.
+    run_tped <- function(vcf, prefix) {
+        system2("plink", c("--vcf", vcf, "--double-id", "--allow-extra-chr",
+                           "--output-chr", "MT", "--recode12", "transpose",
+                           "--output-missing-genotype", "0", "--out", prefix),
+                stdout = FALSE, stderr = FALSE)
+        tfam <- paste0(prefix, ".tfam")
+        expect_true(file.exists(tfam))
+        f <- data.table::fread(tfam, header = FALSE,
+                               select = list(character = 1:2))
+        data.table::setnames(f, c("FID", "IID"))
+        f
+    }
+
+    for (nm in c("no_underscore", "one_underscore", "two_underscores")) {
+        samples <- switch(nm,
+            no_underscore   = c("NEG01", "NEG02", "NEG03"),
+            one_underscore  = c("WBDC_001", "WBDC_002", "WBDC_003"),
+            two_underscores = c("PG_B_001", "PG_B_002", "PG_B_003"))
+        vcf <- write_vcf(file.path(d, paste0(nm, ".vcf")), samples)
+        f <- run_tped(vcf, file.path(d, nm))
+        # FID == IID == the VCF sample name, verbatim, for every scheme.
+        expect_identical(f$IID, samples, info = nm)
+        expect_identical(f$FID, samples, info = nm)
+    }
+
+    # And the half that actually broke: emmax_phenotypes.R writes FID/IID from the
+    # VCF sample names, so those rows must join the TFAM on both keys.
+    f <- run_tped(file.path(d, "one_underscore.vcf"), file.path(d, "join"))
+    phen <- data.table::data.table(FID = c("WBDC_001", "WBDC_002", "WBDC_003"),
+                                   IID = c("WBDC_001", "WBDC_002", "WBDC_003"),
+                                   value = c(1.0, 2.0, 3.0))
+    joined <- merge(f, phen, by = c("FID", "IID"))
+    expect_identical(nrow(joined), 3L)
+})
+
 test_that("filter_vcf's plink + sed leave the same contig names normalize_gff.py produces", {
     # The chromosome-name contract has two halves in two languages (audit 2026-09-13
     # B1): plink re-emits the VCF through its own parser (Chr1/CHR1 -> 1, and X/Y/MT as

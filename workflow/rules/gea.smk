@@ -66,10 +66,8 @@ rule tped_gea:
     log: f"{LOGDIR}gea/tped_assoc.log"
     shell:
         """
-        plink --vcf {input.vcf} --allow-extra-chr --output-chr MT --recode12 transpose \
+        plink --vcf {input.vcf} --double-id --allow-extra-chr --output-chr MT --recode12 transpose \
             --output-missing-genotype 0 --out {params.prefix} > {log} 2>&1
-        awk '{{split($1,a,"_"); split($2,b,"_"); if(a[1]==b[1]){{$1=a[1];$2=a[1]}} print}}' \
-            {output.tfam} > {params.prefix}_tmp.tfam && mv {params.prefix}_tmp.tfam {output.tfam}
         """
 
 rule kinship_gea:
@@ -112,10 +110,8 @@ if "EMMAX" in GEA_OTHER_CONFIGS:
         log: f"{LOGDIR}gea/tped_gea_climate.log"
         shell:
             """
-            plink --vcf {input.vcf} --allow-extra-chr --output-chr MT --recode12 transpose \
+            plink --vcf {input.vcf} --double-id --allow-extra-chr --output-chr MT --recode12 transpose \
                 --output-missing-genotype 0 --out {params.prefix} > {log} 2>&1
-            awk '{{split($1,a,"_"); split($2,b,"_"); if(a[1]==b[1]){{$1=a[1];$2=a[1]}} print}}' \
-                {output.tfam} > {params.prefix}_tmp.tfam && mv {params.prefix}_tmp.tfam {output.tfam}
             """
 
     rule kinship_gea_climate:

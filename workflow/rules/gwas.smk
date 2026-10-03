@@ -30,10 +30,8 @@ if GWAS_CONFIGS and PHENO_MISSING != 'DROP':
         log: f"{LOGDIR}gwas/tped_pheno.log"
         shell:
             """
-            plink --vcf {input.vcf} --allow-extra-chr --output-chr MT --recode12 transpose \
+            plink --vcf {input.vcf} --double-id --allow-extra-chr --output-chr MT --recode12 transpose \
                 --output-missing-genotype 0 --out {params.prefix} > {log} 2>&1
-            awk '{{split($1,a,"_"); split($2,b,"_"); if(a[1]==b[1]){{$1=a[1];$2=a[1]}} print}}' \
-                {output.tfam} > {params.prefix}_tmp.tfam && mv {params.prefix}_tmp.tfam {output.tfam}
             """
 
     rule kinship_gwas:
@@ -195,10 +193,8 @@ if GWAS_CONFIGS and PHENO_MISSING == 'DROP':
         log: f"{LOGDIR}gwas/tped_pheno_trait_{{pheno_trait}}.log"
         shell:
             """
-            plink --vcf {input.vcf} --allow-extra-chr --output-chr MT --recode12 transpose \
+            plink --vcf {input.vcf} --double-id --allow-extra-chr --output-chr MT --recode12 transpose \
                 --output-missing-genotype 0 --out {params.prefix} > {log} 2>&1
-            awk '{{split($1,a,"_"); split($2,b,"_"); if(a[1]==b[1]){{$1=a[1];$2=a[1]}} print}}' \
-                {output.tfam} > {params.prefix}_tmp.tfam && mv {params.prefix}_tmp.tfam {output.tfam}
             """
 
     rule kinship_gwas_trait:
