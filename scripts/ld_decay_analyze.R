@@ -82,8 +82,19 @@ fit_ld_curve <- function(binned, n_samples) {
     r2_intercept <- binned[which.min(bin), mean_r2]
     max_dist_bp <- max(binned$bin)
 
+    # Hill-Weir carries a sample-size correction term 1/(n*(2+x)*(11+x)), so an
+    # absent or degenerate n makes the model meaningless: n = 0 sends the term to
+    # Inf and nls always fails, which used to surface only as an INFO line and a
+    # silent LOESS fallback (finding 600acb). Say so, and skip straight to LOESS.
+    n_usable <- !is.na(n_samples) && n_samples >= 2
+    if (!n_usable) {
+        message(paste0("WARNING: n_samples=", n_samples, " is not usable in the ",
+                       "Hill-Weir sample-size term (need >= 2) — fitting LOESS ",
+                       "instead. Check the LD-decay manifest."))
+    }
+
     # Try Hill-Weir nls fit
-    fit_result <- tryCatch({
+    fit_result <- if (!n_usable) NULL else tryCatch({
         fit <- nls(mean_r2 ~ hill_weir(bin, C, n_samples),
                    data = binned,
                    start = list(C = 0.001),

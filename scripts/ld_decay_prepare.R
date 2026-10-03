@@ -40,12 +40,23 @@ if (GROUP_BY == "site") {
     groups <- meta[, .(sample, group = site)]
 } else if (GROUP_BY == "cluster") {
     if (CLUSTERS_PATH == "NULL") stop("Clusters file required when group_by='cluster'")
-    clusters <- fread(CLUSTERS_PATH)
-    # clusters_K{k}.tsv has: sample, cluster (Q-matrix assignment)
-    # Find max-Q cluster per sample
-    q_cols <- setdiff(colnames(clusters), "sample")
-    clusters[, cluster := q_cols[max.col(.SD, ties.method = "first")], .SDcols = q_cols]
+    clusters <- fread(CLUSTERS_PATH, colClasses = c("sample" = "character",
+                                                    "site" = "character"))
+    # clusters_K{k}.tsv is written by extract_clusters.R as: sample, site, C1 .. Ck.
+    # Only the C* columns are the Q matrix. Taking setdiff(colnames, "sample")
+    # dragged the character `site` column into .SD, which coerced the whole of it
+    # to character and made max.col() return NA for every sample (finding ef93c6).
+    q_cols <- grep("^C[0-9]+$", colnames(clusters), value = TRUE)
+    if (length(q_cols) == 0) {
+        stop("No Q-matrix columns (C1..Ck) in ", CLUSTERS_PATH,
+             " — found: ", paste(colnames(clusters), collapse = ", "))
+    }
+    message(paste0("INFO: Q-matrix columns: ", paste(q_cols, collapse = ", ")))
+    clusters[, cluster := q_cols[max.col(as.matrix(.SD), ties.method = "first")],
+             .SDcols = q_cols]
     groups <- clusters[, .(sample, group = cluster)]
+} else {
+    stop("Unsupported group_by='", GROUP_BY, "' — expected 'site' or 'cluster'")
 }
 
 message(paste0("INFO: Total samples: ", nrow(groups)))
@@ -53,7 +64,17 @@ message(paste0("INFO: Total samples: ", nrow(groups)))
 #=============================================================================
 # FILTER GROUPS BY MIN_SAMPLES
 #=============================================================================
+# 'All' is the whole dataset and must not depend on the grouping succeeding:
+# capture it BEFORE the NA filter below (finding 600acb).
+all_samples <- groups$sample
+
 # Remove NA-valued groups (defense-in-depth: prevents empty sample list files)
+n_ungrouped <- sum(is.na(groups$group))
+if (n_ungrouped > 0) {
+    message(paste0("WARNING: ", n_ungrouped, " of ", nrow(groups),
+                   " samples have no group assignment and are excluded from the ",
+                   "per-group LD-decay curves ('All' still covers every sample)"))
+}
 groups <- groups[!is.na(group)]
 group_sizes <- groups[, .N, by = group]
 valid_groups <- group_sizes[N >= MIN_SAMPLES, group]
@@ -85,8 +106,7 @@ if (length(valid_groups) == 1 && nrow(group_sizes) == 1) {
 #=============================================================================
 # WRITE SAMPLE LIST FILES
 #=============================================================================
-# Write "All" sample list (all samples)
-all_samples <- groups$sample
+# Write "All" sample list (all samples; captured before the NA filter above)
 writeLines(all_samples, file.path(SAMPLE_LISTS_DIR, "All.txt"))
 message(paste0("INFO: Written All.txt (", length(all_samples), " samples)"))
 
