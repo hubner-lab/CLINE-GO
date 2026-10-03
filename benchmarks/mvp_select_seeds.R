@@ -8,9 +8,16 @@
 # Output:
 #   benchmarks/mvp_seeds.tsv  -- 14 rows: 12 primary + 2 degenerate controls
 #
-# Selection rule (docs/gea_simulation_benchmarks.md Sec 8.2):
+# Selection rule. DECLARED rule (docs/gea_simulation_benchmarks.md Sec 8.2):
 #   primary  : meanFst >= 0.05 AND cor_PC1_temp^2 in [0.30, 0.60] AND cor_PC1_sal^2 <= 0.20
-#              -> 55 seeds, all SS-Mtn. The 12 used here are the stratified subset in Sec 8.3.
+#              -> 55 seeds, all SS-Mtn. The 12 initial seeds are the stratified subset in Sec 8.3,
+#              and only they are asserted against this rule (below).
+#   Expansion rows use the OPERATIVE band MVP_BAND_LO / MVP_BAND_HI instead (default
+#              [0.20, 0.60]; run at 0.60, then widened to 0.75 on 2026-08-15): 46 of the 90
+#              primaries lie outside [0.30, 0.60], none outside [0.20, 0.75]. MVP_BLOCK rows
+#              use no band at all.
+#   The deposit's cor_PC1_* are Kendall tau, so every r2_* column holds tau^2, not variance
+#              explained.
 #   controls : the INVERSE on the alignment axis (cor_PC1_temp^2 > 0.9, i.e. degenerate = the
 #              Laruson failure mode) while holding demography and architecture constant against
 #              two of the primaries, so LANDSCAPE is the only thing that differs.
