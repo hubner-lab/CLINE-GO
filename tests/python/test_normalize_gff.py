@@ -5,6 +5,10 @@ X/Y/MT as letters (--output-chr MT); this script applies the same rule to the GF
 and then refuses a GFF whose seqids share nothing with the filtered VCF's contigs
 (audit 2026-09-13 B1: a TAIR10-style `Chr1` GFF used to pass through untouched
 while the VCF came out as `1`, so every annotation table was empty with exit 0).
+
+It also compares COORDINATE extents, because matching names do not imply a matching
+assembly (finding fd0070). Only physically impossible disagreements are reported, so a
+sparse annotation stays silent — see ExtentCase.
 """
 import os
 import subprocess
@@ -73,6 +77,17 @@ class NormalizeGffCase(unittest.TestCase):
         body = [f"{c}\t{100 + i}\t.\tA\tG\t.\tPASS\t.\tGT\t0/1" for i, c in enumerate(contigs)]
         return self.write("filtered.vcf", header + body)
 
+    def vcf_sized(self, spec):
+        """spec: {contig: (declared_length_or_None, max_pos)} -> a VCF path."""
+        header = ["##fileformat=VCFv4.2"]
+        for c, (length, _) in spec.items():
+            header.append(f"##contig=<ID={c},length={length}>" if length is not None
+                          else f"##contig=<ID={c}>")
+        header.append("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1")
+        body = [f"{c}\t{pos}\t.\tA\tG\t.\tPASS\t.\tGT\t0/1"
+                for c, (_, pos) in spec.items()]
+        return self.write("filtered.vcf", header + body)
+
     def invoke(self, gff, vcf):
         return subprocess.run([sys.executable, SCRIPT, gff, vcf, self.out],
                               capture_output=True, text=True)
@@ -114,6 +129,49 @@ class NormalizeGffCase(unittest.TestCase):
         self.assertIn("2 chromosome name(s) shared", res.stdout)
         self.assertIn("VCF contig(s) have no GFF annotation: X", res.stdout)
         self.assertIn("GFF seqid(s) absent from the VCF (no SNPs there): 9", res.stdout)
+
+    def test_matching_extents_emit_no_warning(self):
+        # A GFF stopping far short of the declared contig length is an ORDINARY sparse
+        # annotation, not a build mismatch: SIMDATA's own GFF reaches 25 Mb of a 41.7 Mb
+        # contig. Flagging that ratio would make the check pure noise.
+        gff = self.write("in.gff3", [gff_line("chr1", 100, 2000)])
+        res = self.invoke(gff, self.vcf_sized({"1": (1_000_000, 900_000)}))
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertNotIn("WARNING", res.stdout)
+        self.assertIn("contig extents", res.stdout)
+
+    def test_gff_feature_past_declared_contig_length_warns(self):
+        # The Morex v2 GFF / v3 VCF case: same name, longer assembly.
+        gff = self.write("in.gff3", [gff_line("chr1H", 9000, 9500)])
+        res = self.invoke(gff, self.vcf_sized({"1H": (5000, 4900)}))
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("a GFF feature ends at 9,500", res.stdout)
+        self.assertIn("declares the contig as 5,000 bp", res.stdout)
+        self.assertIn("incompatible GFF/VCF coordinates: 1H", res.stdout)
+
+    def test_vcf_variant_past_gff_sequence_region_warns(self):
+        # The other direction, catchable only because the GFF declares its region.
+        gff = self.write("in.gff3", ["##gff-version 3",
+                                     "##sequence-region chr1H 1 5000",
+                                     gff_line("chr1H", 1000, 1500)])
+        res = self.invoke(gff, self.vcf_sized({"1H": (None, 48_000)}))
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("a VCF variant sits at 48,000", res.stdout)
+        self.assertIn("##sequence-region ending at 5,000", res.stdout)
+
+    def test_extent_mismatch_warns_but_does_not_fail(self):
+        # A WARNING, deliberately: the pipeline must not hard-stop on a heuristic that
+        # a legitimately odd annotation could trip.
+        gff = self.write("in.gff3", [gff_line("chr1", 10, 99_999)])
+        res = self.invoke(gff, self.vcf_sized({"1": (1000, 900)}))
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("WARNING", res.stdout)
+
+    def test_missing_contig_length_header_is_not_an_error(self):
+        gff = self.write("in.gff3", [gff_line("chr1", 1, 10)])
+        res = self.invoke(gff, self.vcf(["1"]))
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertNotIn("WARNING", res.stdout)
 
     def test_no_gff_writes_an_empty_file_and_exits_0(self):
         res = self.invoke("NULL", self.vcf(["1"]))
