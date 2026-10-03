@@ -703,17 +703,31 @@ load-bearing and not obvious:
 rewrite the tracked SIMDATA fixtures in place. A denylist test enforces it rather than leaving it
 to review.
 
-Baseline as of 2026-09-14 (after the 11 high-severity audit fixes):
-`tests/` = **1217 passing / 12 skipped**, app = **780 passing / 3 skipped**, python =
-**82 tests**, heavy = **37 passing**. `run_tests.R` and `run_heavy.R` both exit non-zero on any
-failure, so both are CI-able as-is. (Previous figures: 1086/12, 769/3, 74, 29 — the increments
+Baseline as of 2026-10-03, **measured on the merged tree** (after the `/findings` sweep of the 11
+open high-severity findings, rebased onto the benchmarks/SS-Clines line):
+`tests/` = **1306 passing / 8 skipped**, app = **803 passing / 2 skipped**, python =
+**149 tests / 1 skipped**, heavy = **62 passing**. WARN 0 in both R tiers. `run_tests.R` and
+`run_heavy.R` both exit non-zero on any failure, so both are CI-able as-is.
+
+This supersedes the previous entry's `~1229 / 11` *estimate*, which was never measured together —
+the real merged figure is 1306/8, so roughly 77 of the increment came from the two lines meeting,
+not from either alone. Do not extrapolate a merged baseline from a branch measurement again; the
+gate is cheap and the estimate was off by more than any single change in it.
+
+The sweep's own contribution: `tests/testthat/test-ld_decay_grouping.R` and
+`test-wza_callability.R` (two new files, subprocess + CONTENT assertions, which is what the exit-0
+wrapper rows structurally could not see), 5 extent cases in `tests/python/test_normalize_gff.py`,
+and two heavy-tier contract tests — the plink `--double-id` FID/IID contract across three
+sample-naming schemes, and sNMF seed reproducibility. Skips fell by TWO from the sweep: both
+`region_distance.R` `group == group` quarantines in `test-known-bugs.R` now run (finding 240d18).
+Tier 5's gene-finding block changed shape rather than count — it asserted a *measured divergence*
+and now asserts plain agreement (finding f6dab7).
+
+(Previous figures: 1217/12, 780/3, 82, 37 — the increments
 are new rows for `compare_offsets.R`, `pregea_varpart.R` ×2, `write_summary.R (processing)` ×2,
 `create_regions.R` with the per-trait table, the B1 plink+sed contract row in the heavy tier,
 `tests/python/test_normalize_gff.py`, and app tests for `compare_scenario_label()` /
-`load_gf_diagnostics()` / two path builders. `nightagent/be06e3` (same day) then closed the
-`check_summary_counts` quarantine and replaced the exon-SNP cap: measured on its own branch as
-+12 passing and skips 12 -> 11, so expect **~1229 / 11** on the merged tree — not yet measured
-together. Before that: 1064/19, 769/3, 74, 29 — the skips dropped
+`load_gf_diagnostics()` / two path builders. Before that: 1064/19, 769/3, 74, 29 — the skips dropped
 by SEVEN because that many quarantined defects were fixed and their `skip()`s deleted; see the
 invariants table below, which fell from 41 violations to 3 in the same change. Before that:
 1051/21, 749/7; and 934/18, 417/3.)
@@ -746,7 +760,7 @@ data.table's shallow-copy notice when a combine strategy selects nothing — pip
 `combine_sigsnps.R:166` and app `fct_combine.R:121` — and are suppressed at the two named helpers
 in `test-equivalence-app-pipeline.R` with the reason stated there, not globally.
 
-The 11 and the 3 are QUARANTINE counts. An increment that moves either is adding a `skip()`, and
+The 8 and the 2 are QUARANTINE counts. An increment that moves either is adding a `skip()`, and
 the commit must name the filing it points at; a DECREMENT means a defect was fixed and its
 correct-behaviour assertion now runs.
 
