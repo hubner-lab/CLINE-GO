@@ -84,7 +84,6 @@ test_that("diagnostics is populated at cpu = 2, not only at cpu = 1", {
 # ---------------------------------------------------------------------------
 
 test_that("resolve_clumping_distance honours the requested group", {
-    skip("known bug: region_distance.R:110 `group == group` is a tautology — pitched 2026-08-18")
 
     path <- withr::local_tempfile(fileext = ".tsv")
     ld <- data.table::data.table(
@@ -105,7 +104,6 @@ test_that("resolve_clumping_distance honours the requested group", {
 })
 
 test_that("auto_per_chromosome does not mix rows from other groups", {
-    skip("known bug: region_distance.R:120-121 same tautology — pitched 2026-08-18")
 
     path <- withr::local_tempfile(fileext = ".tsv")
     ld <- data.table::data.table(

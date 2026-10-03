@@ -78,6 +78,11 @@ resolve_row_distance <- function(row, r2_target) {
 #   - named integer vector    (per-chromosome, names = chr names)
 resolve_clumping_distance <- function(spec, ld_decay_path = "NULL",
                                       r2_threshold = 0.2, group = "All") {
+    # `group` is also a column of the LD-decay table, so a bare `group == group`
+    # inside data.table's i is a self-comparison that matches EVERY row rather
+    # than the requested one (finding 240d18). Filter against a differently
+    # named local copy instead.
+    want_group <- as.character(group)
     spec_lower <- tolower(as.character(spec))
     auto_mode  <- spec_lower %in% c("auto_per_chromosome", "auto_genome_wide", "auto")
 
@@ -107,7 +112,7 @@ resolve_clumping_distance <- function(spec, ld_decay_path = "NULL",
         if (spec_lower == "auto") {
             message("INFO: 'auto' treated as 'auto_genome_wide' (deprecated alias)")
         }
-        row <- ld_table[group == group & scope == "genome_wide"]
+        row <- ld_table[group == want_group & scope == "genome_wide"]
         if (nrow(row) == 0) stop("No genome-wide LD decay row for group='", group, "'")
         dist_val <- resolve_row_distance(as.list(row[1]), r2_threshold)
         if (is.na(dist_val)) stop("Could not resolve genome-wide distance from LD decay table")
@@ -117,8 +122,8 @@ resolve_clumping_distance <- function(spec, ld_decay_path = "NULL",
     }
 
     # auto_per_chromosome
-    chr_rows <- ld_table[group == group & scope != "genome_wide"]
-    gw_row   <- ld_table[group == group & scope == "genome_wide"]
+    chr_rows <- ld_table[group == want_group & scope != "genome_wide"]
+    gw_row   <- ld_table[group == want_group & scope == "genome_wide"]
 
     if (nrow(gw_row) == 0 && nrow(chr_rows) == 0)
         stop("No LD decay rows for group='", group, "'")
