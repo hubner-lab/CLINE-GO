@@ -35,7 +35,20 @@
 #
 #   FIG_OUT     default benchmarks/mvp_eval/figures_ssclines_j16_gallery
 #   OFFSET_DIR  default offset12_ssclines_pooled
+#   J15_DIR     default figures_ssclines_pooled_j15 -- the mvp_oracle_stats.R output of the SAME
+#               arm (delta_per_seed.tsv, delta_by_arch.tsv); both regression ties read it
+#   AUC_FILE    default detection600/aucpr_per_seed.tsv (columns seed, method, aucpr, n_testable)
 #   MVP_ARM / MVP_ADDED / MVP_N_EXPECT via benchmarks/mvp_arm.R (mandatory, 600)
+#
+# OFFSET13 MODE (Phase 5, 2026-10-03). The defaults above are the journal-16 arm and stay so:
+# 16g embeds this script's codes. For the rebuilt panels (top 0.25 % per method and predictor,
+# RDA 0.5 %, uncorrected RDA as third method, 5 kb) every input is passed explicitly and the
+# output goes to its own dir, never figures_ssclines_j16_gallery/:
+#   OFFSET_DIR=offset13  J15_DIR=<eval>/figures_ssclines_offset13
+#   AUC_FILE=<eval>/remeasure600/rdaunc_rda2x/rank_metrics.tsv  (detection600 is the pmax-RDA arm)
+#   FIG_OUT=<eval>/figures_ssclines_gallery13
+# offset13 has no random panel; the counts in DEFINITIONS above are the journal-16 arm's
+# (offset13: 3/3 empty on 2 seeds and scored on 598, every other panel on 600).
 # =============================================================================
 suppressPackageStartupMessages({
     library(data.table); library(ggplot2); library(ggdist); library(ggrepel)
@@ -45,7 +58,7 @@ ROOT <- Sys.getenv("PIPELINE_ROOT", "/pipeline")
 EVAL <- file.path(ROOT, "benchmarks/mvp_eval")
 OFF  <- Sys.getenv("OFFSET_DIR", "offset12_ssclines_pooled")
 J15  <- Sys.getenv("J15_DIR", file.path(EVAL, "figures_ssclines_pooled_j15"))
-DET  <- Sys.getenv("DET_DIR", file.path(EVAL, "detection600"))
+AUC_FILE <- Sys.getenv("AUC_FILE", file.path(EVAL, "detection600", "aucpr_per_seed.tsv"))
 OUT  <- Sys.getenv("FIG_OUT", file.path(EVAL, "figures_ssclines_j16_gallery"))
 BOOT_SEED <- 16L
 N_BOOT    <- 2000L
@@ -154,8 +167,9 @@ acc[, accuracy := -tau]                       # never abs()
 SA <- acc[, .(accuracy = median(accuracy), n_methods = .N), by = .(seed, marker_set)]
 SA[, label := SET_LAB[marker_set]]
 W  <- dcast(SA, seed ~ label, value.var = "accuracy")
-stopifnot(ORACLE %in% names(W), !anyNA(W[[ORACLE]]), nrow(W) == nrow(PRIM))
-OFFD_ALL <- rbindlist(lapply(c(RULES, RANDOM), function(p)
+stopifnot(ORACLE %in% names(W), !anyNA(W[[ORACLE]]), nrow(W) == nrow(PRIM), all(RULES %in% names(W)))
+# The random panel is optional (absent from offset13); every rule panel is not.
+OFFD_ALL <- rbindlist(lapply(intersect(c(RULES, RANDOM), names(W)), function(p)
     data.table(seed = W$seed, label = p, accuracy = W[[p]], oracle = W[[ORACLE]])))[is.finite(accuracy)]
 OFFD_ALL[, delta := accuracy - oracle]
 OFFD_ALL <- merge(OFFD_ALL, COV, by = "seed")
@@ -398,7 +412,7 @@ save_fig("B5", "B5_net_discoveries",
          13, 4.2, "TP - FP per seed; rewards volume, favours the union")
 
 # B4 -- AUC-PR, single methods only (no combination rule has a p-value)
-auc <- fread(file.path(DET, "aucpr_per_seed.tsv"), colClasses = c(seed = "character"))
+auc <- fread(AUC_FILE, colClasses = c(seed = "character"))
 auc <- mvp_require_rows(auc[seed %in% PRIM$seed], "AUC-PR rows")
 stopifnot(nrow(auc) == 3L * nrow(PRIM), !anyNA(auc$aucpr))
 auc <- merge(auc[, .(seed, label = method, aucpr, n_testable)], COV, by = "seed")
