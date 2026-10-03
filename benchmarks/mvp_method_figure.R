@@ -32,9 +32,12 @@ source(file.path(ROOT, "benchmarks/mvp_arm.R"))
 
 MINOU <- c(teal = "#00798c", red = "#d1495b", amber = "#edae49",
            sage = "#66a182", navy = "#2e4057", grey = "#8d96a3")
-# Red is reserved for the engine the pipeline drops (see S-RDA): 2.65% of its
-# gardens predict BACKWARDS, and on 5 replicates it returns byte-identical
-# accuracy for every marker panel.
+# Red is reserved for the engine the benchmark drops: RDA-corrected. The reason is low
+# accuracy (SS-Clines offset13: causal loci 0.640 vs 0.783 uncorrected, better in 22 % of
+# replicates; see mvp_oracle_stats.R:61). #correction the earlier reason here -- "2.65 % of
+# its gardens predict BACKWARDS, byte-identical accuracy on 5 replicates" -- is an SS-Mtn
+# fact that does not reproduce on SS-Clines (0.024 % backwards, 0 degenerate). Legacy
+# figure: the manuscript carries no RDA-corrected offset at all (Phase 4b gate, 2026-10-03).
 METH_COL <- c("gradientForest\noffset" = MINOU[["teal"]],
               "LFMM2\noffset"          = MINOU[["navy"]],
               "RDA\noffset"            = MINOU[["sage"]],

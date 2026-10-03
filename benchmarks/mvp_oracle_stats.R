@@ -58,9 +58,16 @@ emit <- function(dt, stem) {
     invisible(dt)
 }
 
-# RDA-corrected is pathological (2.65% of its gardens predict BACKWARDS, and on
-# 5 replicates it returns byte-identical accuracy for every marker panel). It is
-# excluded from every aggregate and appears only in the method panel.
+# RDA-corrected is excluded from every aggregate and appears only in the per-method
+# tables below. The reason is LOW ACCURACY, measured on SS-Clines (offset13, 600
+# replicates, Phase 4b, 2026-10-02): on the causal loci its median accuracy is 0.640
+# against 0.783 for RDA-uncorrected, it is the better of the two in 22 % of replicates
+# (paired p = 2e-50), and it is worse on every panel (mvp_offset_engines.R ->
+# figures_ssclines_offset13/rda_engine_paired.tsv). #correction the earlier rationale --
+# "2.65 % of its gardens predict BACKWARDS; byte-identical accuracy for every panel on 5
+# replicates" -- was measured on the legacy SS-Mtn arm and does not hold on SS-Clines:
+# 0.024 % of landscape gardens backwards, 0 of 2,400 replicate x engine units degenerate.
+# Since the Phase 4b gate (2026-10-03) the engine is out of the manuscript altogether.
 DROP_METHOD <- "RDA-corrected"
 WORKING     <- c("GFoffset", "LFMM2offset", "RDA-uncorrected")
 ORACLE      <- "causal loci"

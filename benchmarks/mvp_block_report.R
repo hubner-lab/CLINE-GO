@@ -62,9 +62,12 @@ message("figure subtitles: ", if (mvp_subtitle_on()) "on" else "off (MVP_SUBTITL
 
 ARCH_LEVELS <- c("oliogenic", "mod-polygenic", "highly-polygenic")   # corpus typo
 ARCH_LABELS <- c("oligogenic", "moderately polygenic", "highly polygenic")
-# Same exclusion rule as mvp_oracle_stats.R, and for the same reason: RDA-corrected
-# predicts backwards on a few percent of gardens. It is kept in the per-cell table
-# (where the reader can see it) and dropped from the final_LA regression.
+# Same exclusion rule as mvp_oracle_stats.R, and for the same reason: RDA-corrected is
+# the least accurate engine (low accuracy, measured on SS-Clines offset13 -- see
+# mvp_oracle_stats.R:61). #correction this comment used to say it "predicts backwards on a
+# few percent of gardens"; that SS-Mtn fact does not hold on SS-Clines (0.024 % of landscape
+# gardens). It is kept in the per-cell table (where the reader can see it) and dropped from
+# the final_LA regression.
 WORKING <- c("GFoffset", "LFMM2offset", "RDA-uncorrected")
 ORACLE_SET <- "adaptive"          # the true causal loci
 BEST_SET   <- "gea_best"          # the >=2-of-3 recommended panel
