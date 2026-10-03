@@ -132,7 +132,7 @@ test_that("gene finding and combining are TWO implementations, not one", {
     # Different names AND different shapes: many-regions vs one-region.
     expect_true(exists("find_genes_in_region", envir = ns, inherits = FALSE))
     expect_named(formals(get("find_genes_in_region", envir = ns)),
-                 c("gff_genes", "region_row", "promoter_length"))
+                 c("gff_genes", "region_row"))
     expect_named(formals(find_genes_for_regions),
                  c("regions_dt", "gff_dt", "gff_path", "promoter_length", "allsnps_dt"))
 
@@ -259,12 +259,14 @@ test_that("both sides return their empty skeleton for zero input", {
 
 # --- 2. gene finding -------------------------------------------------------
 #
-# TWO implementations. The pipeline uses region bounds AS-IS and spends
-# promoter_length only on the promoter-SNP counting window
-# (genes_in_regions.R:95); the app spends it on the QUERY WINDOW
-# (fct_regions.R:73), changing which genes come back. Feeding both the same
-# non-zero promoter_length is therefore guaranteed to differ for a reason that
-# has nothing to do with overlap logic.
+# Still TWO implementations (one-region vs many-regions), but they now agree on
+# the WINDOW. The pipeline uses region bounds as-is and spends promoter_length
+# only on the promoter-SNP counting window (genes_in_regions.R:95). The app used
+# to spend it on the gene QUERY window (fct_regions.R:73), so the Region Explorer
+# reported genes for a 10 kb wider upstream window than genes_per_region.tsv did
+# at the default — one key, two meanings (finding f6dab7). Resolved in favour of
+# the pipeline: the app no longer takes a promoter_length at all, and the
+# assertions below are plain equality rather than a normalised comparison.
 
 GFF_LINES <- c(
     gff_line("1",  1000,  2000, "ID=g1;Name=alpha;biotype=protein_coding"),
@@ -275,9 +277,9 @@ GFF_LINES <- c(
 
 # App loops one region at a time; union the per-region results to compare
 # against the pipeline's all-regions call.
-app_genes <- function(gff_dt, regions_dt, promoter_length) {
+app_genes <- function(gff_dt, regions_dt) {
     out <- lapply(seq_len(nrow(regions_dt)), function(i) {
-        g <- clinego.app:::find_genes_in_region(gff_dt, regions_dt[i], promoter_length)
+        g <- clinego.app:::find_genes_in_region(gff_dt, regions_dt[i])
         if (is.null(g) || nrow(g) == 0) return(NULL)
         g[, .(chr = as.character(chr), start, end)]
     })
@@ -298,13 +300,13 @@ gene_regions <- function() {
                            end   = c(9500L, 1500L))
 }
 
-test_that("gene SETS agree when promoter_length is normalised to 0", {
+test_that("gene SETS agree, with no normalisation needed", {
     skip_without_app()
     path <- write_gff(GFF_LINES)
     gff  <- quiet(read_gff(path, "gene"))
     regs <- gene_regions()
 
-    a <- app_genes(gff, regs, 0L)
+    a <- app_genes(gff, regs)
     p <- pipe_genes(gff, regs, path, 0L)
 
     data.table::setorder(a, chr, start); data.table::setorder(p, chr, start)
@@ -313,40 +315,44 @@ test_that("gene SETS agree when promoter_length is normalised to 0", {
     expect_gt(nrow(a), 0L)
 })
 
-test_that("the promoter_length divergence is EXACTLY a query-window shift", {
+test_that("promoter_length cannot move the app's gene set away from the pipeline's", {
     skip_without_app()
-    # The paired half of the normalisation above. Without this, the suite would
-    # sidestep the divergence and never exercise the app's production behaviour
-    # (a non-zero promoter_length). Widening the PIPELINE's region start by PL
-    # by hand must reproduce the app's own extension at that same PL.
-    # If this fails, the divergence is bigger than a window shift and the filing
-    # understates it.
-    PL   <- 3000L
+    # The assertion f6dab7 was filed for. The app's window is now independent of
+    # promoter_length, so the pipeline's gene set at ANY promoter_length must equal
+    # the app's single answer — the key changes promoter-SNP counting on the
+    # pipeline side and nothing at all on the app side.
     path <- write_gff(GFF_LINES)
     gff  <- quiet(read_gff(path, "gene"))
     regs <- gene_regions()
 
-    widened <- data.table::copy(regs)[, start := pmax(1L, start - PL)]
+    a <- app_genes(gff, regs)
+    data.table::setorder(a, chr, start)
 
-    a <- app_genes(gff, regs, PL)            # app extends internally
-    p <- pipe_genes(gff, widened, path, PL)  # pipeline needs it pre-extended
+    for (PL in c(0L, 3000L, 10000L)) {
+        p <- pipe_genes(gff, regs, path, PL)
+        data.table::setorder(p, chr, start)
+        expect_equal(as.data.frame(a), as.data.frame(p),
+                     info = paste0("promoter_length = ", PL))
+    }
 
-    data.table::setorder(a, chr, start); data.table::setorder(p, chr, start)
-    expect_equal(as.data.frame(a), as.data.frame(p))
-    # The shift must actually change the answer, or this proves nothing.
-    expect_gt(nrow(a), nrow(app_genes(gff, regs, 0L)))
+    # And the old behaviour is genuinely gone: pre-widening the pipeline's region
+    # by 3000 bp DOES change its gene set, which is exactly what the app used to do
+    # silently. If this stops differing the fixture has lost its teeth.
+    widened <- data.table::copy(regs)[, start := pmax(1L, start - 3000L)]
+    expect_gt(nrow(pipe_genes(gff, widened, path, 0L)), nrow(a))
 })
 
-test_that("the app extends the gene window upstream only, like the pipeline's promoter window", {
+test_that("neither side widens the gene window downstream", {
     skip_without_app()
     path <- write_gff(GFF_LINES)
     gff  <- quiet(read_gff(path, "gene"))
-    # A region ending just before g3 (9000-10000). Extending DOWNSTREAM would
-    # pull g3 in; neither side may do that.
+    # A region ending just before g3 (9000-10000). Neither side may pull g3 in.
     reg <- data.table::data.table(region_id = "R1", chr = "1",
                                   start = 4500L, end = 8000L)
-    a <- app_genes(gff, reg, 3000L)
+    a <- app_genes(gff, reg)
+    p <- pipe_genes(gff, reg, path, 3000L)
     expect_false(9000L %in% a$start)
+    expect_false(9000L %in% p$start)
 })
 
 test_that("the app derives gene_id the way the pipeline does, on every shape", {

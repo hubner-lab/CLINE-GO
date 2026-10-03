@@ -58,22 +58,30 @@ compute_all_regions <- function(sig_snps, distance = 2000000L) {
 
 #' Find genes overlapping a region (data.table-based, no GenomicRanges)
 #'
+#' The query window is the region EXACTLY as given, matching the pipeline's
+#' find_genes_for_regions() (scripts/R/lib/genes_in_regions.R), so the Region
+#' Explorer and genes_per_region.tsv report the same genes for the same region.
+#'
+#' This used to take a `promoter_length` and search [start - promoter_length, end].
+#' The pipeline spends that config key only on the promoter-SNP counting window,
+#' where it changes no gene, so at the default 10000 the app silently reported genes
+#' for a 10 kb wider upstream window than the published tables did — one key with two
+#' meanings, and no record of which window produced a given gene list (finding
+#' f6dab7). The pipeline is the authority: its tables are what gets published.
+#'
 #' @param gff_genes data.table from load_gff_genes(): gene_id, chr, start, end, ...
 #' @param region_row single-row data.table with chr, start, end
-#' @param promoter_length integer. Extend region upstream to capture promoters.
-#' @return data.table of genes overlapping [start - promoter_length, end].
+#' @return data.table of genes overlapping [start, end].
 #'   Empty data.table if gff_genes is NULL or no overlap found.
 #' @noRd
-find_genes_in_region <- function(gff_genes, region_row, promoter_length = 10000L) {
+find_genes_in_region <- function(gff_genes, region_row) {
     if (is.null(gff_genes) || nrow(gff_genes) == 0) return(data.table::data.table())
     if (is.null(region_row) || nrow(region_row) == 0) return(data.table::data.table())
 
-    promoter_length <- as.integer(promoter_length)
     chr_val <- as.character(region_row$chr[1])
-    r_start <- pmax(1L, as.integer(region_row$start[1]) - promoter_length)
+    r_start <- as.integer(region_row$start[1])
     r_end   <- as.integer(region_row$end[1])
 
-    # Extend region window
     query <- data.table::data.table(
         chr   = chr_val,
         start = r_start,

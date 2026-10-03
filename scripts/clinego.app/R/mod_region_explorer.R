@@ -140,9 +140,9 @@ mod_region_explorer_server <- function(id, project_data, module = MOD_GEA,
             if (nrow(row) == 0) return(data.table::data.table())
             gff  <- gff_genes()
             if (is.null(gff) || nrow(gff) == 0) return(data.table::data.table())
-            pd   <- project_data()
-            plen <- config_get(pd$config, "GEA", "promoter_length", default = 10000L)
-            find_genes_in_region(gff, row, as.integer(plen))
+            # The region as-is, no promoter_length widening: that key is the
+            # pipeline's promoter-SNP window and does not select genes (f6dab7).
+            find_genes_in_region(gff, row)
         })
 
         # ── SNPs for selected region ───────────────────────────────────────────

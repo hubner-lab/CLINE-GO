@@ -79,33 +79,37 @@ test_that("find_genes_in_region keeps genes inside, on the edge, and straddling 
                  c(1200L,  1000L, 2000L, 900L,  5000L),
                  c(1300L,  1050L, 2100L, 1010L, 5100L))
 
-    out <- find_genes_in_region(genes, region("1", 1000L, 2000L), promoter_length = 0L)
+    out <- find_genes_in_region(genes, region("1", 1000L, 2000L))
 
     expect_setequal(out$gene_id, c("inside", "left_edge", "right_edge", "straddle_left"))
 })
 
 test_that("find_genes_in_region excludes genes on another chromosome", {
     genes <- gff(c("same", "other"), c("1", "2"), c(1200L, 1200L), c(1300L, 1300L))
-    out <- find_genes_in_region(genes, region("1", 1000L, 2000L), promoter_length = 0L)
+    out <- find_genes_in_region(genes, region("1", 1000L, 2000L))
     expect_equal(out$gene_id, "same")
 })
 
-test_that("find_genes_in_region extends the window UPSTREAM only", {
+test_that("find_genes_in_region does NOT widen the window in either direction", {
+    # It used to take a promoter_length and search [start - PL, end], while the
+    # pipeline's find_genes_for_regions() overlaps the region as-is and spends that
+    # key only on the promoter-SNP window. At the default 10000 the Region Explorer
+    # therefore listed genes genes_per_region.tsv did not (finding f6dab7). The
+    # pipeline is the authority, so neither side widens now.
     genes <- gff(c("upstream", "downstream"), "1",
                  c(500L,  2500L),
                  c(600L,  2600L))
 
-    none <- find_genes_in_region(genes, region("1", 1000L, 2000L), promoter_length = 0L)
-    expect_equal(nrow(none), 0L)
-
-    ext <- find_genes_in_region(genes, region("1", 1000L, 2000L), promoter_length = 1000L)
-    expect_equal(ext$gene_id, "upstream")   # downstream stays excluded
+    out <- find_genes_in_region(genes, region("1", 1000L, 2000L))
+    expect_equal(nrow(out), 0L)
 })
 
-test_that("find_genes_in_region floors the extended window at 1", {
-    genes <- gff("g1", "1", 1L, 50L)
-    out <- find_genes_in_region(genes, region("1", 100L, 200L), promoter_length = 10000L)
-    expect_equal(out$gene_id, "g1")
+test_that("find_genes_in_region takes no promoter_length argument", {
+    # A caller passing one would be silently ignored under `...`; the signature has
+    # no `...`, so this is the guard that the key cannot creep back in as a
+    # gene-selection parameter.
+    expect_false("promoter_length" %in% names(formals(find_genes_in_region)))
+    expect_equal(names(formals(find_genes_in_region)), c("gff_genes", "region_row"))
 })
 
 test_that("find_genes_in_region returns the GENE coordinates, not the query window", {
@@ -114,7 +118,7 @@ test_that("find_genes_in_region returns the GENE coordinates, not the query wind
     # pipeline call sites read the wrong side of exactly this idiom
     # (sig_snps.R:152, genes_in_regions.R:174).
     genes <- gff("g1", "1", 1200L, 1300L)
-    out <- find_genes_in_region(genes, region("1", 1000L, 2000L), promoter_length = 0L)
+    out <- find_genes_in_region(genes, region("1", 1000L, 2000L))
 
     expect_equal(out$start, 1200L)
     expect_equal(out$end,   1300L)
@@ -133,7 +137,7 @@ test_that("find_genes_in_region returns an UNTYPED empty table on every miss pat
                              region("1", 1000L, 2000L)),
         find_genes_in_region(genes, NULL),
         find_genes_in_region(genes, region("9", 1000L, 2000L)),          # no such chr
-        find_genes_in_region(genes, region("1", 8000L, 9000L), 0L)       # no overlap
+        find_genes_in_region(genes, region("1", 8000L, 9000L))          # no overlap
     )
     for (out in misses) {
         expect_s3_class(out, "data.table")
