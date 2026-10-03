@@ -3,7 +3,16 @@ library(dplyr)
 library(data.table)
 
 args = commandArgs(trailingOnly=TRUE)
-set.seed(42)
+
+# The project-wide seed. set.seed() governs R's RNG only; LEA::snmf() draws its own
+# seed at random by default and never consults it, so without passing SEED through to
+# snmf(seed=) the Q-matrices, cross-entropy curve (hence k_best), the sNMF-driven
+# imputation and every structure-corrected p-value downstream differed between two
+# runs of identical inputs (finding 8d07b1). Measured on SIMDATA: with seed=42 the
+# cross-entropies are identical run to run, and the repetitions still differ from
+# each other, so the multi-repetition best-run selection is unaffected.
+SEED <- 42L
+set.seed(SEED)
 
 ####################
 GENO=args[1] ; LFMM=sub('\\.geno$', '.lfmm', GENO)
@@ -24,12 +33,14 @@ FUN_snmf <- function(Ks,
 		     entropy = T,
                      project = 'new', # with force run TRUE
                      I = 10000,
-                     CPU = 24){
+                     CPU = 24,
+                     seed = SEED){
 
   SNMF = paste0(gsub('.geno', '', GENO), '.snmfProject')
 
   
 
+   message(paste0('INFO: sNMF seed = ', seed))
    project = snmf(GENO,
                     CPU = CPU,
                     K = Ks:Ke,
@@ -37,6 +48,7 @@ FUN_snmf <- function(Ks,
                     repetitions = repetions,
                     ploidy = ploidy,
                     I = I,
+                    seed = seed,
                     project = project)                    
 
   return(project)

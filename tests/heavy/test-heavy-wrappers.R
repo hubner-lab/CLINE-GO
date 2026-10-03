@@ -45,6 +45,60 @@ test_that("vcf2lfmm.R writes beside its INPUT, which is why the fixture is a cop
     expect_false(file.exists(file.path(HEAVY_TESTDATA, "testdata.lfmm")))
 })
 
+test_that("snmf.R is reproducible run to run, without collapsing its repetitions", {
+    # LEA::snmf() draws its OWN seed at random unless given seed=; R's set.seed()
+    # never reaches its C RNG. Without the pass-through, two runs of identical inputs
+    # produced different Q-matrices, a different cross-entropy curve (hence a
+    # different k_best), different sNMF-driven imputation and therefore different
+    # structure-corrected p-values everywhere downstream (finding 8d07b1).
+    #
+    # Both halves matter: a single seed must make the run reproducible AND must not
+    # collapse the `repetitions` into one answer, because best-run selection by
+    # cross-entropy depends on them differing.
+    skip_if_not(dir.exists(SCRIPTS), "scripts/ not mounted")
+    require_tools("Rscript")
+    d <- withr::local_tempdir()
+
+    # A .geno is one line per SNP, one character per individual (0/1/2, 9 = NA).
+    set.seed(7)
+    n_ind <- 24L; n_snp <- 60L
+    lines <- vapply(seq_len(n_snp), function(i)
+        paste(sample(c(0L, 1L, 2L), n_ind, replace = TRUE), collapse = ""),
+        character(1))
+
+    run_once <- function(tag) {
+        sub <- file.path(d, tag)
+        dir.create(sub, showWarnings = FALSE)
+        geno <- file.path(sub, "t.geno")
+        writeLines(lines, geno)
+        res <- run_wrapper("snmf.R", c(geno, "2", "3", "2", "2", "1", "new"))
+        expect_identical(res$status, 0L, info = res$output)
+        # The seed actually used is logged, so a run is auditable from its log.
+        expect_match(res$output, "sNMF seed = 42")
+        sub
+    }
+
+    a <- run_once("a")
+    b <- run_once("b")
+
+    q_of <- function(sub) {
+        f <- sort(list.files(sub, pattern = "\\.Q$", recursive = TRUE,
+                             full.names = TRUE))
+        expect_gt(length(f), 1L)
+        lapply(f, function(x) as.matrix(utils::read.table(x)))
+    }
+    qa <- q_of(a); qb <- q_of(b)
+    expect_identical(length(qa), length(qb))
+    for (i in seq_along(qa)) expect_equal(qa[[i]], qb[[i]], tolerance = 0)
+
+    # Not collapsed: at a given K the repetitions must not all be the same matrix.
+    k3 <- sort(list.files(a, pattern = "\\.3\\.Q$", recursive = TRUE,
+                          full.names = TRUE))
+    skip_if(length(k3) < 2, "fewer than 2 repetitions written")
+    m <- lapply(k3, function(x) as.matrix(utils::read.table(x)))
+    expect_false(isTRUE(all.equal(m[[1]], m[[2]], tolerance = 1e-10)))
+})
+
 test_that("the EMMAX TPED rules keep the VCF's full sample names as FID and IID", {
     # plink's --vcf importer splits a sample ID on '_': WBDC_001 becomes
     # FID=WBDC / IID=001, and an ID with TWO underscores is a hard error
