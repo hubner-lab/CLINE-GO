@@ -212,6 +212,55 @@ poly_correction <- function(n_snps_vec, zw_vec) {
     result[order(ord_idx)]
 }
 
+# How small a WZA p CAN this trait produce, and is that small enough to ever be
+# called? The rank transform maps the best per-SNP p to 1/(m+1), so the per-SNP z is
+# capped at qnorm(1 - 1/(m+1)) — 2.768 at m = 354. A window holding a single SNP has
+# Z_W = h*z/sqrt(h^2) = z, so its WZA p cannot go below the capped z's p under the
+# n_snps correction, however strong the underlying association. With most windows
+# single-SNP that makes Bonferroni unreachable BY CONSTRUCTION, and a header-only
+# sig-windows file used to look identical to a genuine absence of signal (finding
+# 6ab65e). This reports the floor so the two are distinguishable.
+#
+# Nothing here changes a computed p-value, and no new output file is written: the
+# finding's own evidence came from the rule log, and a diagnostics TSV nobody reads
+# is its own defect (cf. rda_offset_diagnostics.tsv, finding 0214e1).
+report_wza_floor <- function(trait, p_vec, win_zw, pred_mean, pred_sd) {
+    m <- sum(!is.na(p_vec))
+    if (m == 0L) {
+        message(paste0("WARNING: WZA trait=", trait, " has no non-NA p-values"))
+        return(invisible(NULL))
+    }
+    z_cap <- qnorm(1 - 1 / (m + 1))
+
+    single <- which(win_zw$n_snps == 1L & !is.na(pred_mean) & !is.na(pred_sd))
+    n_win  <- nrow(win_zw)
+    floor_single <- if (length(single) > 0) {
+        min(pnorm(z_cap, pred_mean[single], pred_sd[single], lower.tail = FALSE))
+    } else NA_real_
+
+    bonf <- 0.05 / sum(!is.na(win_zw$wza_p))
+    message(paste0("INFO: WZA trait=", trait,
+                   " n_snps_ranked=", m,
+                   " z_cap=", signif(z_cap, 4),
+                   " single_snp_windows=", length(single), "/", n_win,
+                   " min_achievable_p_single_snp=", signif(floor_single, 4),
+                   " observed_min_p=", signif(min(win_zw$wza_p, na.rm = TRUE), 4),
+                   " bonf_0.05=", signif(bonf, 4)))
+
+    if (!is.na(floor_single) && floor_single > bonf) {
+        message(paste0("WARNING: WZA trait=", trait,
+                       " — no single-SNP window can reach Bonferroni 0.05/",
+                       sum(!is.na(win_zw$wza_p)), " = ", signif(bonf, 4),
+                       ": the rank transform caps the per-SNP z at ", signif(z_cap, 4),
+                       " (m=", m, " SNPs), so the smallest p such a window can take is ",
+                       signif(floor_single, 4), ". ", length(single), " of ", n_win,
+                       " windows hold one SNP, so an empty sig-windows table here means ",
+                       "UNCALLABLE BY CONSTRUCTION, not absence of signal. Widen the ",
+                       "window (GEA.WZA.window_size) or raise the threshold."))
+    }
+    invisible(NULL)
+}
+
 # Compute per-window WZA for all traits
 windows_base <- pval_dt[, .(
     chr       = chr[1],
@@ -242,8 +291,13 @@ for (tr in trait_cols) {
     win_zw <- merge(win_zw, windows_base[, .(window_id, n_snps)], by = "window_id")
     valid  <- !is.na(win_zw$Z_W)
 
+    pred_mean <- rep(NA_real_, nrow(win_zw))
+    pred_sd   <- rep(NA_real_, nrow(win_zw))
+
     if (sum(valid) >= 2) {
         corr <- poly_correction(win_zw$n_snps[valid], win_zw$Z_W[valid])
+        pred_mean[valid] <- corr$pred_mean
+        pred_sd[valid]   <- corr$pred_sd
         wza_p <- rep(NA_real_, nrow(win_zw))
         wza_p[valid] <- pnorm(win_zw$Z_W[valid], corr$pred_mean, corr$pred_sd, lower.tail = FALSE)
     } else {
@@ -261,6 +315,8 @@ for (tr in trait_cols) {
     wza_p <- pmax(wza_p, .Machine$double.xmin)
 
     win_zw[, wza_p := wza_p]
+
+    report_wza_floor(tr, pval_dt[[tr]], win_zw, pred_mean, pred_sd)
 
     # merge into results keyed by window_id
     wza_results <- merge(

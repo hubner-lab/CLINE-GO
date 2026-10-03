@@ -44,6 +44,28 @@ result <- find_significant_snps_per_trait(pvals, adjustment, pval_value, CPU,
                                            exclude_cols = wza_meta_cols,
                                            is_wza = IS_WZA)
 
+# An empty WZA sig-windows table has two very different causes: every window was
+# tested and none passed (no signal), or the WZA statistic's own floor sits above the
+# threshold so no window COULD pass (finding 6ab65e). compute_wza.R logs why the floor
+# is where it is; this says, per trait, which of the two happened here. Per-SNP tables
+# are untouched — the same comparison there is the ordinary "nothing was significant".
+if (IS_WZA) {
+    for (tr in setdiff(colnames(pvals), c("SNPID", "chr", "pos", wza_meta_cols))) {
+        thr  <- compute_pval_threshold(pvals[[tr]], adjustment, pval_value)
+        pv   <- pvals[[tr]][!is.na(pvals[[tr]])]
+        if (length(pv) == 0L || thr$status != "ok") next
+        n_called <- sum(pv <= thr$threshold)
+        if (n_called == 0L) {
+            message(paste0("WARNING: WZA trait=", tr,
+                           " — 0 of ", length(pv), " windows called. Best window p=",
+                           signif(min(pv), 4), " vs threshold ", signif(thr$threshold, 4),
+                           " (ratio ", signif(min(pv) / thr$threshold, 3),
+                           "x). Check the WZA floor reported by compute_wza.R before ",
+                           "reading this as absence of signal."))
+        }
+    }
+}
+
 sig <- annotate_cross_trait_overlaps(result$sig_snps, as.integer(CLUMPING_DISTANCE))
 sig[, method := METHOD]
 
