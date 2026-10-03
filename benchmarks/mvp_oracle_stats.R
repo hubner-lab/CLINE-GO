@@ -78,7 +78,20 @@ PANELS <- data.table(
     role       = c("combined", "combined", "combined", "single",
                    "single", "single", "reference", "reference",
                    "reference", "oracle"))
-PANEL_ORDER <- PANELS$label[c(1, 2, 3, 4, 5, 6, 7, 8, 9)]   # oracle is the line, not a bar
+# Size curve (Phase 4b, offset13): the 1/3 panel at other top shares, built on ONE block
+# only (mvp_build_snp_sets.R --size_cohort). Opt-in, because outside that block the rows
+# exist for a fifth of the replicates and would read as incomplete cells. Run it with the
+# arm restricted to the same block (MVP_ADDED=<that tag>), so the 0.25 % rung ("1/3
+# methods") is paired on the same replicates as the other four.
+if (identical(Sys.getenv("MVP_SIZE_PANELS", "0"), "1")) {
+    PANELS <- rbind(PANELS, data.table(
+        marker_set = c("gea_union_top0.1pct", "gea_union_top0.5pct",
+                       "gea_union_top1pct", "gea_union_top2pct"),
+        label      = c("1/3 methods, top 0.1%", "1/3 methods, top 0.5%",
+                       "1/3 methods, top 1%", "1/3 methods, top 2%"),
+        role       = "size"))
+}
+PANEL_ORDER <- PANELS[role != "oracle", label]               # oracle is the line, not a bar
 
 # ---------------------------------------------------------------- shared data
 seeds <- rd(ROOT, "benchmarks/mvp_seeds.tsv")
