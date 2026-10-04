@@ -24,15 +24,21 @@
 # =============================================================================
 # Block 0 — shared prep (EMMAX-only: LFMM reuses W['lfmm_imp_climate'] as-is,
 # already LD-pruned + climate-valid + K_BEST-imputed — no new prep needed).
+# The EMMAX chain starts from the same imputation, via its VCF form W['vcf_imp'],
+# so the ladder tunes #PCs for the genotypes mode=gea actually scans.
 # Kinship is always BN — GAPIT uses the same BN matrix (scripts/gapit.R), and
 # an IBS alternative was never exercised; not a user-facing choice.
 # =============================================================================
 
 rule pregea_subset_vcf_pruned_climate:
-    """LD-pruned VCF subset to climate-valid samples. Mirrors
-    gea.smk:91-104 (subset_vcf_gea_climate) but on WORK_LD, not WORK_FILT —
+    """sNMF-imputed LD-pruned VCF subset to climate-valid samples. Mirrors
+    gea.smk's subset_vcf_gea_climate but on WORK_LD, not WORK_FILT —
     the pruned+climate-valid VCF does not exist anywhere else in the
     pipeline (the EMMAX GEA chain is full-set only).
+
+    W['vcf_imp'] (lfmm2vcf_ld) copies its #CHROM header verbatim from W['vcf_ld']
+    (lfmm2vcf.R), so it carries the same single '0_' prefix described below and
+    the awk/sed handling is unchanged.
 
     W['vcf_ld'] (ld_prune's output) already carries a SINGLE '0_' FID
     prefix on every sample name in its #CHROM header — ld_prune reads
@@ -47,9 +53,9 @@ rule pregea_subset_vcf_pruned_climate:
     existing single prefix (awk below), and the resulting OUTPUT then
     carries a genuine double '0_0_' prefix — which the sed below strips,
     mirroring the exact convention documented at ld_prune (processing.smk)."""
-    input:  vcf = W['vcf_ld'], samples = W['climate_valid_samples']
-    output: W['vcf_ld_climate']
-    params: prefix = f"{WORK_LD}climate/{VCF_BASE}"
+    input:  vcf = W['vcf_imp'], samples = W['climate_valid_samples']
+    output: W['vcf_imp_climate']
+    params: prefix = f"{WORK_LD}climate/{VCF_BASE}_K{K_BEST}imp"
     log:    f"{LOGDIR}pregea/subset_vcf_pruned_climate.log"
     shell:
         """
@@ -62,7 +68,7 @@ rule pregea_subset_vcf_pruned_climate:
 
 rule pregea_tped_pruned:
     """TPED/TFAM for the pruned+climate-valid VCF. Mirrors gea.smk:106-118."""
-    input:  vcf = W['vcf_ld_climate']
+    input:  vcf = W['vcf_imp_climate']
     output: tped = W['pregea_tped'], tfam = W['pregea_tfam']
     params: prefix = f"{WORK_LD}climate/emmax/{VCF_BASE}"
     log:    f"{LOGDIR}pregea/tped_pruned.log"
@@ -222,7 +228,7 @@ rule pregea_emmax_rung_trait:
 
     REUSES scripts/emmax.R unchanged (11 positional args, all satisfied)."""
     input:
-        vcf        = W['vcf_ld_climate'],
+        vcf        = W['vcf_imp_climate'],
         tped       = W['pregea_tped'],
         kinship    = W['pregea_kinship'],
         traits     = O['climate_site_scaled'],
@@ -406,13 +412,13 @@ if PREGEA_TRANSFER_GUARD:
             lfmm_k = PREGEA_TG_LFMM_K,
             # Pruned arm: Block 0's own LD-pruned+climate-valid TPED/kinship
             # (same artifacts the EMMAX ladder itself used).
-            emmax_vcf_pruned         = W['vcf_ld_climate'],
+            emmax_vcf_pruned         = W['vcf_imp_climate'],
             emmax_tped_prefix_pruned = f"{WORK_LD}climate/emmax/{VCF_BASE}",
             emmax_kinship_pruned     = W['pregea_kinship'],
             # Full arm: gea.smk's own full-set climate-valid TPED/kinship chain
             # (assoc_emmax_gea_trait's exact inputs) — independent of whether
             # EMMAX is configured in GEA.configs proper.
-            emmax_vcf_full         = W['vcf_filt_climate'] if 'EMMAX' in GEA_OTHER_CONFIGS else 'NULL',
+            emmax_vcf_full         = W['vcf_imp_full_climate'] if 'EMMAX' in GEA_OTHER_CONFIGS else 'NULL',
             emmax_tped_prefix_full = f"{WORK_FILT}climate/emmax/{VCF_BASE}" if 'EMMAX' in GEA_OTHER_CONFIGS else 'NULL',
             emmax_kinship_full     = (emmax_kinship_climate_path() if 'EMMAX' in GEA_OTHER_CONFIGS else 'NULL'),
             emmax_npcs = PREGEA_TG_EMMAX_NPCS,

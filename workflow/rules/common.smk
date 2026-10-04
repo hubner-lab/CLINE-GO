@@ -1189,7 +1189,7 @@ W['emmax_work']           = _ph('emmax_work')
 W['assoc_tped']           = _ph('assoc_tped')
 W['assoc_tfam']           = _ph('assoc_tfam')
 W['assoc_kinship']        = _ph('assoc_kinship')
-W['vcf_filt_climate']      = _ph('vcf_filt_climate')
+W['vcf_imp_full_climate']  = _ph('vcf_imp_full_climate')
 W['assoc_tped_climate']    = _ph('assoc_tped_climate')
 W['assoc_tfam_climate']    = _ph('assoc_tfam_climate')
 W['assoc_kinship_climate'] = _ph('assoc_kinship_climate')
@@ -1250,7 +1250,7 @@ O['density_future']       = _ph('density_future')
 # as real paths — rules using them only enter the DAG once K_BEST is set.
 # kinship is always BN now (no IBS flavor — GAPIT uses the same BN matrix, and
 # IBS was never exercised), so only one kinship path remains.
-for _k in ('vcf_ld_climate', 'pregea_tped', 'pregea_tfam', 'pregea_kinship'):
+for _k in ('vcf_imp_climate', 'pregea_tped', 'pregea_tfam', 'pregea_kinship'):
     W[_k] = _ph(_k)
 for _k in ('pregea_screeplot', 'pregea_screeplot_svg', 'pregea_screeplot_tsv',
            'pregea_lfmm_ladder', 'pregea_lfmm_hist', 'pregea_lfmm_qq',
@@ -1328,7 +1328,9 @@ def add_pregea_paths():
     # is the first mode that needs EMMAX-format inputs on the LD-pruned set;
     # WORK_LD prefix avoids collision with gea.smk's WORK_FILT-prefixed rules,
     # so both can coexist in one DAG (needed by the transfer guard).
-    W['vcf_ld_climate']     = f"{WORK_LD}climate/{VCF_BASE}.vcf"
+    # Built from the sNMF-imputed LD-pruned VCF (W['vcf_imp']), like every other
+    # GEA genotype input — EMMAX would otherwise mean-fill each missing call.
+    W['vcf_imp_climate']    = f"{WORK_LD}climate/{VCF_BASE}_K{K_BEST}imp.vcf"
     W['pregea_tped']        = f"{WORK_LD}climate/emmax/{VCF_BASE}.tped"
     W['pregea_tfam']        = f"{WORK_LD}climate/emmax/{VCF_BASE}.tfam"
     W['pregea_kinship']     = f"{WORK_LD}climate/emmax/{VCF_BASE}.aBN.kinf"
@@ -1401,13 +1403,16 @@ def add_climate_varpart_paths():
 
 add_climate_varpart_paths()
 
-# Association paths (added when K_BEST is set and association mode is used)
-def add_association_paths():
-    """Add association-specific paths to W and O dictionaries."""
-    if K_BEST is None or not GEA_CONFIGS:
-        return
+def _is_placeholder(key):
+    """True while W[key] still holds its _ph() sentinel. `key not in W` cannot
+    answer this: every K-dependent key is pre-seeded above, so it is always in W."""
+    return W[key].startswith("__placeholder_")
 
-    # Full (non-LD pruned) files for association analysis
+def _add_full_matrix_paths():
+    """Full (non-LD pruned) genotype files and their sNMF imputation, shared by GEA
+    and GWAS: LFMM/RDA/GAPIT read the imputed matrix, and so does every EMMAX TPED
+    (+ BN kinship) — built from W['vcf_imp_full'] instead of the filtered VCF, since
+    emmax-intel64 would otherwise fill each missing call with the per-SNP mean."""
     W['geno_full'] = f"{WORK_FILT}{VCF_BASE}.geno"
     W['lfmm_full'] = f"{WORK_FILT}{VCF_BASE}.lfmm"
     W['lfmm_full_nmissing'] = f"{WORK_FILT}{VCF_BASE}.lfmm_nmissing"
@@ -1417,17 +1422,31 @@ def add_association_paths():
     W['lfmm_imp_full'] = f"{WORK_FILT}{VCF_BASE}_K{K_BEST}imp.lfmm"
     W['vcf_imp_full'] = f"{WORK_FILT}{VCF_BASE}_K{K_BEST}imp.vcf"
 
+def _add_assoc_kinship_paths():
+    """Full-cohort TPED + BN kinship (tped_gea / kinship_gea). Their only consumer
+    is GAPIT — EMMAX GEA uses the climate-valid chain — so GAPIT needs them too."""
+    W['emmax_work']    = f"{WORK_FILT}emmax/"
+    W['assoc_tped']    = f"{WORK_FILT}emmax/{VCF_BASE}.tped"
+    W['assoc_tfam']    = f"{WORK_FILT}emmax/{VCF_BASE}.tfam"
+    W['assoc_kinship'] = f"{WORK_FILT}emmax/{VCF_BASE}.aBN.kinf"
+
+# Association paths (added when K_BEST is set and association mode is used)
+def add_association_paths():
+    """Add association-specific paths to W and O dictionaries."""
+    if K_BEST is None or not GEA_CONFIGS:
+        return
+
+    _add_full_matrix_paths()
+
     # Engine-specific working paths — only populate for engines actually in use
     _assoc_engines = {GEA_METHODS[m]["engine"] for m in GEA_CONFIGS}
+    if _assoc_engines & {"emmax", "gapit"}:
+        _add_assoc_kinship_paths()
     if "emmax" in _assoc_engines:
-        W['emmax_work']    = f"{WORK_FILT}emmax/"
-        W['assoc_tped']    = f"{WORK_FILT}emmax/{VCF_BASE}.tped"
-        W['assoc_tfam']    = f"{WORK_FILT}emmax/{VCF_BASE}.tfam"
-        W['assoc_kinship'] = f"{WORK_FILT}emmax/{VCF_BASE}.aBN.kinf"
         # Coord-valid subset (climate coordinate NA handling, GEA only) — samples with
         # missing lat/lon are dropped for GEA; TPED/kinship rebuilt to match the reduced
         # climate table, since EMMAX binds climate/PCA to genotypes positionally.
-        W['vcf_filt_climate']      = f"{WORK_FILT}climate/{VCF_BASE}.vcf"
+        W['vcf_imp_full_climate']  = f"{WORK_FILT}climate/{VCF_BASE}_K{K_BEST}imp.vcf"
         W['assoc_tped_climate']    = f"{WORK_FILT}climate/emmax/{VCF_BASE}.tped"
         W['assoc_tfam_climate']    = f"{WORK_FILT}climate/emmax/{VCF_BASE}.tfam"
         W['assoc_kinship_climate'] = f"{WORK_FILT}climate/emmax/{VCF_BASE}.aBN.kinf"
@@ -1482,25 +1501,19 @@ def add_pheno_association_paths():
     W['pheno_emmax_work'] = f"{PHENO_WORK}emmax/"
     W['pheno_gapit_work'] = f"{INTER}gapit/gwas/"
 
-    # Ensure full-VCF derived paths exist (needed by unified downstream gene-finding rules)
-    if 'vcfsnp_full' not in W:
-        W['geno_full']    = f"{WORK_FILT}{VCF_BASE}.geno"
-        W['lfmm_full']    = f"{WORK_FILT}{VCF_BASE}.lfmm"
-        W['lfmm_full_nmissing'] = f"{WORK_FILT}{VCF_BASE}.lfmm_nmissing"
-        W['vcfsnp_full']  = f"{WORK_FILT}{VCF_BASE}.vcfsnp"
-        W['removed_full'] = f"{WORK_FILT}{VCF_BASE}.removed"
+    # Full-VCF derived paths + the sNMF-imputed matrix (gene finding, GAPIT, and
+    # every GWAS EMMAX TPED). Idempotent, so it is safe when GEA set them already;
+    # without it a GEA-less config left them as _ph() sentinels.
+    _add_full_matrix_paths()
 
     # Engine-specific paths for phenotype methods — only populate if not already set by GEA
     _pheno_engines = {GWAS_METHODS[m]["engine"] for m in GWAS_CONFIGS}
-    if "gapit" in _pheno_engines and 'gapit_gd' not in W:
+    if "gapit" in _pheno_engines and _is_placeholder('gapit_gd'):
         W['gapit_gd']   = f"{WORK_FILT}gapit/{VCF_BASE}_GD.tsv"
         W['gapit_gm']   = f"{WORK_FILT}gapit/{VCF_BASE}_GM.tsv"
         W['gapit_work'] = f"{INTER}gapit/gea/"
-    if "emmax" in _pheno_engines and 'assoc_kinship' not in W:
-        W['emmax_work']    = f"{WORK_FILT}emmax/"
-        W['assoc_tped']    = f"{WORK_FILT}emmax/{VCF_BASE}.tped"
-        W['assoc_tfam']    = f"{WORK_FILT}emmax/{VCF_BASE}.tfam"
-        W['assoc_kinship'] = f"{WORK_FILT}emmax/{VCF_BASE}.aBN.kinf"
+    if _pheno_engines & {"emmax", "gapit"} and _is_placeholder('assoc_kinship'):
+        _add_assoc_kinship_paths()
 
     # Path A (MEAN/MEDIAN) — single set of TPED/kinship
     W['pheno_tped'] = f"{PHENO_WORK}emmax/{VCF_BASE}.tped"
@@ -1760,7 +1773,7 @@ def pheno_manhattan(method, trait, adjust): return f"{MOD_GWAS}plots/manhattan/{
 def pheno_qq(method, trait, adjust): return f"{MOD_GWAS}plots/manhattan/{method}/qq_{trait}_K{K_BEST}_{adjust}.png"
 
 # Per-trait DROP mode paths
-def pheno_trait_vcf(trait): return f"{WORK_FILT}phenotypes/{trait}/{VCF_BASE}.vcf"
+def pheno_trait_vcf(trait): return f"{WORK_FILT}phenotypes/{trait}/{VCF_BASE}_K{K_BEST}imp.vcf"
 def pheno_trait_tped(trait): return f"{WORK_FILT}phenotypes/{trait}/emmax/{VCF_BASE}.tped"
 def pheno_trait_tfam(trait): return f"{WORK_FILT}phenotypes/{trait}/emmax/{VCF_BASE}.tfam"
 def pheno_trait_kinship(trait): return f"{WORK_FILT}phenotypes/{trait}/emmax/{VCF_BASE}.aBN.kinf"

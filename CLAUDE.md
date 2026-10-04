@@ -401,7 +401,7 @@ exists to prevent.
 ### File Format Conversions
 - **VCF → GENO/LFMM**: `vcf2lfmm.R` (LEA strips "chr" prefix - why we normalize early)
 - **LFMM → VCF**: `lfmm2vcf.R`
-- **VCF → TPED/TFAM**: `tped_assoc` rule (plink, separate from emmax.R)
+- **VCF → TPED/TFAM**: the `tped_*` rules (plink, separate from emmax.R), always from the **sNMF-imputed** VCF (`W['vcf_imp_full']`, or `W['vcf_imp']` for the preGEA ladder) — never `vcf_filt`/`vcf_ld`; `tests/python/test_emmax_imputed_input.py` enforces it
 - **VCF → GD/GM**: `vcf_to_gapit_numeric.R` (numeric 0/1/2 for GAPIT)
 - **GFF3 → topr**: `gff2topr.py`
 - **GFF3 → normalized.gff3**: `normalize_gff.py` — strips `chr` case-insensitively (the same rule `filter_vcf` applies to the VCF, whose plink calls all carry `--output-chr MT` so X/Y/MT stay letters) and **fails when the GFF and the filtered VCF share no contig name** (audit B1: a `Chr1`/TAIR10-style GFF used to yield an empty annotation with exit 0)
@@ -420,7 +420,7 @@ exists to prevent.
 - **GAPIT3** (tag GAPIT3.5) - GLM, MLM, CMLM, ECMLM, SUPER, MLMM, FarmCPU, BLINK
 
 ### Association Workflow
-1. **EMMAX** - Mixed model with BN kinship (PCA covariates, full dataset)
+1. **EMMAX** - Mixed model with BN kinship (PCA covariates, full dataset). TPED and kinship are built from the sNMF-imputed matrix since 2026-10-04: fed the filtered VCF, `emmax-intel64` fills each missing call with the per-SNP mean of the observed dosages (measured: an R GLS reproduction matches EMMAX only at that fill value)
 2. **LFMM** - Latent factor model (trains on LD-pruned, tests on full)
 3. **GAPIT3** - 8 additional models (GLM, MLM, CMLM, ECMLM, SUPER, MLMM, FarmCPU, BLINK) via pre-computed GD/GM numeric format
 4. **Combine** - Merge methods via `association.combine_method` (Sum/Overlap/single)
@@ -447,8 +447,9 @@ GAPIT models are auto-detected from config method names and routed through `gapi
 `association.configs` in config YAML is a list of `{method, adjust, threshold}` entries. Parsed into a dict mapping method name to `"adjust_threshold"` string. Controls which association methods run, their p-value adjustment, and significance thresholds.
 
 ### Imputation Strategy
-- Uses sNMF Q-matrix (ancestry-informed)
-- Happens twice: LD-pruned (for PCA/structure/climate) and full (for association)
+- Uses sNMF Q-matrix (ancestry-informed); LEA `impute(method="mode")` writes hard 0/1/2 calls and never changes an observed call
+- Happens twice: LD-pruned (for PCA/structure/climate and the preGEA EMMAX ladder) and full (for association)
+- Every GEA/GWAS genotype consumer reads it — LFMM, RDA, GAPIT (GD **and** BN kinship) and EMMAX (TPED + kinship). Observed-call consumers: sNMF, LEA PCA, Tajima's D / π, the GF frequency refit
 
 ### Path Management
 - `W` - Working files (`_work/`, `_intermediate/`)

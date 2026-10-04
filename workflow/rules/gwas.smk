@@ -23,8 +23,9 @@ if GWAS_CONFIGS and PHENO_MISSING != 'DROP':
             """
 
     rule tped_gwas:
-        """Convert filtered VCF to TPED/TFAM for phenotype EMMAX."""
-        input: vcf = W['vcf_filt']
+        """Convert the sNMF-imputed full VCF to TPED/TFAM for phenotype EMMAX (the
+        filtered VCF would leave emmax/emmax-kin to mean-fill every missing call)."""
+        input: vcf = W['vcf_imp_full']
         output: tped = W['pheno_tped'], tfam = W['pheno_tfam']
         params: prefix = f"{WORK_FILT}phenotypes/emmax/{VCF_BASE}"
         log: f"{LOGDIR}gwas/tped_pheno.log"
@@ -58,7 +59,7 @@ if GWAS_CONFIGS and PHENO_MISSING != 'DROP':
         rule gwas_a_emmax_trait:
             """Run EMMAX for a single phenotype trait in MEAN/MEDIAN mode (per-factor caching)."""
             input:
-                vcf        = W['vcf_filt'],
+                vcf        = W['vcf_imp_full'],
                 tped       = W['pheno_tped'],
                 kinship    = W['pheno_kinship'],
                 pca        = W['pca_projections'],
@@ -167,13 +168,14 @@ if GWAS_CONFIGS and PHENO_MISSING == 'DROP':
             """
 
     rule subset_vcf_gwas:
-        """Subset filtered VCF to per-trait samples."""
+        """Subset the sNMF-imputed full VCF to per-trait samples. Imputation stays on
+        the full sample set (as for GAPIT, which subsets the same matrix in gapit.R)."""
         input:
-            vcf = W['vcf_filt'],
+            vcf = W['vcf_imp_full'],
             samples = f"{WORK_FILT}phenotypes/{{pheno_trait}}_samples.list"
-        output: f"{WORK_FILT}phenotypes/{{pheno_trait}}/{VCF_BASE}.vcf"
+        output: f"{WORK_FILT}phenotypes/{{pheno_trait}}/{VCF_BASE}_K{K_BEST}imp.vcf"
         wildcard_constraints: pheno_trait = r"[a-zA-Z]\w*"
-        params: prefix = f"{WORK_FILT}phenotypes/{{pheno_trait}}/{VCF_BASE}"
+        params: prefix = f"{WORK_FILT}phenotypes/{{pheno_trait}}/{VCF_BASE}_K{K_BEST}imp"
         log: f"{LOGDIR}gwas/subset_vcf_pheno_{{pheno_trait}}.log"
         shell:
             """
@@ -184,7 +186,7 @@ if GWAS_CONFIGS and PHENO_MISSING == 'DROP':
 
     rule tped_gwas_trait:
         """Convert per-trait VCF to TPED/TFAM."""
-        input: vcf = f"{WORK_FILT}phenotypes/{{pheno_trait}}/{VCF_BASE}.vcf"
+        input: vcf = f"{WORK_FILT}phenotypes/{{pheno_trait}}/{VCF_BASE}_K{K_BEST}imp.vcf"
         output:
             tped = f"{WORK_FILT}phenotypes/{{pheno_trait}}/emmax/{VCF_BASE}.tped",
             tfam = f"{WORK_FILT}phenotypes/{{pheno_trait}}/emmax/{VCF_BASE}.tfam"
@@ -223,7 +225,7 @@ if GWAS_CONFIGS and PHENO_MISSING == 'DROP':
             rule:
                 name:   f"gwas_b_{_method.lower()}_trait"
                 input:
-                    vcf       = f"{WORK_FILT}phenotypes/{{pheno_trait}}/{VCF_BASE}.vcf",
+                    vcf       = f"{WORK_FILT}phenotypes/{{pheno_trait}}/{VCF_BASE}_K{K_BEST}imp.vcf",
                     kinship   = f"{WORK_FILT}phenotypes/{{pheno_trait}}/emmax/{VCF_BASE}.aBN.kinf",
                     pca       = W['pca_projections'],
                     phenotype = f"{WORK_FILT}phenotypes/{{pheno_trait}}_phenotype.tsv",

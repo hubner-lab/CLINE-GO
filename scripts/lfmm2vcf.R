@@ -28,8 +28,12 @@ snps <- fread(cmd = paste("grep -v \'^##\'",
 			  VCF,
 			  "| cut -f1-9 "))
 
-# Check the equal number of dim:
-if(!dim(gt)[1] == dim(snps)[1]){ print('ERROR: Not equal VCF and LFMM_imp SNPs') } 
+# Check the equal number of dim. Fatal: rows are paired by position, and every
+# consumer (GAPIT GD, the EMMAX TPED, emmax.R's CHROM:POS labels) trusts the pairing.
+if (nrow(gt) != nrow(snps)) {
+	stop(sprintf("lfmm2vcf: %d SNPs in %s but %d in %s (LEA .removed sites?) - refusing to pair genotypes with the wrong sites",
+	             nrow(gt), LFMM_imp, nrow(snps), VCF))
+}
 
 # Merge snps info and GT
 vcf.restored <- cbind(snps, gt)

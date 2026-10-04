@@ -57,10 +57,11 @@ rule lfmm2vcf_full:
         Rscript /pipeline/scripts/lfmm2vcf.R {input.lfmm_imp} {input.vcf} {params.blocksize} > {log} 2>&1
         """
 
-# TPED/kinship for association (shared by EMMAX and GAPIT)
+# TPED/kinship for association, from the sNMF-imputed full VCF. Only consumer is
+# GAPIT's BN kinship (EMMAX GEA uses the climate-valid chain below).
 rule tped_gea:
-    """Convert filtered VCF to TPED/TFAM for association EMMAX."""
-    input: vcf = W['vcf_filt']
+    """Convert the sNMF-imputed full VCF to TPED/TFAM (full cohort, for kinship_gea)."""
+    input: vcf = W['vcf_imp_full']
     output: tped = W['assoc_tped'], tfam = W['assoc_tfam']
     params: prefix = f"{WORK_FILT}emmax/{VCF_BASE}"
     log: f"{LOGDIR}gea/tped_assoc.log"
@@ -84,16 +85,18 @@ rule kinship_gea:
 # so when samples with missing lat/lon or NA-climate raster extraction are dropped from
 # the climate table (filter_coord_samples / filter_climate_valid_samples), the genotype-side
 # TPED/kinship must be rebuilt on the same climate-valid sample set. Mirrors
-# subset_vcf_gwas/tped_gwas_trait exactly.
+# subset_vcf_gwas/tped_gwas_trait exactly. The source is the sNMF-imputed full VCF, as for
+# LFMM/RDA/GAPIT: fed the filtered VCF, emmax-intel64 and emmax-kin fill every missing call
+# with the per-SNP mean of the observed dosages (measured 2026-10-04).
 if "EMMAX" in GEA_OTHER_CONFIGS:
 
     rule subset_vcf_gea_climate:
-        """Subset filtered VCF to climate-valid samples for GEA EMMAX."""
+        """Subset the sNMF-imputed full VCF to climate-valid samples for GEA EMMAX."""
         input:
-            vcf = W['vcf_filt'],
+            vcf = W['vcf_imp_full'],
             samples = W['climate_valid_samples']
-        output: W['vcf_filt_climate']
-        params: prefix = f"{WORK_FILT}climate/{VCF_BASE}"
+        output: W['vcf_imp_full_climate']
+        params: prefix = f"{WORK_FILT}climate/{VCF_BASE}_K{K_BEST}imp"
         log: f"{LOGDIR}gea/subset_vcf_gea_climate.log"
         shell:
             """
@@ -104,7 +107,7 @@ if "EMMAX" in GEA_OTHER_CONFIGS:
 
     rule tped_gea_climate:
         """Convert coord-valid-subset VCF to TPED/TFAM for association EMMAX."""
-        input: vcf = W['vcf_filt_climate']
+        input: vcf = W['vcf_imp_full_climate']
         output: tped = W['assoc_tped_climate'], tfam = W['assoc_tfam_climate']
         params: prefix = f"{WORK_FILT}climate/emmax/{VCF_BASE}"
         log: f"{LOGDIR}gea/tped_gea_climate.log"
@@ -115,8 +118,8 @@ if "EMMAX" in GEA_OTHER_CONFIGS:
             """
 
     rule kinship_gea_climate:
-        """Compute BN kinship matrix for the coord-valid subset. Always built
-        (GAPIT consumes this one unconditionally, regardless of EMMAX.kinship)."""
+        """Compute BN kinship matrix for the coord-valid subset (EMMAX GEA's kinship
+        unless EMMAX.kinship='IBS'; GAPIT uses kinship_gea's full-cohort matrix)."""
         input: tped = W['assoc_tped_climate']
         output: W['assoc_kinship_climate']
         params: prefix = f"{WORK_FILT}climate/emmax/{VCF_BASE}"
@@ -164,7 +167,7 @@ if "EMMAX" in GEA_OTHER_CONFIGS:
         both driven by EMMAX.kinship / EMMAX.n_pcs (default: BN / sNMF.k_best — byte-
         identical to pre-hyperparameter-system behavior)."""
         input:
-            vcf        = W['vcf_filt_climate'],
+            vcf        = W['vcf_imp_full_climate'],
             tped       = W['assoc_tped_climate'],
             kinship    = emmax_kinship_climate_path(),
             traits     = O['climate_site_scaled'],
