@@ -401,7 +401,7 @@ exists to prevent.
 ### File Format Conversions
 - **VCF → GENO/LFMM**: `vcf2lfmm.R` (LEA strips "chr" prefix - why we normalize early)
 - **LFMM → VCF**: `lfmm2vcf.R`
-- **VCF → TPED/TFAM**: the `tped_*` rules (plink, separate from emmax.R), always from the **sNMF-imputed** VCF (`W['vcf_imp_full']`, or `W['vcf_imp']` for the preGEA ladder) — never `vcf_filt`/`vcf_ld`; `tests/python/test_emmax_imputed_input.py` enforces it
+- **VCF → TPED/TFAM**: the `tped_*` rules (plink, separate from emmax.R), always from the **sNMF-imputed**, `sNMF.imputed_maf`-filtered VCF (`W['vcf_imp_full']`, or `W['vcf_imp']` for the preGEA ladder) — never `vcf_filt`/`vcf_ld` nor the `*_raw` imputed VCFs; `tests/python/test_emmax_imputed_input.py` enforces both
 - **VCF → GD/GM**: `vcf_to_gapit_numeric.R` (numeric 0/1/2 for GAPIT)
 - **GFF3 → topr**: `gff2topr.py`
 - **GFF3 → normalized.gff3**: `normalize_gff.py` — strips `chr` case-insensitively (the same rule `filter_vcf` applies to the VCF, whose plink calls all carry `--output-chr MT` so X/Y/MT stay letters) and **fails when the GFF and the filtered VCF share no contig name** (audit B1: a `Chr1`/TAIR10-style GFF used to yield an empty annotation with exit 0)
@@ -450,6 +450,7 @@ GAPIT models are auto-detected from config method names and routed through `gapi
 - Uses sNMF Q-matrix (ancestry-informed); LEA `impute(method="mode")` writes hard 0/1/2 calls and never changes an observed call
 - Happens twice: LD-pruned (for PCA/structure/climate and the preGEA EMMAX ladder) and full (for association)
 - Every GEA/GWAS genotype consumer reads it — LFMM, RDA, GAPIT (GD **and** BN kinship) and EMMAX (TPED + kinship). Observed-call consumers: sNMF, LEA PCA, Tajima's D / π, the GF frequency refit
+- **Then MAF-filtered again (`sNMF.imputed_maf`, since 2026-10-14).** `Filter.maf` ran on observed calls; imputation fills non-carriers' missing calls with the major allele, so the tested MAF can fall below it. `filter_imputed_maf_ld` / `_full` (`scripts/filter_imputed_maf.R`) write ONE aligned triple — `.lfmm` columns = `.vcfsnp` lines = `.vcf` body rows — under `{VCF_BASE}_K{K}imp_maf{X}.*`. The unsuffixed keys (`W['lfmm_imp']`, `W['vcf_imp']`, `W['lfmm_imp_full']`, `W['vcf_imp_full']`) point at the FILTERED set; `impute_*` / `lfmm2vcf_*` write the `*_raw` keys, read only by the filter. Blank/null = `Filter.maf`, 0 = off. Every consumer that labels imputed columns by position must take `W['vcfsnp_imp*']`, never `W['vcfsnp*']` — `tests/python/test_imputed_maf_wiring.py` enforces it; `gradient_forest_frequency` (observed matrix) is the one exception. Known limitation: climate-valid and GWAS DROP per-trait subsets drop samples, so their tested MAF can sit slightly below the threshold
 
 ### Path Management
 - `W` - Working files (`_work/`, `_intermediate/`)
@@ -704,7 +705,10 @@ load-bearing and not obvious:
 rewrite the tracked SIMDATA fixtures in place. A denylist test enforces it rather than leaving it
 to review.
 
-Baseline as of 2026-10-03, **measured on the merged tree** (after the `/findings` sweep of the 11
+**Baseline 2026-10-14** (after the `sNMF.imputed_maf` tests): `tests/` = **1421 passing / 8
+skipped**, app = **835 / 2**, python = **167 / 1 skipped**, heavy = **65 passing**, WARN 0.
+
+Previous baseline as of 2026-10-03, **measured on the merged tree** (after the `/findings` sweep of the 11
 open high-severity findings, rebased onto the benchmarks/SS-Clines line):
 `tests/` = **1306 passing / 8 skipped**, app = **803 passing / 2 skipped**, python =
 **149 tests / 1 skipped**, heavy = **62 passing**. WARN 0 in both R tiers. `run_tests.R` and

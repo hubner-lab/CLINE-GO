@@ -71,6 +71,7 @@ sNMF:
   k_end: 7
   k_best: 5
   repeats: 10
+  imputed_maf: null
 ```
 
 | Parameter | Description | Default |
@@ -79,8 +80,21 @@ sNMF:
 | `sNMF.k_end` | Maximum K to test | `7` |
 | `sNMF.k_best` | Selected K (set after reviewing cross-entropy from `mode=prestructure`) | — |
 | `sNMF.repeats` | Number of sNMF repetitions per K | `10` |
+| `sNMF.imputed_maf` | MAF floor on the sNMF-**imputed** matrices (LD-pruned and full), i.e. the SNP set every GEA/GWAS method tests. Blank/`null` = same as `Filter.maf`; `0` = filter off; must be in [0, 0.5) | `null` |
 
 Ploidy is hardcoded to 2 (diploid). The pipeline does not support haploid organisms.
+
+**Why a second MAF filter.** `Filter.maf` runs as plink `--maf` on *observed* calls. Imputation then
+fills every missing call, mostly with the major allele, so a SNP whose minor allele sits in one small
+site can pass `Filter.maf` and be tested well below it (Trifolium86Main: 16.7% of tested SNPs had
+imputed MAF < 0.1). `filter_imputed_maf_ld` (structure mode) and `filter_imputed_maf_full` (gea/gwas)
+recompute MAF on the imputed matrix and keep SNPs with MAF ≥ the threshold. Before/after counts go to
+`pipeline_summary.tsv` (`imputed_maf_threshold`, `snps_before_imputed_maf`, `snps_after_imputed_maf`;
+step `structure` = LD-pruned set, `gea`/`gwas` = full set) and to the GEA/GWAS tab KPI strip.
+
+**Limitation.** MAF is computed over the full post-filter cohort. Steps that test a sample *subset* —
+the climate-valid subset (samples with NA climate dropped) and GWAS `missing_strategy: DROP` per-trait
+subsets — can see a tested MAF slightly below the threshold.
 
 ---
 
