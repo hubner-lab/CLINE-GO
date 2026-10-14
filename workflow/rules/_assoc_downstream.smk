@@ -360,3 +360,49 @@ if ASSOC_SOURCES:
             touch {output.simple_png} {output.simple_svg} {output.qq_png} {output.qq_svg} \
                   {output.background} {output.coords_json}
             """
+
+    # ── Declared SNP sets (GEA.snp_sets / GWAS.snp_sets) ─────────────────────
+    # Not defined under mode=maladaptation, on purpose: there a declared set is a
+    # plain source file like a Shiny-saved one. If these rules existed, a stale
+    # p-value table or an edited declaration would make Snakemake rebuild the set
+    # — and pull the whole association chain behind it — from inside a
+    # maladaptation run. Sets are built by mode=gea / mode=gwas
+    # (_targets_for_assoc_source); resolve_active_snp_sets() refuses an unbuilt one.
+    if SNP_SET_DECL and MODE != 'maladaptation':
+
+        rule snp_set_declare:
+            """Freeze a declared set's resolved inputs (pairs, per-cell rules,
+            strategy, clumping) as JSON. params carries the serialised dict, so
+            editing the declaration in config reruns this rule and the build."""
+            output:
+                f"{INTER}snp_sets/{{snp_set}}/declaration.json"
+            wildcard_constraints:
+                snp_set = SNP_SET_REGEX
+            params:
+                decl = lambda wc: json.dumps(SNP_SET_DECL[wc.snp_set], sort_keys=True)
+            run:
+                with open(output[0], "w") as fh:
+                    fh.write(params.decl + "\n")
+
+        rule snp_set_build:
+            """Select a declared set with the app's own selection code
+            (scripts/R/lib/snp_set_select.R) and write it into the SNP set store
+            with its reproducibility record."""
+            input:
+                decl  = f"{INTER}snp_sets/{{snp_set}}/declaration.json",
+                pvals = lambda wc: snp_set_pvalue_inputs(wc.snp_set)
+            output:
+                tsv    = f"{INTER}snp_sets/{{snp_set}}/selected_snps.tsv",
+                record = f"{INTER}snp_sets/{{snp_set}}/snp_set.yaml"
+            wildcard_constraints:
+                snp_set = SNP_SET_REGEX
+            params:
+                k = K_BEST
+            log:
+                f"{LOGDIR}snp_sets/build_{{snp_set}}.log"
+            shell:
+                """
+                Rscript /pipeline/scripts/build_snp_set.R \
+                    {input.decl} {output.tsv} {output.record} {params.k} \
+                    {input.pvals} > {log} 2>&1
+                """

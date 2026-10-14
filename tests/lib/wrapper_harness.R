@@ -296,6 +296,40 @@ fx_selected_snps <- function(d, name = "selected_snps.tsv",
     write_tsv(dt, file.path(d, name))
 }
 
+# build_snp_set.R inputs: one wide p-value table per method, at
+# <d>/methods/<METHOD>/<METHOD>_pvalues_K3.tsv (the script takes the method from
+# the PARENT directory, as combine_selected_snps.R does), plus the
+# declaration.json the snp_set_declare rule writes. Every cell gets the same
+# (type, value) rule. With the default custom 1e-4, bio_1::EMMAX selects 1:100
+# and 2:300 (p = 1e-4 exactly — the inclusive boundary) and the four pairs
+# together select 1:100, 1:200, 2:300; 2:5000 is never selected.
+fx_snp_set_inputs <- function(d, pairs = c("bio_1::EMMAX", "bio_2::EMMAX",
+                                           "bio_1::LFMM", "bio_2::LFMM"),
+                              type = "custom", value = 1e-4, strategy = "Union",
+                              regime = "snp", methods = c("EMMAX", "LFMM")) {
+    snp <- data.table::data.table(SNPID = c("1:100", "1:200", "2:300", "2:5000"),
+                                  chr = c("1", "1", "2", "2"),
+                                  pos = c(100L, 200L, 300L, 5000L))
+    tables <- list(
+        EMMAX = cbind(snp, bio_1 = c(1e-6, 0.5, 1e-4, 0.9), bio_2 = c(0.3, 1e-7, 0.2, 1e-3)),
+        LFMM  = cbind(snp, bio_1 = c(1e-5, 0.4, 0.8, 0.7), bio_2 = c(0.6, 1e-6, 1e-5, 0.9)))
+    pvals <- vapply(methods, function(m) {
+        f <- file.path(d, "methods", m, paste0(m, "_pvalues_K3.tsv"))
+        dir.create(dirname(f), recursive = TRUE, showWarnings = FALSE)
+        write_tsv(tables[[m]], f)
+        f
+    }, character(1), USE.NAMES = FALSE)
+    decl <- list(
+        cells = stats::setNames(rep(list(list(type = type, value = value)), length(pairs)), pairs),
+        clumping_distance = 100000L, name = "gea.fx", origin = "config",
+        pairs = I(pairs), regime = regime, source_module = "GEA", strategy = strategy)
+    path <- file.path(d, "declaration.json")
+    jsonlite::write_json(decl, path, auto_unbox = TRUE, digits = NA)
+    list(decl = path, pvals = pvals,
+         tsv = file.path(d, "store", "gea.fx", "selected_snps.tsv"),
+         record = file.path(d, "store", "gea.fx", "snp_set.yaml"))
+}
+
 # One number per line — what LEA writes and what plot_pregea_screeplot.R /
 # plot_pca_structure.R read back with readLines() / fread(header = FALSE).
 fx_eigenvalues <- function(d, name = "eigenvalues.txt", n = 10) {

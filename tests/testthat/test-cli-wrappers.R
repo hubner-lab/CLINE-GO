@@ -835,6 +835,18 @@ WRAPPERS <- list(
         fails_without_input = FALSE
     ),
     list(
+        # Variadic: every argv entry after K_BEST is a method p-value table.
+        # Content (inclusive cutoff, zero-SNP path, record round trip) is
+        # asserted in test-build_snp_set.R.
+        label   = "build_snp_set.R",
+        script  = "build_snp_set.R",
+        build   = function(d) fx_snp_set_inputs(d),
+        args    = function(d, f) c(f$decl, f$tsv, f$record, "3", f$pvals),
+        outputs = function(d) file.path(d, "store", "gea.fx",
+                                        c("selected_snps.tsv", "snp_set.yaml")),
+        fails_without_input = TRUE
+    ),
+    list(
         label   = "check_invariants.R (violating tree exits 1)",
         script  = "check_invariants.R",
         build   = function(d) fx_results_tree(d, violations = TRUE),

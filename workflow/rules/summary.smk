@@ -191,30 +191,25 @@ elif MODE == 'gea':
 elif MODE == 'maladaptation':
     # Build fan-out input lists over all (method, set_name, spatial_tag) combinations.
     # resolve_active_snp_sets() was already called in get_targets; call again here
-    # (cheap — just globs/validates) so summary.smk stays self-contained.
-    import glob as _smk_glob
-    _store = f"{INTER}snp_sets/"
-    if SNP_SETS_CFG == 'all' or SNP_SETS_CFG is None:
-        _summary_sets = sorted(
-            os.path.basename(os.path.dirname(p))
-            for p in _smk_glob.glob(f"{_store}*/selected_snps.tsv")
-        )
-    else:
-        _summary_sets = list(SNP_SETS_CFG)
+    # (cheap — just globs/validates) so summary.smk stays self-contained. The same
+    # function, not a copy of its glob: a copy would keep listing the empty and
+    # not-yet-built declared sets the resolver drops or refuses. It never returns
+    # an empty list (it raises instead), so no placeholder set is needed below.
+    _summary_sets = resolve_active_snp_sets()
 
     # Collect model artifacts only for methods that build a separate model file
     _summary_adaptive = [
         mala_model(m, s, t, 'adaptive')
         for m in ACTIVE_MALA_METHODS
         if MALADAPTATION_METHODS[m]['builds_model']
-        for s in (_summary_sets or ['_placeholder'])
+        for s in _summary_sets
         for t in mala_spatial_tags(m)
     ]
     # Offset-site TSVs for all methods × scenarios
     _summary_offset_sites = [
         mala_offset_site_values(m, s, t, sc)
         for m in ACTIVE_MALA_METHODS
-        for s in (_summary_sets or ['_placeholder'])
+        for s in _summary_sets
         for t in mala_spatial_tags(m)
         for sc in SCENARIO_NAMES
     ]

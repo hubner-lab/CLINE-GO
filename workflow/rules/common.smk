@@ -1,6 +1,8 @@
 # CLINE-GO Pipeline - Refactored
 # vim: filetype=python
+import json
 import os
+import re
 import sys
 import subprocess
 from pathlib import Path
@@ -313,6 +315,7 @@ _COMBINE_STRATEGIES = {
     'Overlap':       '>=2 methods call a SNP within snp_clumping_distance of each other',
     'Cross-method':  'canonical name for Overlap',
     'MethodOverlap': 'as Overlap, but the two methods must agree on the same trait',
+    'Cross-method per-trait': 'canonical name for MethodOverlap (the app picker emits it)',
     'PairOverlap':   'alias of MethodOverlap',
 }
 
@@ -1642,23 +1645,53 @@ def snp_set_file(set_name):
 def resolve_active_snp_sets():
     """Return the list of active SNP-set names for mode=maladaptation.
 
-    Called ONLY from get_targets('maladaptation') — never at module top level,
-    because this function runs for every mode and would crash unrelated modes.
-    Raises a friendly ValueError if no sets are found / named sets are missing.
+    Called ONLY from get_targets('maladaptation') (and summary.smk under that mode)
+    — never at module top level, because it reads the filesystem and would crash
+    unrelated modes. Raises a friendly ValueError if no sets are found / named
+    sets are missing.
+
+    The store holds two kinds of set: saved from the Shiny GEA tab (any name), and
+    declared in config (<source>.snp_sets, built by mode=gea / mode=gwas as
+    gea.<name> / gwas.<name>). `all` is the store's contents plus every declared
+    name; a declared set not built yet is an error, not a silent omission. A set
+    with zero SNPs (header-only TSV — build_snp_set.R writes one when a strict
+    declaration selects nothing) is dropped from `all` with a message, and is an
+    error when named explicitly. A directory left behind by a declaration since
+    removed from config stays in `all` until deleted (app or by hand).
     """
     import glob as _glob
     store = f"{INTER}snp_sets/"
+
+    def _built(n):
+        return os.path.exists(f"{store}{n}/selected_snps.tsv")
+
+    def _empty(n):
+        with open(f"{store}{n}/selected_snps.tsv") as fh:
+            return sum(1 for line in fh if line.strip()) <= 1
+
+    unbuilt = [n for n in SNP_SET_DECL if not _built(n)]
     if SNP_SETS_CFG == 'all' or SNP_SETS_CFG is None:
+        if unbuilt:
+            raise ValueError(
+                f"Declared SNP set(s) {unbuilt} not built yet — run mode=gea "
+                "(gea.*) / mode=gwas (gwas.*) first, which builds every set declared "
+                "under GEA.snp_sets / GWAS.snp_sets.")
         found = sorted(
             os.path.basename(os.path.dirname(p))
             for p in _glob.glob(f"{store}*/selected_snps.tsv")
         )
+        empty = [n for n in found if _empty(n)]
+        if empty:
+            print(f"INFO: Maladaptation.snp_sets=all skips SNP set(s) with zero SNPs: {empty}",
+                  file=sys.stderr)
+        found = [n for n in found if n not in empty]
         if not found:
             raise ValueError(
-                f"No curated SNP sets found under {store}. "
-                "Open the GEA tab in the CLINE-GO Shiny app, curate SNPs with your "
-                "desired threshold/strategy/regime, and click 'Save SNP set for "
-                "maladaptation' before running mode=maladaptation. "
+                f"No non-empty curated SNP sets found under {store}. "
+                "Declare one under GEA.snp_sets and run mode=gea, or open the GEA tab "
+                "in the CLINE-GO Shiny app, curate SNPs with your desired "
+                "threshold/strategy/regime, and click 'Save SNP set for maladaptation' "
+                "before running mode=maladaptation. "
                 "(Set Maladaptation.snp_sets to a list of names to select specific sets.)"
             )
         return found
@@ -1669,12 +1702,23 @@ def resolve_active_snp_sets():
             "Maladaptation.snp_sets is an empty list. Set it to \"all\" or provide "
             ">=1 saved set name from the GEA tab."
         )
-    missing = [n for n in names if not os.path.exists(f"{store}{n}/selected_snps.tsv")]
+    not_built = [n for n in names if n in unbuilt]
+    if not_built:
+        raise ValueError(
+            f"Declared SNP set(s) {not_built} not built yet — run mode=gea (gea.*) / "
+            "mode=gwas (gwas.*) first.")
+    missing = [n for n in names if not _built(n)]
     if missing:
         raise ValueError(
             f"Maladaptation.snp_sets names not found under {store}: {missing}. "
-            "Save them in the GEA tab or fix the names in config."
+            "Save them in the GEA tab, declare them under GEA.snp_sets / GWAS.snp_sets "
+            "(named gea.<name> / gwas.<name>), or fix the names in config."
         )
+    empty = [n for n in names if _empty(n)]
+    if empty:
+        raise ValueError(
+            f"Maladaptation.snp_sets names SNP set(s) with zero SNPs: {empty}. "
+            "Loosen the declaration's threshold or drop them from the list.")
     return names
 
 # Offset products are per-SCENARIO: one model/fit projected onto N futures.
@@ -1932,6 +1976,219 @@ SOURCE_REGEX = "|".join(ASSOC_SOURCES.keys()) if ASSOC_SOURCES else "gea"
 TRAIT_REGEX_ANY = r"(?!wza_)(bio_\d+|[a-zA-Z]\w*)"
 
 
+# --- Declared SNP sets: GEA.snp_sets / GWAS.snp_sets ---------------------------
+# A config-side twin of the GEA tab's "Save SNP set for maladaptation". Each entry
+# resolves, here at parse time, to the exact inputs the app's selection takes —
+# the trait::method pairs and one rule per cell — and scripts/build_snp_set.R
+# feeds them to the SAME code the app runs (scripts/R/lib/snp_set_select.R). The
+# set lands in the shared store as _intermediate/snp_sets/<gea|gwas>.<name>/, so
+# mode=maladaptation picks it up exactly like a Shiny-saved set.
+#
+# Base rule per cell (then overrides, most specific last):
+#   no threshold_type, no threshold_value -> the method's own <group>.configs rule
+#                                            (RDA included: no registry pin, so
+#                                            <src>.default matches selected_snps.tsv)
+#   threshold_type only  -> that type with its per-type default value
+#   threshold_value only -> the type of <group>.configs[0], as the app's master
+#   either declared      -> a non-univariate method (RDA) is pinned to its registry
+#                           rule, as in the app (fct_threshold_rules.R)
+# overrides: {method: rule, trait: rule, "trait::method": rule}; a rule may give
+# type, value or both — a missing value takes the type's default, a missing type
+# keeps the rule it overrides.
+SNP_SET_PREFIX = {"GEA": "gea", "GWAS": "gwas"}
+SNP_SET_REGEX = r"(gea|gwas)\.[A-Za-z0-9_]+"
+_SNP_SET_NAME = re.compile(r"^[A-Za-z0-9_]+$")
+_SNP_SET_KEYS = {"name", "threshold_type", "threshold_value", "overrides", "methods",
+                 "traits", "pairs", "strategy", "clumping_distance", "regime"}
+# Mirrors threshold_value_default_for_type() (scripts/clinego.app/R/fct_combine.R).
+_THRESHOLD_TYPE_DEFAULT = {"bonf": 0.05, "qval": 0.05, "top": 100.0, "custom": 1e-5}
+# The strategies the app's filter bar offers, plus every alias both R sides accept.
+_SNP_SET_STRATEGIES = set(_COMBINE_STRATEGIES)
+
+
+def _snp_set_rule(where, base, override):
+    """Merge one override {type?, value?} onto a rule (type, value)."""
+    if not isinstance(override, dict) or not override or set(override) - {"type", "value"}:
+        raise ValueError(f"{where}: an override is a map with 'type' and/or 'value', "
+                         f"got {override!r}")
+    rtype = override.get("type", base[0])
+    if "value" in override:
+        rvalue = override["value"]
+    elif "type" in override:
+        if rtype not in _THRESHOLD_TYPE_DEFAULT:
+            raise ValueError(f"{where}: type must be one of {list(PVAL_ADJUSTMENTS)}, got {rtype!r}")
+        rvalue = _THRESHOLD_TYPE_DEFAULT[rtype]
+    else:
+        rvalue = base[1]
+    _validate_adjust_threshold(where, "override", rtype, rvalue)
+    return (rtype, float(rvalue))
+
+
+def resolve_snp_set_declarations(source, sets_cfg, configs_list, configs, registry,
+                                 traits_fn, default_clumping):
+    """Resolve <source>.snp_sets into {"<prefix>.<name>": declaration dict}.
+
+    Pure: everything it reads is an argument, so tests drive it without a config.
+    `configs_list` is the raw <group>.configs list (adjust/threshold per method,
+    in order); `configs` the parsed method -> "adjust_threshold" dict; `traits_fn`
+    maps a method to the p-value columns it emits (method_traits()).
+    """
+    group = source
+    if sets_cfg is None:
+        return {}
+    if not isinstance(sets_cfg, list):
+        raise ValueError(f"{group}.snp_sets must be a list of sets, got {type(sets_cfg).__name__}")
+    if sets_cfg and not configs:
+        raise ValueError(f"{group}.snp_sets is declared but {group}.configs is empty")
+    own = {c["method"]: (str(c["adjust"]), float(c["threshold"])) for c in configs_list}
+    first_adjust = str(configs_list[0]["adjust"]) if configs_list else "bonf"
+    out = {}
+    for entry in sets_cfg:
+        if not isinstance(entry, dict) or "name" not in entry:
+            raise ValueError(f"{group}.snp_sets: every entry needs a 'name', got {entry!r}")
+        name = str(entry["name"])
+        where = f"{group}.snp_sets[{name}]"
+        if not _SNP_SET_NAME.match(name):
+            raise ValueError(f"{where}: name must match ^[A-Za-z0-9_]+$ "
+                             f"(the '{SNP_SET_PREFIX[source]}.' prefix is added for you)")
+        full = f"{SNP_SET_PREFIX[source]}.{name}"
+        if full in out:
+            raise ValueError(f"{where}: duplicate set name")
+        unknown = set(entry) - _SNP_SET_KEYS
+        if unknown:
+            raise ValueError(f"{where}: unknown key(s) {sorted(unknown)}; "
+                             f"valid keys: {sorted(_SNP_SET_KEYS)}")
+
+        regime = str(entry.get("regime", "snp"))
+        if regime == "wza":
+            raise ValueError(f"{where}: regime 'wza' is not declarable yet — only 'snp'")
+        if regime != "snp":
+            raise ValueError(f"{where}: regime must be 'snp', got {regime!r}")
+
+        # --- pairs -------------------------------------------------------------
+        if "pairs" in entry and ("traits" in entry or "methods" in entry):
+            raise ValueError(f"{where}: give either 'pairs' or 'traits'/'methods', not both")
+        if "pairs" in entry:
+            pairs = [str(p) for p in (entry["pairs"] or [])]
+            for p in pairs:
+                trait, sep, method = p.partition("::")
+                if not sep or not trait or method not in configs:
+                    raise ValueError(f"{where}: pair {p!r} is not trait::method with a "
+                                     f"configured method {sorted(configs)}")
+                if trait not in traits_fn(method):
+                    raise ValueError(f"{where}: pair {p!r}: {method} emits no column "
+                                     f"{trait!r} (it has {traits_fn(method)})")
+            if len(set(pairs)) != len(pairs):
+                raise ValueError(f"{where}: duplicate pairs")
+        else:
+            methods = [str(m) for m in entry.get("methods", list(configs))]
+            bad = [m for m in methods if m not in configs]
+            if bad or not methods:
+                raise ValueError(f"{where}: methods {bad or methods} not in "
+                                 f"{group}.configs {sorted(configs)}")
+            traits = entry.get("traits")
+            if traits is not None:
+                traits = [str(t) for t in traits]
+                known = {t for m in methods for t in traits_fn(m)}
+                bad = [t for t in traits if t not in known]
+                if bad or not traits:
+                    raise ValueError(f"{where}: traits {bad or traits} not emitted by "
+                                     f"{methods} (columns: {sorted(known)})")
+            pairs = []
+            for m in methods:
+                mine = [t for t in traits_fn(m) if traits is None or t in traits]
+                if not mine:
+                    raise ValueError(f"{where}: method {m} has no column among traits "
+                                     f"{traits} (its columns: {traits_fn(m)})")
+                pairs += [f"{t}::{m}" for t in mine]
+        if not pairs:
+            raise ValueError(f"{where}: resolves to no trait::method pairs")
+
+        # --- cells -------------------------------------------------------------
+        has_type, has_value = "threshold_type" in entry, "threshold_value" in entry
+        if has_type or has_value:
+            mtype = str(entry["threshold_type"]) if has_type else first_adjust
+            if mtype not in _THRESHOLD_TYPE_DEFAULT:
+                raise ValueError(f"{where}: threshold_type must be one of "
+                                 f"{list(PVAL_ADJUSTMENTS)}, got {mtype!r}")
+            mvalue = entry["threshold_value"] if has_value else _THRESHOLD_TYPE_DEFAULT[mtype]
+            _validate_adjust_threshold(where, "threshold", mtype, mvalue)
+            master = (mtype, float(mvalue))
+        overrides = entry.get("overrides") or {}
+        if not isinstance(overrides, dict):
+            raise ValueError(f"{where}: overrides must be a map, got {overrides!r}")
+        pair_set = set(pairs)
+        pair_traits = {p.partition("::")[0] for p in pairs}
+        pair_methods = {p.partition("::")[2] for p in pairs}
+        for key in overrides:
+            key = str(key)
+            if "::" in key:
+                ok = key in pair_set
+            else:
+                ok = (key in pair_traits) != (key in pair_methods)
+            if not ok:
+                raise ValueError(f"{where}: override key {key!r} matches no selected "
+                                 f"trait::method pair, trait or method (or both a trait "
+                                 f"and a method)")
+        cells = {}   # (never name a variable `rule`: Snakemake's parser takes it as the keyword)
+        for p in pairs:
+            trait, _, method = p.partition("::")
+            if has_type or has_value:
+                cell_rule = master
+                reg = registry.get(method, {})
+                if reg.get("significance_family", "univariate_pvalue") != "univariate_pvalue":
+                    cell_rule = (str(reg["adjust_default"]), float(reg["threshold_default"]))
+            else:
+                cell_rule = own[method]
+            for key in (method, trait, p):
+                if key in overrides:
+                    cell_rule = _snp_set_rule(f"{where} override {key}", cell_rule, overrides[key])
+            cells[p] = {"type": cell_rule[0], "value": cell_rule[1]}
+
+        # --- strategy / clumping -----------------------------------------------
+        strategy = str(entry.get("strategy", "Union"))
+        if strategy not in _SNP_SET_STRATEGIES and strategy not in pair_methods:
+            raise ValueError(f"{where}: strategy must be one of {sorted(_SNP_SET_STRATEGIES)} "
+                             f"or one of the set's methods {sorted(pair_methods)}, got {strategy!r}")
+        raw_cd = entry.get("clumping_distance", default_clumping)
+        if isinstance(raw_cd, bool) or not isinstance(raw_cd, (int, float)) or raw_cd != int(raw_cd) \
+                or int(raw_cd) <= 0:
+            raise ValueError(f"{where}: clumping_distance must be a positive integer of bp "
+                             f"(no auto_* modes), got {raw_cd!r}")
+
+        out[full] = {
+            "name": full, "origin": "config", "source_module": source, "regime": "snp",
+            "strategy": strategy, "clumping_distance": int(raw_cd),
+            "pairs": pairs, "cells": cells,
+        }
+    return out
+
+
+def _snp_set_default_clumping(distance, mode):
+    """The source's clumping distance when it is a fixed integer, else the app's 100 kb."""
+    return int(distance) if mode == 'fixed' else 100000
+
+
+
+
+def snp_set_record(set_name):
+    """The reproducibility record written next to a set's selected_snps.tsv."""
+    return f"{INTER}snp_sets/{set_name}/snp_set.yaml"
+
+
+def snp_set_declaration(set_name):
+    """The resolved declaration of a config set (input of snp_set_build)."""
+    return f"{INTER}snp_sets/{set_name}/declaration.json"
+
+
+def snp_set_pvalue_inputs(set_name):
+    """The method p-value tables a declared set reads, one per method in its pairs."""
+    decl = SNP_SET_DECL[set_name]
+    fn = pheno_pvalues if decl["source_module"] == "GWAS" else assoc_pvalues
+    methods = sorted({p.partition("::")[2] for p in decl["pairs"]})
+    return [fn(m) for m in methods]
+
+
 def assoc_out(source, key):
     """Return the per-source output path for a logical downstream key."""
     _templates = {
@@ -2112,6 +2369,25 @@ def get_predictors_list():
         return []
     return [p.strip() for p in PREDICTORS_SELECTED.split(',')]
 
+
+# Resolved here, not beside resolve_snp_set_declarations(): method_traits() needs
+# get_predictors_list() above. Parse-time, so a bad declaration fails every mode.
+SNP_SET_DECL = {}
+if GEA_CONFIGS:
+    SNP_SET_DECL.update(resolve_snp_set_declarations(
+        "GEA", _assoc.get('snp_sets'), _assoc.get('configs', []), GEA_CONFIGS, GEA_METHODS,
+        lambda m: method_traits("GEA", m),
+        _snp_set_default_clumping(CLUMPING_DISTANCE, CLUMPING_DISTANCE_MODE)))
+elif _assoc.get('snp_sets'):
+    raise ValueError("GEA.snp_sets is declared but GEA.configs is empty")
+if GWAS_CONFIGS:
+    SNP_SET_DECL.update(resolve_snp_set_declarations(
+        "GWAS", _pheno.get('snp_sets'), _pheno.get('configs', []), GWAS_CONFIGS, GWAS_METHODS,
+        lambda m: method_traits("GWAS", m),
+        _snp_set_default_clumping(PHENO_CLUMPING_DISTANCE, PHENO_CLUMPING_DISTANCE_MODE)))
+elif _pheno.get('snp_sets'):
+    raise ValueError("GWAS.snp_sets is declared but GWAS.configs is empty")
+
 def _targets_for_assoc_source(source):
     """Build the shared downstream target list for a GEA or GWAS source."""
     src = ASSOC_SOURCES[source]
@@ -2148,6 +2424,12 @@ def _targets_for_assoc_source(source):
     if wza_methods(source):
         targets.append(assoc_out(source, "wza_combined_png"))
         targets.append(assoc_out(source, "wza_qq_combined_png"))
+    # Declared SNP sets (<source>.snp_sets) are built here, at the end of mode=gea /
+    # mode=gwas — never by mode=maladaptation, whose DAG would otherwise pull the
+    # whole association chain in (see snp_set_build in _assoc_downstream.smk).
+    for name, decl in SNP_SET_DECL.items():
+        if decl["source_module"] == source:
+            targets += [snp_set_file(name), snp_set_record(name)]
     return targets
 
 
