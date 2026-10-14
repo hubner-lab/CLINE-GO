@@ -11,8 +11,11 @@
 #           split-half reliability, engine agreement and variance partition of the
 #           within-replicate panel rank (numbers for the manuscript text only, no figure)
 #   step 2  benchmarks/mvp_ms_sim_figures.R -> benchmarks/mvp_eval/figures_ssclines_ms/
-#           manuscript figures (main: detection plane + within-replicate rank), captions.md,
-#           numbers.tsv, index.html + zip; served on :8099 via work/journal/sim_figures
+#           manuscript display items (Figure 2 = detection plane + within-replicate rank,
+#           Figures S1-S8, Table S1, Data S2), captions.md, numbers.tsv, index.html + zip;
+#           served on :8099 via work/journal/sim_figures
+#           [2026-10-14] + REMEASURE_DIR (Figure S3, the remeasure arm rdaunc_rda2x); the rank
+#           steps share the tie convention of benchmarks/mvp_rank_ties.R
 #
 # Every arm input is passed explicitly: the scripts' defaults name older arms that still
 # exist on disk (offset12_ssclines_pooled, figures_ssclines_pooled_j15, detection600).
@@ -60,7 +63,8 @@ run() {   # run <script> <cpus> <mem> [extra -e args...]
     run mvp_ms_sim_figures.R 4 16g -e OPENBLAS_NUM_THREADS=2 \
         -e GALLERY_DIR=$EV/figures_ssclines_gallery13 -e OFFSET_DIR=offset13 \
         -e RANK_DIR=$EV/figures_ssclines_offset13/rank -e SIZE_DIR=$EV/figures_ssclines_offset13/size_b1 \
-        -e RDA_FIG_DIR=$EV/figures_ssclines_rda -e FIG_OUT=$EV/figures_ssclines_ms
+        -e RDA_FIG_DIR=$EV/figures_ssclines_rda -e REMEASURE_DIR=$EV/remeasure600/rdaunc_rda2x \
+        -e FIG_OUT=$EV/figures_ssclines_ms
 
 # Cross-arm pooling scan: no emitted table may carry more distinct seeds than the corpus.
 echo "--- cross-arm pooling scan (must print nothing):"

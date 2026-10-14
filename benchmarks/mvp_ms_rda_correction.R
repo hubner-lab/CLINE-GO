@@ -406,7 +406,7 @@ pa <- ggplot(AF, aes(aucpr, ypos)) +
     scale_y_continuous(breaks = seq_along(SERIES), labels = rev(SERIES)) +
     scale_x_continuous(breaks = scales::breaks_pretty(n = 4)) +
     scale_fill_manual(values = SER_COL, guide = "none") + scale_colour_manual(values = SER_COL, guide = "none") +
-    labs(x = "AUC-PR (causal loci vs background)", y = NULL) + theme_ms()
+    labs(x = "AUC-PR (causal loci vs neutral SNPs)", y = NULL) + theme_ms()
 ms_save(file.path(OUT, "S_rda_correction"), pa, 180, 60)
 message("  S_rda_correction            180 x  60 mm")
 
