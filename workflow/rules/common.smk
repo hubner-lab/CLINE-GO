@@ -2024,6 +2024,21 @@ def _snp_set_rule(where, base, override):
     return (rtype, float(rvalue))
 
 
+def _snp_set_list(value):
+    """A traits / methods / pairs value as a list.
+
+    A bare string is a one-element list: R's yaml writer emits a length-1
+    sequence as a scalar, so a config the Shiny app re-saves (Save Project Files,
+    the Run button) turns `traits: [bio_1]` into `traits: bio_1`. Iterating that
+    string would yield its characters.
+    """
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    return list(value)
+
+
 def resolve_snp_set_declarations(source, sets_cfg, configs_list, configs, registry,
                                  traits_fn, default_clumping):
     """Resolve <source>.snp_sets into {"<prefix>.<name>": declaration dict}.
@@ -2069,7 +2084,7 @@ def resolve_snp_set_declarations(source, sets_cfg, configs_list, configs, regist
         if "pairs" in entry and ("traits" in entry or "methods" in entry):
             raise ValueError(f"{where}: give either 'pairs' or 'traits'/'methods', not both")
         if "pairs" in entry:
-            pairs = [str(p) for p in (entry["pairs"] or [])]
+            pairs = [str(p) for p in _snp_set_list(entry["pairs"])]
             for p in pairs:
                 trait, sep, method = p.partition("::")
                 if not sep or not trait or method not in configs:
@@ -2081,14 +2096,14 @@ def resolve_snp_set_declarations(source, sets_cfg, configs_list, configs, regist
             if len(set(pairs)) != len(pairs):
                 raise ValueError(f"{where}: duplicate pairs")
         else:
-            methods = [str(m) for m in entry.get("methods", list(configs))]
+            methods = [str(m) for m in _snp_set_list(entry.get("methods", list(configs)))]
             bad = [m for m in methods if m not in configs]
             if bad or not methods:
                 raise ValueError(f"{where}: methods {bad or methods} not in "
                                  f"{group}.configs {sorted(configs)}")
             traits = entry.get("traits")
             if traits is not None:
-                traits = [str(t) for t in traits]
+                traits = [str(t) for t in _snp_set_list(traits)]
                 known = {t for m in methods for t in traits_fn(m)}
                 bad = [t for t in traits if t not in known]
                 if bad or not traits:

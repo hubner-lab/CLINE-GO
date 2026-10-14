@@ -20,8 +20,11 @@ correctness of a declared set is decided HERE, in the resolution, and pinned by:
 """
 import contextlib
 import io
+import json
 import os
 import re
+import shutil
+import subprocess
 import unittest
 
 import _smk_harness as H
@@ -374,6 +377,81 @@ class TestMaladaptationResolution(unittest.TestCase):
         ns = self.ns_with([])
         self.store(ns, "gea.removed")
         self.assertEqual(self.resolve(ns), ["gea.removed"])
+
+
+class TestScalarLists(unittest.TestCase):
+    """R's yaml writer turns a one-item sequence into a scalar, so a config the
+    Shiny app re-saves carries `traits: bio_1`. That must mean ['bio_1'], not the
+    characters of the string."""
+
+    def test_a_bare_string_is_a_one_item_list(self):
+        d = decl([{"name": "s", "traits": "bio_2", "methods": "LFMM"}], "gea.s")
+        self.assertEqual(d["pairs"], ["bio_2::LFMM"])
+        d = decl([{"name": "p", "pairs": "bio_3::EMMAX"}], "gea.p")
+        self.assertEqual(d["pairs"], ["bio_3::EMMAX"])
+
+
+def _snakemake_yaml(path):
+    """Parse a YAML file with the PyYAML Snakemake reads configs with.
+
+    The image's system python3 (which runs this suite) has no PyYAML; Snakemake
+    lives in its own pipx venv, found through the `snakemake` launcher's shebang.
+    A missing launcher fails the test: inside the image it is always there.
+    """
+    exe = shutil.which("snakemake")
+    if exe is None:
+        raise AssertionError("snakemake is not on PATH — run this suite inside the image")
+    with open(exe) as fh:
+        shebang = fh.readline()[2:].split()
+    python = shebang[1] if shebang and shebang[0].endswith("/env") else shebang[0]
+    out = subprocess.run(
+        [python, "-I", "-c",
+         "import json, sys, yaml; json.dump(yaml.safe_load(open(sys.argv[1])), sys.stdout)",
+         path], check=True, capture_output=True, text=True)
+    return json.loads(out.stdout)
+
+
+class TestRoundTrip(unittest.TestCase):
+    """The config block the Shiny app shows for a saved set resolves to that set.
+
+    tests/fixtures/snp_set_roundtrip/ holds the golden pair: snippet.yaml (the
+    block the app shows) and record.json (the pairs and cells the app's record
+    holds). The R half — that the app produces exactly these two files, and that
+    build_snp_set.R rebuilds the app's TSV from the record — is Block 7b of
+    tests/testthat/test-equivalence-app-pipeline.R; the fixture is described in
+    tests/lib/snp_set_roundtrip.R. Same universe as BASE_CONFIG (bio_1..bio_3,
+    EMMAX / LFMM / RDA), so RDA's registry pin is the real one here too.
+    """
+
+    FIXTURE = os.path.join(H.REPO_ROOT, "tests", "fixtures", "snp_set_roundtrip")
+
+    def setUp(self):
+        self.snippet = _snakemake_yaml(os.path.join(self.FIXTURE, "snippet.yaml"))
+        with open(os.path.join(self.FIXTURE, "record.json")) as fh:
+            self.record = json.load(fh)
+
+    def test_the_snippet_resolves_to_the_recorded_pairs_and_cells(self):
+        sets = self.snippet["GEA"]["snp_sets"]
+        self.assertEqual(len(sets), 1)
+        cfg = H.make_config()
+        cfg["GEA"]["snp_sets"] = sets
+        d = H.load(cfg)["SNP_SET_DECL"]["gea." + sets[0]["name"]]
+        self.assertEqual(d["pairs"], self.record["pairs"])
+        self.assertEqual({k: (v["type"], float(v["value"])) for k, v in d["cells"].items()},
+                         {k: (v["type"], float(v["value"]))
+                          for k, v in self.record["cells"].items()})
+        for field in ("source_module", "regime", "strategy", "clumping_distance"):
+            self.assertEqual(d[field], self.record[field], field)
+
+    def test_the_fixture_exercises_what_it_claims(self):
+        # Guards the goldens against a regeneration that quietly loses a case.
+        entry = self.snippet["GEA"]["snp_sets"][0]
+        self.assertIn("pairs", entry)                       # non-rectangular
+        self.assertNotIn("bio_3::LFMM", entry["overrides"])  # unselected override left out
+        self.assertNotIn("climate_multivariate::RDA", entry["overrides"])  # pinned, not overridden
+        self.assertEqual(self.record["cells"]["climate_multivariate::RDA"],
+                         {"type": "bonf", "value": 0.01})
+        self.assertEqual(self.record["cells"]["bio_1::LFMM"]["value"], 1.23456789e-3)
 
 
 if __name__ == "__main__":

@@ -501,6 +501,14 @@ snp_set_path <- function(project, name) {
     mod_path(project, MOD_INTER, "snp_sets", name, "selected_snps.tsv")
 }
 
+#' Path to a SNP set's reproducibility record (snp_set.yaml) — written by
+#' save_snp_set() and by the pipeline's build_snp_set.R; absent for sets saved
+#' before records existed
+#' @noRd
+snp_set_record_path <- function(project, name) {
+    mod_path(project, MOD_INTER, "snp_sets", name, "snp_set.yaml")
+}
+
 #' Path to the SNP sets manifest JSON
 #' @noRd
 snp_sets_manifest_path <- function(project) {

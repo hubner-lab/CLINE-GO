@@ -463,12 +463,9 @@ mod_gea_server <- function(id, project_data, run_trigger = NULL, module = MOD_GE
             nm  <- input$snp_set_name %||% ""
             n   <- save_set_n_unique()
             pd  <- shiny::req(project_data())
-            valid_fmt <- grepl("^[A-Za-z0-9_.]+$", nm)
-            dup       <- nzchar(nm) && valid_fmt && set_exists(pd$name, nm)
-            msg <- if (!nzchar(nm)) "Enter a name."
-                   else if (!valid_fmt) "Only letters, digits, underscore and dot allowed."
-                   else if (dup)       "A set with this name already exists — choose another."
-                   else NULL
+            msg <- snp_set_name_problem(nm)
+            if (is.null(msg) && set_exists(pd$name, nm))
+                msg <- "A set with this name already exists — choose another."
             n_ov <- length(threshold_overrides())
             htmltools::tagList(
                 htmltools::p(class = "small text-muted mt-1",
@@ -488,8 +485,9 @@ mod_gea_server <- function(id, project_data, run_trigger = NULL, module = MOD_GE
         shiny::observeEvent(input$snp_set_save_confirm, {
             nm <- input$snp_set_name %||% ""
             pd <- project_data()
-            if (!grepl("^[A-Za-z0-9_.]+$", nm)) {
-                shiny::showNotification("Invalid name.", type = "error"); return()
+            problem <- snp_set_name_problem(nm)
+            if (!is.null(problem)) {
+                shiny::showNotification(problem, type = "error"); return()
             }
             if (set_exists(pd$name, nm)) {
                 shiny::showNotification("A set with this name already exists.", type = "error"); return()
@@ -509,11 +507,27 @@ mod_gea_server <- function(id, project_data, run_trigger = NULL, module = MOD_GE
                 traits              = sort(unique(dt$trait)),
                 methods             = sort(unique(dt$method))
             )
-            n <- save_snp_set(pd$name, nm, dt, params)
+            # The record: the pairs the selection actually used and each one's
+            # effective rule (what a config block needs to rebuild the set).
+            pairs <- snp_set_pairs_for_save(input$tm_selection, combo_counts(),
+                                            all_trait_names_rv(), effective_method_pvalues())
+            record <- snp_set_record_for_save(
+                name              = nm,
+                source_module     = module,
+                pairs             = pairs,
+                overrides         = threshold_overrides(),
+                master_type       = threshold_type(),
+                master_value      = threshold_value(),
+                registry_defaults = registry_defaults(),
+                strategy          = active_strategy(),
+                clumping_distance = snp_clumping_distance(),
+                regime            = params$regime,
+                k_best            = pd$k_best
+            )
+            n <- save_snp_set(pd$name, nm, dt, params, record = record)
             shiny::removeModal()
-            shiny::showNotification(
-                sprintf("Saved SNP set ‘%s’ (%d SNPs).", nm, n),
-                type = "message", duration = 4)
+            show_snp_set_saved_modal(ns, nm, n, snp_set_config_snippet(record, registry_defaults()),
+                                     module = module)
             if (!is.null(snp_sets_trigger))
                 snp_sets_trigger(snp_sets_trigger() + 1L)
         })

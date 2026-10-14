@@ -1,0 +1,25 @@
+{
+  "source_module": "GEA",
+  "regime": "snp",
+  "strategy": "Cross-method",
+  "clumping_distance": 50000,
+  "pairs": ["bio_1::EMMAX", "bio_1::LFMM", "bio_2::EMMAX", "climate_multivariate::RDA"],
+  "cells": {
+    "bio_1::EMMAX": {
+      "type": "custom",
+      "value": 0.0001
+    },
+    "bio_1::LFMM": {
+      "type": "custom",
+      "value": 0.00123456789
+    },
+    "bio_2::EMMAX": {
+      "type": "top",
+      "value": 3
+    },
+    "climate_multivariate::RDA": {
+      "type": "bonf",
+      "value": 0.01
+    }
+  }
+}

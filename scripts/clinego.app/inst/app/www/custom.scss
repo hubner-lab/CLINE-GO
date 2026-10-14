@@ -1196,3 +1196,11 @@
     max-width: 100%;
     user-select: none;
 }
+
+// ── SNP set details popover (Maladaptation) ─────────────────────────────────
+// Carries the "Reproduce in config" YAML block (snp_set_snippet_ui()); at the
+// Bootstrap default of 276px every override line wraps. min() keeps it inside a
+// phone-width viewport.
+.snp-set-popover {
+    --bs-popover-max-width: min(34rem, calc(100vw - 2rem));
+}

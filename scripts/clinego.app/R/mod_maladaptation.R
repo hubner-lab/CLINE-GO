@@ -58,33 +58,59 @@ mod_maladaptation_server <- function(id, project_data, snp_sets_trigger = NULL) 
             if (length(hit) == 0) NULL else hit[which.max(nchar(hit))]
         })
 
-        # ── Manifest entry for the selected set ───────────────────────────────
-        selected_set_entry <- shiny::reactive({
+        # ── Record (or legacy manifest entry) for the selected set ────────────
+        selected_set_details <- shiny::reactive({
             nm <- selected_set_name(); if (is.null(nm)) return(NULL)
-            man <- read_snp_sets_manifest(project_data()$name)
-            entries <- Filter(function(x) identical(x$name, nm), man)
-            if (length(entries) == 0) NULL else entries[[1]]
+            pd <- project_data()
+            rec <- read_snp_set_record(pd$name, nm)
+            registry <- if (identical(rec$source_module, MOD_GWAS)) gwas_method_registry()
+                        else gea_method_registry()
+            snp_set_details(pd$name, nm, gea_method_significance_defaults(registry))
         })
 
         # ── View-details popover ───────────────────────────────────────────────
         output$set_details_btn <- shiny::renderUI({
-            e <- selected_set_entry(); if (is.null(e)) return(NULL)
-            body <- htmltools::tags$ul(
-                class = "small mb-0 ps-3",
-                htmltools::tags$li(htmltools::strong("Threshold: "),
-                    paste0(e$threshold_type %||% "?", " = ", e$threshold_value %||% "?")),
-                htmltools::tags$li(htmltools::strong("Strategy: "),  e$strategy %||% "?"),
-                htmltools::tags$li(htmltools::strong("Regime: "),    e$regime %||% "?"),
-                htmltools::tags$li(htmltools::strong("Source: "),    e$source_module %||% "?"),
-                htmltools::tags$li(htmltools::strong("N SNPs: "),    e$n_snps %||% "?"),
-                htmltools::tags$li(htmltools::strong("Created: "),   e$created %||% "?")
+            d <- selected_set_details(); if (is.null(d)) return(NULL)
+            e <- d$meta
+            threshold <- if (!is.null(e$threshold_type)) {
+                paste0(e$threshold_type, " = ", e$threshold_value %||% "?")
+            } else if (!is.null(e$cells)) {
+                rules <- unique(vapply(e$cells, function(r) paste0(r$type, " = ", r$value),
+                                       character(1)))
+                if (length(rules) == 1L) rules else
+                    sprintf("per cell (%d rules, see config block)", length(rules))
+            } else "?"
+            n_pairs <- length(unlist(e$pairs))
+            body <- htmltools::tagList(
+                htmltools::tags$ul(
+                    class = "small mb-2 ps-3",
+                    htmltools::tags$li(htmltools::strong("Origin: "),
+                        if (identical(d$origin, "config")) "config (GEA.snp_sets / GWAS.snp_sets)"
+                        else "saved in the app"),
+                    htmltools::tags$li(htmltools::strong("Threshold: "), threshold),
+                    if (n_pairs > 0) htmltools::tags$li(htmltools::strong("Cells: "),
+                        n_pairs, " trait × method"),
+                    htmltools::tags$li(htmltools::strong("Strategy: "),  e$strategy %||% "?"),
+                    htmltools::tags$li(htmltools::strong("Regime: "),    e$regime %||% "?"),
+                    htmltools::tags$li(htmltools::strong("Source: "),    e$source_module %||% "?"),
+                    htmltools::tags$li(htmltools::strong("N SNPs: "),    e$n_snps %||% "?"),
+                    htmltools::tags$li(htmltools::strong("Created: "),   e$created %||% "?")
+                ),
+                htmltools::div(class = "small fw-semibold mb-1", "Reproduce in config"),
+                snp_set_snippet_ui(d$snippet, ns("set_snippet")),
+                if (identical(d$origin, "config"))
+                    htmltools::p(class = "small text-muted mt-2 mb-0",
+                        "Deleting a config set here removes its files; it is rebuilt on the ",
+                        "next mode=gea / mode=gwas while it stays declared, and until then ",
+                        "mode=maladaptation with snp_sets: all refuses to run.")
             )
             bslib::popover(
                 shiny::actionButton(ns("set_details"),
                     label = htmltools::tagList(bsicons::bs_icon("info-circle"), " View details"),
                     class = "btn btn-outline-secondary btn-sm ms-2"),
                 title = paste("SNP set:", e$name %||% ""),
-                body
+                body,
+                options = list(customClass = "snp-set-popover")
             )
         })
 
@@ -104,6 +130,14 @@ mod_maladaptation_server <- function(id, project_data, snp_sets_trigger = NULL) 
                     "Delete set ", htmltools::strong(nm),
                     " and its Gradient Forest results? This cannot be undone."
                 ),
+                # A declared set with no TSV is a parse-time error for
+                # Maladaptation.snp_sets (resolve_active_snp_sets(), common.smk).
+                if (identical(selected_set_details()$origin, "config"))
+                    htmltools::p(class = "small text-warning-emphasis",
+                        "This set is declared in config. While it stays declared and every ",
+                        "set is selected (snp_sets: all), Run Maladaptation refuses to start ",
+                        "until mode=gea / mode=gwas rebuilds it; remove the declaration to ",
+                        "drop it for good."),
                 footer = htmltools::tagList(
                     shiny::modalButton("Cancel"),
                     shiny::actionButton(ns("set_delete_confirm"), "Delete",

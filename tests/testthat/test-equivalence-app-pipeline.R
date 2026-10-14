@@ -986,6 +986,130 @@ test_that("delete_snp_set's method list matches the maladaptation registry", {
     }
 })
 
+# --- 7b. SNP-set round trip: app save -> record -> config -> rebuild ---------
+#
+# A set saved from the GEA tab now carries a record (snp_set.yaml: the exact
+# trait::method pairs and each cell's resolved rule) and shows a config block
+# that rebuilds it headless (GEA.snp_sets, built by scripts/build_snp_set.R).
+# This block pins the R half against the static goldens in
+# tests/fixtures/snp_set_roundtrip/; tests/python/test_snp_set_declarations.py
+# (TestRoundTrip) pins the common.smk half against the same files. The fixture
+# and its rationale live in tests/lib/snp_set_roundtrip.R.
+
+source(file.path(.clinego_root, "tests", "lib", "snp_set_roundtrip.R"), local = TRUE)
+
+rt_rule_list <- function(cells) {
+    out <- lapply(cells, function(r) list(type = as.character(r$type),
+                                          value = as.numeric(r$value)))
+    out[order(names(out))]
+}
+
+rt_build <- function(decl_path, pvalue_files, sandbox) {
+    out_tsv <- file.path(sandbox, "out", "selected_snps.tsv")
+    out_rec <- file.path(sandbox, "out", "snp_set.yaml")
+    cwd <- file.path(sandbox, "cwd")
+    dir.create(cwd, recursive = TRUE, showWarnings = FALSE)
+    log <- withr::with_dir(cwd, suppressWarnings(system2(
+        "Rscript",
+        shQuote(c(file.path(.clinego_root, "scripts", "build_snp_set.R"),
+                  decl_path, out_tsv, out_rec, RT_K, pvalue_files)),
+        stdout = TRUE, stderr = TRUE)))
+    list(status = attr(log, "status") %||% 0L, log = log, tsv = out_tsv, record = out_rec,
+         cwd_files = list.files(cwd, all.files = TRUE, no.. = TRUE))
+}
+
+test_that("a set saved from the app writes the golden record and config block", {
+    skip_without_app()
+    withr::local_options(clinego.pipeline_path = withr::local_tempdir())
+    project <- basename(tempfile("EQ_RT_"))
+    res <- rt_app_save(project, registry_root = .clinego_root)
+    golden <- rt_golden_dir(.clinego_root)
+
+    # The registry pin this fixture relies on is the real one.
+    expect_identical(res$registry$RDA$family, "multivariate_pvalue")
+    expect_identical(res$n, 10L)
+
+    want_snippet <- readChar(file.path(golden, "snippet.yaml"),
+                             file.size(file.path(golden, "snippet.yaml")), useBytes = TRUE)
+    expect_identical(res$snippet$yaml, want_snippet)
+
+    want <- jsonlite::read_json(file.path(golden, "record.json"), simplifyVector = FALSE)
+    rec <- yaml::read_yaml(clinego.app:::snp_set_record_path(project, RT_NAME))
+    for (f in c("source_module", "regime", "strategy")) {
+        expect_identical(rec[[f]], want[[f]], info = f)
+    }
+    expect_identical(as.integer(rec$clumping_distance), as.integer(want$clumping_distance))
+    expect_identical(as.character(unlist(rec$pairs)), as.character(unlist(want$pairs)))
+    expect_identical(rt_rule_list(rec$cells), rt_rule_list(want$cells))
+
+    # The rest of the record: what the pipeline's record also carries, plus the
+    # app-only master rule and the block shown to the user.
+    expect_identical(rec$name, RT_NAME)
+    expect_identical(rec$origin, "shiny")
+    expect_identical(as.integer(rec$k_best), RT_K)
+    expect_identical(as.integer(rec$n_snps), 10L)
+    expect_identical(rec$config_snippet, want_snippet)
+    expect_identical(rec$threshold_type, RT_MASTER$type)
+
+    # The manifest keeps the pairs as an ARRAY (auto_unbox would collapse one).
+    man <- clinego.app:::read_snp_sets_manifest(project)
+    expect_identical(unlist(man[[1]]$pairs), as.character(unlist(want$pairs)))
+})
+
+test_that("build_snp_set.R rebuilds the app's set byte for byte from its record", {
+    skip_without_app()
+    withr::local_options(clinego.pipeline_path = withr::local_tempdir())
+    project <- basename(tempfile("EQ_RT2_"))
+    res <- rt_app_save(project, registry_root = .clinego_root)
+    sandbox <- withr::local_tempdir()
+
+    b <- rt_build(clinego.app:::snp_set_record_path(project, RT_NAME), res$files, sandbox)
+    expect_identical(b$status, 0L, info = paste(b$log, collapse = "\n"))
+    app_tsv <- clinego.app:::snp_set_path(project, RT_NAME)
+    expect_identical(readBin(b$tsv, "raw", file.size(b$tsv)),
+                     readBin(app_tsv, "raw", file.size(app_tsv)))
+    expect_identical(as.integer(yaml::read_yaml(b$record)$n_snps), 10L)
+    expect_identical(b$cwd_files, character(0))
+})
+
+test_that("cells that selected nothing do not change the rebuilt set", {
+    # The app records only the pairs that went in; a config block written as
+    # traits x methods also expands to the cells with no hit. Those must add no
+    # SNP, or the short form would not reproduce the set.
+    skip_without_app()
+    withr::local_options(clinego.pipeline_path = withr::local_tempdir())
+    project <- basename(tempfile("EQ_RT3_"))
+    ov <- RT_OVERRIDES[setdiff(names(RT_OVERRIDES), "bio_3::LFMM")]
+    res <- rt_app_save(project, registry_root = .clinego_root, selection = NULL,
+                       name = "rt.full", overrides = ov)
+    rec_pairs <- as.character(unlist(res$record$pairs))
+
+    every <- unlist(lapply(names(res$pvalues), function(m) paste0(
+        setdiff(names(res$pvalues[[m]]), c("SNPID", "chr", "pos")), "::", m)))
+    zero <- setdiff(every, rec_pairs)
+    expect_identical(zero, "bio_3::LFMM")
+
+    cells <- lapply(every, function(p) {
+        sp <- strsplit(p, "::", fixed = TRUE)[[1]]
+        r <- clinego.app:::effective_rule_for(sp[2], sp[1], ov, RT_MASTER$type,
+                                              RT_MASTER$value, res$registry)
+        list(type = r$type, value = r$value)
+    })
+    names(cells) <- every
+    sandbox <- withr::local_tempdir()
+    decl <- file.path(sandbox, "declaration.json")
+    jsonlite::write_json(list(name = "gea.full", origin = "config", source_module = "GEA",
+                              regime = "snp", strategy = RT_STRATEGY,
+                              clumping_distance = RT_GAP, pairs = I(every), cells = cells),
+                         decl, auto_unbox = TRUE, digits = NA)
+
+    b <- rt_build(decl, res$files, sandbox)
+    expect_identical(b$status, 0L, info = paste(b$log, collapse = "\n"))
+    app_tsv <- clinego.app:::snp_set_path(project, "rt.full")
+    expect_identical(readBin(b$tsv, "raw", file.size(b$tsv)),
+                     readBin(app_tsv, "raw", file.size(app_tsv)))
+})
+
 # --- 8. coords JSON: the Manhattan hand-off ---------------------------------
 #
 # The pipeline renders a static background PNG and writes the axis geometry to a

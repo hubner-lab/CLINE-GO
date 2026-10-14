@@ -107,3 +107,45 @@ test_that("a prepared config round-trips through yaml", {
     expect_length(back$GEA$configs, 2L)
     expect_identical(back$GEA$configs[[2]]$method, "LFMM")
 })
+
+test_that("Save Project Files keeps GEA.snp_sets / GWAS.snp_sets", {
+    # The app re-writes the whole project config on Save and on Run. snp_sets
+    # declarations are lists of maps the sidebar has no input for, so they must
+    # pass through collect_tab_config() + write_project_config() untouched. Read
+    # through the app's real reader: R's yaml writer then turns the one-item
+    # `traits: [bio_1]` into a scalar, which common.smk accepts as a one-item
+    # list (tests/python/test_snp_set_declarations.py, TestScalarLists).
+    d <- withr::local_tempdir()
+    writeLines(c(
+        "project_name: SS",
+        "GEA:",
+        "  snp_clumping_distance: 100000",
+        "  snp_sets:",
+        "  - name: default",
+        "  - name: tuned",
+        "    threshold_type: bonf",
+        "    threshold_value: 0.05",
+        "    overrides:",
+        "      bio_1::EMMAX: {type: custom, value: 1.0e-05}",
+        "    traits: [bio_1]",
+        "    methods: [EMMAX, LFMM]",
+        "GWAS:",
+        "  snp_sets:",
+        "  - name: h",
+        "    pairs: [height::EMMAX, height::BLINK]"), file.path(d, "config_SS.yaml"))
+
+    cfg <- read_project_config("SS", pipeline_path = d)
+    entries <- list(list(key = "GEA.snp_clumping_distance", type = "numeric"))
+    cfg <- collect_tab_config(list(GEA_snp_clumping_distance = 200000), NULL, entries, cfg)
+    write_project_config(cfg, "SS", pipeline_path = d)
+    back <- yaml::read_yaml(file.path(d, "config_SS.yaml"))
+
+    expect_identical(back$GEA$snp_clumping_distance, 200000L)
+    sets <- back$GEA$snp_sets
+    expect_length(sets, 2L)
+    expect_identical(vapply(sets, `[[`, "", "name"), c("default", "tuned"))
+    expect_identical(sets[[2]]$overrides[["bio_1::EMMAX"]], list(type = "custom", value = 1e-5))
+    expect_identical(unlist(sets[[2]]$methods), c("EMMAX", "LFMM"))
+    expect_identical(sets[[2]]$traits, "bio_1")   # the collapse, pinned
+    expect_identical(unlist(back$GWAS$snp_sets[[1]]$pairs), c("height::EMMAX", "height::BLINK"))
+})

@@ -540,6 +540,33 @@ build_filter_bar_ui <- function(ns, traits, methods, trait_colors,
     )
 }
 
+#' The trait::method pairs the matrix selection stands for
+#'
+#' The ONE reading of the matrix selection: compute_interactive_sigsnps() filters
+#' on it and the GEA tab's "Save SNP set" records it, so the pairs a saved set
+#' claims are the pairs that went into it.
+#'
+#' @param tm_selection_json JSON array of "trait::method" keys from the matrix,
+#'   or NULL / "".
+#' @param combo_counts Named list "trait::method" -> count at the current rules.
+#' @param known_traits Traits of this tab (avoids cross-tab bleed).
+#' @return Character vector of pairs. NULL, "", unparsable JSON and an empty
+#'   array all mean "every pair with a positive count among known_traits": an
+#'   empty array is the matrix rendered with no tm-active cells (uninitialised),
+#'   not a deliberate deselect.
+#' @noRd
+resolve_selected_pairs <- function(tm_selection_json, combo_counts, known_traits) {
+    all_valid_pairs <- names(combo_counts)[
+        vapply(combo_counts, function(n) n > 0, logical(1))
+    ]
+    all_valid_pairs <- all_valid_pairs[
+        sub("::.*", "", all_valid_pairs) %in% known_traits
+    ]
+    if (is.null(tm_selection_json) || !nzchar(tm_selection_json)) return(all_valid_pairs)
+    parsed <- tryCatch(jsonlite::fromJSON(tm_selection_json), error = function(e) NULL)
+    if (is.null(parsed) || length(parsed) == 0) all_valid_pairs else as.character(parsed)
+}
+
 #' Compute interactive sig SNPs from per-method data + matrix selection
 #'
 #' Pure function — call inside reactive(). Filters, combines, and stamps region IDs.
@@ -561,27 +588,7 @@ compute_interactive_sigsnps <- function(all_method_sigsnps, tm_selection_json,
     if (length(all_method_sigsnps) == 0) return(NULL)
     strategy <- .normalize_strategy(strategy)
 
-    # All valid trait::method pairs (positive count, restricted to known_traits)
-    all_valid_pairs <- names(combo_counts)[
-        vapply(combo_counts, function(n) n > 0, logical(1))
-    ]
-    all_valid_pairs <- all_valid_pairs[
-        sub("::.*", "", all_valid_pairs) %in% known_traits
-    ]
-
-    # Parse selected pairs from JSON; fall back to all valid.
-    # An empty JSON array ("[]") from JS means the matrix rendered with no
-    # tm-active cells (un-initialized state), not a deliberate user deselect.
-    # Treat length-0 parsed result the same as NULL / "" to show all by default.
-    selected_pairs <- if (is.null(tm_selection_json) || !nzchar(tm_selection_json)) {
-        all_valid_pairs
-    } else {
-        parsed <- tryCatch(
-            jsonlite::fromJSON(tm_selection_json),
-            error = function(e) NULL
-        )
-        if (is.null(parsed) || length(parsed) == 0) all_valid_pairs else parsed
-    }
+    selected_pairs <- resolve_selected_pairs(tm_selection_json, combo_counts, known_traits)
 
     # Filter each method to selected traits for that method (shared lib)
     filtered <- filter_to_pairs(all_method_sigsnps, selected_pairs)

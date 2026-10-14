@@ -4,10 +4,8 @@
 # zzz.R / dev.R via CLINEGO_SHARED_LIBS) and the pipeline (scripts/build_snp_set.R,
 # which builds the GEA.snp_sets / GWAS.snp_sets declared in config). A set saved
 # from the GEA tab and a set declared in config go through the same pair filter
-# (filter_to_pairs) and combine (combine_sigsnps_long). PENDING (plan
-# staged-plotting-newt, Phase 3): the app's save_snp_set() still has its own
-# collapse, ordered by chr, pos only; until it calls collapse_snp_set() the two
-# stores can order rows differently when two SNP IDs share a position.
+# (filter_to_pairs), combine (combine_sigsnps_long) and collapse
+# (collapse_snp_set), so the two write byte-identical selected_snps.tsv files.
 #
 # This is NOT the pipeline's scripts/R/lib/combine_sigsnps.R. That one feeds the
 # static selected_snps.tsv tables, takes a predictor whitelist, and diverges from

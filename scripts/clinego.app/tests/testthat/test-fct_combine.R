@@ -312,3 +312,25 @@ test_that("MOD_GEAXGWAS resolves to the GEA block on both paths", {
     expect_identical(default_threshold(cfg, MOD_GEAXGWAS)$type, "qval")
     expect_identical(resolve_adjust(cfg, "EMMAX", MOD_GEAXGWAS), "bonf_0.05")
 })
+
+# ---------------------------------------------------------------- matrix selection
+
+test_that("resolve_selected_pairs reads the matrix the way the filter applies it", {
+    cc <- list("bio_1::EMMAX" = 3L, "bio_2::EMMAX" = 0L, "bio_1::LFMM" = 2L,
+               "height::EMMAX" = 4L)
+    traits <- c("bio_1", "bio_2")
+    # Unset / empty / unparsable all mean every n > 0 cell of this tab's traits.
+    for (j in list(NULL, "", "[]", "{not json")) {
+        expect_identical(resolve_selected_pairs(j, cc, traits),
+                         c("bio_1::EMMAX", "bio_1::LFMM"), info = format(j))
+    }
+    expect_identical(resolve_selected_pairs('["bio_2::EMMAX"]', cc, traits), "bio_2::EMMAX")
+})
+
+test_that("the pairs a saved set records are the selection, minus cells that do not exist", {
+    pv <- list(EMMAX = data.table::data.table(SNPID = "1:1", chr = "1", pos = 1L,
+                                              bio_1 = 0.5, bio_2 = 0.5))
+    json <- '["bio_1::EMMAX", "bio_2::EMMAX", "bio_1::LFMM", "junk"]'
+    expect_identical(snp_set_pairs_for_save(json, list(), c("bio_1", "bio_2"), pv),
+                     c("bio_1::EMMAX", "bio_2::EMMAX"))
+})

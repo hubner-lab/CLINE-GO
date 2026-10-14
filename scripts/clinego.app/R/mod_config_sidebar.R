@@ -144,17 +144,21 @@ mod_config_sidebar_server <- function(id, config_state, tab_name, snp_sets_trigg
                     output[[dyn_id]] <- shiny::renderUI({
                         snp_sets_trigger()                        # live refresh on save/delete
                         proj <- config_state$project
-                        sets <- list_snp_sets(proj)
+                        # Sets with zero SNPs are left out: the pipeline refuses
+                        # one named in an explicit list (pickable_snp_sets()).
+                        sets <- pickable_snp_sets(proj)
 
                         if (nrow(sets) == 0) {
                             return(htmltools::div(
                                 class = "alert alert-warning small mb-0 p-2",
                                 bsicons::bs_icon("info-circle"),
-                                " No saved SNP sets. Go to the ",
+                                " No SNP sets with SNPs yet. Go to the ",
                                 htmltools::strong("GEA tab"),
                                 " → ",
                                 htmltools::strong("Save SNP set for maladaptation"),
-                                "."
+                                ", or declare one under ",
+                                htmltools::code("GEA.snp_sets"),
+                                " and run ", htmltools::code("mode=gea"), "."
                             ))
                         }
 
@@ -169,7 +173,7 @@ mod_config_sidebar_server <- function(id, config_state, tab_name, snp_sets_trigg
 
                         shiny::checkboxGroupInput(
                             session$ns(iid), label = NULL,
-                            choiceNames  = sprintf("%s (%d SNPs)", sets$name, sets$n_snps),
+                            choiceNames  = snp_set_label(sets),
                             choiceValues = sets$name,
                             selected     = selected
                         )
@@ -192,7 +196,7 @@ mod_config_sidebar_server <- function(id, config_state, tab_name, snp_sets_trigg
                     # Dedicated observer — must write "all" or an explicit list, NOT a CSV scalar
                     shiny::observeEvent(input[[iid]], {
                         proj     <- config_state$project
-                        all_nms  <- list_snp_sets(proj)$name
+                        all_nms  <- pickable_snp_sets(proj)$name
                         sel      <- input[[iid]] %||% character(0)
                         # "all" sentinel when every available set is checked; else explicit list
                         new_val <- if (length(all_nms) > 0 && setequal(sel, all_nms)) {
