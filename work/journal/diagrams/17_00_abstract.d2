@@ -1,0 +1,37 @@
+direction: right
+
+base: "Основа (Фаза 0)" {
+  harness: "харнесс: p < порог → p ≤ порог\ntop-100: 99 → 100 SNP"
+  freeze: "pmax-арм заморожен\n600 × 3 таблицы p"
+  pilot: "пилот воспроизводимости\nбайт-в-байт, 40 мин/реплика"
+  harness -> freeze -> pilot
+}
+
+measure: "Повторное измерение (Фаза 1)" {
+  grid: "сетка: 20 правил × 3 метода × 5 окон\n600 реплик, 4 проверки пройдены"
+  empty: "≥2 из 3 при bonf/qval\nнепусто в 18–37 % реплик (окно 0)"
+  rda: "RDA pmax: λ 0.32\nвызов при bonf в 1 из 600"
+  lambda: "λ EMMAX: медиана 0.994\n1 признак из 1200 > 1.05"
+  window: "согласие ≥2 из 3 (top 0.5 %)\n6 % → 84 % при окне 0 → 5 kb"
+  grid -> empty
+  grid -> rda
+  grid -> lambda
+  grid -> window
+}
+
+gate: "Гейт Фазы 1 закрыт\nбез K-лестницы, + сбор ГК"
+
+onefit: "One-fit RDA (Фаза 2a)" {
+  code: "rda.R: один fit, без pmax\nλ якоря = частичный fit (точно)"
+  pilot: "пилот 3 реплики\nLFMM/EMMAX байт-в-байт, 0 SNP хуже"
+  cost: "Фаза 2b: ~70 мин/реплика\n~50 ч на 600 (14 параллельно)"
+  code -> pilot -> cost
+}
+
+gate2: "Гейт Фазы 2a\nзапуск 600 реплик?"
+
+base.pilot -> measure.grid
+measure.lambda -> gate
+measure.rda -> gate
+gate -> onefit.code
+onefit.cost -> gate2

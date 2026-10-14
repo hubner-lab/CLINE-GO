@@ -1,0 +1,791 @@
+---
+title: "17. SS-Clines — повторное измерение параметров анализа на 600 репликах"
+subtitle: "замороженный pmax-арм · LFMM / EMMAX / RDA · 20 правил вызова × 5 окон согласия · основа для гейта Фазы 1 (K-лестница, спецификация Фазы 2)"
+output:
+  html_document:
+    theme: darkly
+    highlight: breezedark
+    toc: true
+    toc_float: true
+    code_folding: hide
+css: ["_callouts.css"]
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE,
+                      dev = "png", dpi = 144, fig.width = 9, fig.height = 4.6)
+library(data.table)
+library(ggplot2)
+
+# Среда: контейнер adaptogene:latest (тот же image ID, что cline-go:latest, 93bd6025, собран
+# 2026-07-31); d2 CLI — с хоста (~/.nix-profile/bin/d2), запускать ДО рендера.
+# Клиент docker: только `nix shell nixpkgs#docker-client -c docker ...` (CLAUDE.local.md);
+# `--name` обязателен на этой машине (CLAUDE.md).
+#
+# Рендер:
+#   nix shell nixpkgs#docker-client -c docker run --rm --name j17-render \
+#     --user $(id -u):$(id -g) -e USER=pipeline -e OPENBLAS_NUM_THREADS=2 \
+#     -v /mnt/data/eugene/ADAPTOGENE:/mnt/data/eugene/ADAPTOGENE adaptogene:latest \
+#     Rscript -e 'rmarkdown::render("/mnt/data/eugene/ADAPTOGENE/work/journal/17_ssclines_remeasure.Rmd")'
+#
+# Журнал только ЧИТАЕТ таблицы benchmarks/mvp_eval/remeasure600/pmax/ (их пишет
+# benchmarks/mvp_remeasure_600.R) и сводит их для показа; ничего не пересчитывает по данным.
+
+check_files <- function(paths) for (p in paths)
+  cat(ifelse(file.exists(p), "[OK]", "[ОТСУТСТВУЕТ]"), p, "\n")
+f0 <- function(x) formatC(x, format = "f", digits = 0, big.mark = " ")
+f1 <- function(x) formatC(x, format = "f", digits = 1)
+f2 <- function(x) formatC(x, format = "f", digits = 2)
+f3 <- function(x) formatC(x, format = "f", digits = 3)
+pct <- function(x) paste0(formatC(100 * x, format = "f", digits = 0), " %")
+med <- function(x) median(x, na.rm = TRUE)
+
+# Стиль рисунков рукописи (ms_style.R) и те же цвета правил/методов, что в
+# benchmarks/mvp_ms_sim_figures.R:50-52 — цвет следует за сущностью во всей серии.
+source("/mnt/data/eugene/ADAPTOGENE/benchmarks/ms_style.R")
+COL <- c("≥2 из 3" = MINOU[["teal"]], "объединение" = MINOU[["sage"]],
+         "3 из 3" = MINOU[["navy"]], "LFMM" = MINOU[["red"]],
+         "RDA" = MINOU[["amber"]], "EMMAX" = MS_ORANGE)
+CMB <- c(union = "объединение", ge2 = "≥2 из 3", all3 = "3 из 3")
+ARCH <- c("oliogenic" = "олигогенная", "mod-polygenic" = "умеренно полигенная",
+          "highly-polygenic" = "высоко полигенная")
+FAM <- c(bonf = "bonf", qval = "qval", custom = "custom p", top = "top (доля SNP)")
+th <- function() theme_ms(base = 11, tick = 9) +
+  theme(legend.position = "bottom", panel.grid.major.y = element_line(colour = "grey92", linewidth = 0.3))
+```
+
+```{css, echo=FALSE}
+/* широкие таблицы прокручиваются внутри себя, а не всей страницей */
+.main-container table { display: block; overflow-x: auto; max-width: 100%; }
+```
+
+## Обзор
+
+```{bash 17-00-abstract-render}
+if [ ! -f /mnt/data/eugene/ADAPTOGENE/work/journal/diagrams/17_00_abstract.svg ] || \
+   [ /mnt/data/eugene/ADAPTOGENE/work/journal/diagrams/17_00_abstract.d2 -nt \
+     /mnt/data/eugene/ADAPTOGENE/work/journal/diagrams/17_00_abstract.svg ]; then
+  d2 --theme 200 --layout elk \
+    /mnt/data/eugene/ADAPTOGENE/work/journal/diagrams/17_00_abstract.d2 \
+    /mnt/data/eugene/ADAPTOGENE/work/journal/diagrams/17_00_abstract.svg
+fi
+```
+
+Весь журнал одним взглядом: основа Фазы 0 → повторное измерение Фазы 1 → вопросы гейта.
+
+```{r 17-00-abstract, echo=FALSE, out.width="100%"}
+knitr::include_graphics("/mnt/data/eugene/ADAPTOGENE/work/journal/diagrams/17_00_abstract.svg")
+```
+
+---
+
+## Шаг 1. Основа: исправление харнесса, заморозка pmax-арма, пилот воспроизводимости
+
+```{r 17-01-check}
+check_files(c(
+  "/mnt/data/eugene/ADAPTOGENE/benchmarks/lib_detection.R",
+  "/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/params/MVP1231418/c1/LFMM_pvalues.tsv",
+  "/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/params_repro/MVP1231418/c1/LFMM_pvalues.tsv",
+  "/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/params_repro/repro_compare.tsv",
+  "/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/runlogs_repro/MVP1231418.log"))
+```
+
+```{bash 17-01-cmd, eval=FALSE}
+# НЕ ПЕРЕЗАПУСКАТЬ — выполнено 2026-09-28
+# (1) харнесс: benchmarks/lib_detection.R call_by_threshold(), `p < th$threshold` -> `p <= th$threshold`
+#     (коммит 7c90c65). (2) заморозка pmax-арма:
+chmod -R a-w /mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/params/
+# (3) пилот: переконвертация из data/mvp/raw/ и прогон processing -> prestructure -> structure -> gea
+cd /mnt/data/eugene/ADAPTOGENE
+benchmarks/convert_mvp_all.sh 1 1231418
+nix shell nixpkgs#docker-client -c docker run --rm --name mvp-swcfg-repro \
+  --user "$(id -u):$(id -g)" -e USER=adaptogene -e OPENBLAS_NUM_THREADS=2 --cpus=2 --memory=8g \
+  -v "$PWD":/pipeline cline-go:latest Rscript /pipeline/benchmarks/mvp_write_sweep_configs.R \
+  --seeds=1231418 --cells=1 --methods=EMMAX,LFMM,RDA \
+  --manifest-out=benchmarks/mvp_eval/params_repro/sweep_cells_repro.tsv
+PIPELINE_ROOT=/mnt/data/eugene/ADAPTOGENE \
+PARAMS_DIR=/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/params_repro \
+RUNLOG_DIR=/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/runlogs_repro \
+SWEEP_METHODS="EMMAX LFMM RDA" SKIP_PREGEA=1 CPUS_PER_SEED=4 SNAKE_CORES=2 MEM_PER_SEED=40g BLAS_THREADS=2 \
+  benchmarks/mvp_run_sweep.sh 1231418 1 1
+nix shell nixpkgs#docker-client -c docker run --rm --name mvp-repro-compare \
+  --user "$(id -u):$(id -g)" -e USER=adaptogene --cpus=1 --memory=4g -v "$PWD":/pipeline cline-go:latest \
+  Rscript /pipeline/benchmarks/mvp_repro_compare.R --seeds=1231418
+```
+
+<div class="callout-method">
+Три предпосылки, без которых числа Фазы 1 и сравнение «до/после» Фазы 3 не имеют смысла.
+
+- **Харнесс `call_by_threshold()`** (`benchmarks/lib_detection.R`) отбирал `p < порог`, а конвейер — `p <= порог` (`scripts/R/lib/sig_snps.R`). Для `top N` и `qval f` порог — это сам граничный SNP (N-е наименьшее p; наибольшее p с q < f), поэтому строгое `<` терял граничный SNP и все SNP с тем же p. Исправлено на `<=`. AUC-PR ранговая и не затронута.
+- **Заморозка pmax-арма** — `chmod -R a-w` на `benchmarks/mvp_eval/params/`: 600 реплик × LFMM/EMMAX/RDA (и BLINK, далее не используется), 3.5 ГБ. Все повторные прогоны пишут в другие каталоги (`params_repro/`, в Фазе 2 — `params_onefit/`).
+- **Пилот**: реплика **1231418** (блок `ssclines_nvar_mvar`, умеренно полигенная, K = 3, 56 каузальных локусов, 9 831 SNP) — самый старый блок, т.е. наибольший дрейф кода с момента исходного прогона (2026-09-09).
+  - `convert_mvp_all.sh 1 1231418` — переконвертация из `data/mvp/raw/` (VCF всех 600 реплик удалены очисткой 2026-09-23); перезаписывает VCF, метаданные, env и `truth_any.tsv`.
+  - `mvp_write_sweep_configs.R --cells=1 --methods=EMMAX,LFMM,RDA` — c1-конфиг без BLINK.
+  - `mvp_run_sweep.sh` с `SKIP_PREGEA=1` (единственное сознательное отличие от исходного прогона), `--cpus=4 -c2 40g` как у блока 1, `BLAS_THREADS=2` (в журнале блока 1 не записан — принят по регламенту).
+  - `mvp_repro_compare.R` — побайтовое сравнение таблиц p (`md5`), при расхождении — max |Δp|, различие top-100, ранговая корреляция.
+  - Образ **cline-go:latest = 93bd6025** (собран 2026-07-31) — тот же, что при исходном прогоне, поэтому расхождение могло бы идти только от кода, конфига или окружения.
+</div>
+
+```{r 17-01-result}
+rc <- fread("/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/params_repro/repro_compare.tsv")
+knitr::kable(rc[, .(method, identical, same_keys, n_snps_ref, n_snps_new, max_abs_dp, n_top100_diff, spearman_min)])
+```
+
+<div class="callout-result">
+- Харнесс, реплика 1231418, LFMM: top-100 на признак **99** → **100** SNP
+- Харнесс, реплика 1231418, LFMM qval 0.05 (объединение признаков): **14** → **16** SNP
+- Переконвертация: все TSV данных **побайтово идентичны** прежним; `truth_any.tsv` sha256 `f3e097a4…` не изменился
+- c1-конфиг: отличается от конфига 2026-09-09 **только** удалённым блоком BLINK
+- Таблицы p LFMM, EMMAX, RDA: **`r sum(rc$identical)` из `r nrow(rc)`** побайтово идентичны замороженным
+- Время на реплику (один на хосте): processing **19 с**, prestructure **12 мин 10 с**, structure **1 мин 6 с**, gea **26 мин 41 с** — всего **40 мин**
+- Исходный прогон той же реплики: **1 ч 58 мин** (с PreGEA и BLINK, **12** реплик параллельно — не сопоставимо напрямую)
+</div>
+
+<div class="callout-conclusion">
+Неизменённый код воспроизводит замороженные таблицы байт-в-байт, поэтому в Фазе 3 любое отличие таблиц one-fit RDA от `params/` — это именно изменение RDA, а не шум прогона. Все пороговые числа этого журнала посчитаны уже с `<=`; с пороговыми числами журнала 16 и ранее они не сопоставимы один к одному (AUC-PR — сопоставимы).
+</div>
+
+---
+
+## Шаг 2. Прогон повторного измерения на 600 репликах
+
+```{r 17-02-check}
+check_files(c(
+  "/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_remeasure_600.R",
+  "/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/remeasure600/pmax/calls_per_method.tsv",
+  "/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/remeasure600/pmax/calls_combine.tsv",
+  "/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/remeasure600/pmax/calls_per_trait.tsv",
+  "/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/remeasure600/pmax/rank_metrics.tsv",
+  "/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/remeasure600/pmax/pr_curves.tsv",
+  "/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/remeasure600/pmax/lambda_pi0.tsv",
+  "/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/remeasure600/pmax/rda_pmax_dist.tsv",
+  "/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/remeasure600/pmax/covariates.tsv",
+  "/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/remeasure600/pmax/assert_combine.tsv",
+  "/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/remeasure600/pmax/assert_aucpr_detection600.tsv",
+  "/mnt/data/eugene/ADAPTOGENE/work/j17_logs/mvp_remeasure_600_pmax.log"))
+```
+
+```{bash 17-02-cmd, eval=FALSE}
+# НЕ ПЕРЕЗАПУСКАТЬ — выполнено 2026-09-28
+cd /mnt/data/eugene/ADAPTOGENE
+nix shell nixpkgs#docker-client -c docker run --rm --name mvp-remeasure600-pmax \
+  --user "$(id -u):$(id -g)" -e USER=adaptogene -e PIPELINE_ROOT=/pipeline \
+  -e OPENBLAS_NUM_THREADS=1 --cpus=16 --memory=64g \
+  -e MVP_ARM=primary_ssclines \
+  -e MVP_ADDED=ssclines_nvar_mvar,ssclines_ncline_ns,ssclines_nequal_mconst,ssclines_ncline_ctredge,ssclines_nequal_mbreaks \
+  -e MVP_N_EXPECT=600 -e NCORES=16 \
+  -v "$PWD":/pipeline cline-go:latest Rscript /pipeline/benchmarks/mvp_remeasure_600.R \
+  > work/j17_logs/mvp_remeasure_600_pmax.log 2>&1
+```
+
+<div class="callout-method">
+**`benchmarks/mvp_remeasure_600.R`** (новый, образ cline-go:latest 93bd6025, R + data.table, qvalue из образа). Вход: `benchmarks/mvp_eval/params/MVP{seed}/c1/{LFMM,EMMAX,RDA}_pvalues.tsv` (замороженный pmax-арм) и `data/mvp/MVP{seed}/truth_any.tsv`. Выход: `benchmarks/mvp_eval/remeasure600/pmax/`.
+
+- `MVP_ARM=primary_ssclines` + `MVP_ADDED=<5 тегов блоков>` + `MVP_N_EXPECT=600` — выбор реплик через `benchmarks/mvp_arm.R` (`mvp_prim()`); без `MVP_ADDED` арм смешивает блоки.
+- Сетка правил вызова — **20 ступеней**, каждая применяется **к каждому признаку отдельно** и объединяется по признакам, как в конвейере (`find_significant_snps_per_trait()`); LFMM и EMMAX имеют **2** признака (bio_1, bio_2), RDA — **1** многомерный столбец:
+  - `bonf` 0.01 / 0.05 / 0.1 / 0.5 / 1
+  - `qval` 0.01 / 0.02 / 0.05 / 0.1 / 0.15 / 0.2 (`qvalue::qvalue`, без запасного BH — как в `compute_pval_threshold()`)
+  - `top` 0.1 / 0.25 / 0.5 / 1 / 2 % от числа протестированных SNP, N = ⌈доля × n_snps⌉ на реплику (корпус 5 141–32 130 SNP, фиксированное N не было бы фиксированной долей)
+  - `custom` p ≤ 1e-6 / 1e-5 / 1e-4 / 1e-3
+- Статус правила на каждый признак сохраняется отдельно: `ok` / `no_hits` (правило отработало, ничего не прошло) / `too_few_tests` / `engine_error` — «ничего не нашло» и «не смогло работать» не смешиваются.
+- Объединение методов — на **одной и той же** ступени у всех трёх: объединение, **≥2 из 3** (стратегия конвейера Cross-method), **3 из 3** (не стратегия конвейера — строгий ориентир); окна согласия **0 / 1 / 2.5 / 5 / 10 kb** (`combine_support()`).
+- Оценка: точное совпадение позиции; каузальный = TP, `background_neutral` = единственный FP, `linked_neutral` — ни то ни другое; полнота — по каузальным локусам, попавшим в протестированный набор (`testable_causal()`). Геномный контроль не применяется — таблицы как их записал `mode=gea`.
+- Беспороговые метрики: AUC-PR (`auc_pr_from_rank()`), R-precision (`r_precision_from_rank()`, R = число тестируемых каузальных), точки PR-кривой (`pr_curve_from_rank()`); ранжирование — min p по признакам метода.
+- λ = медиана χ²₁ / qchisq(0.5, 1) (`gc_lambda()`, вынесена из `apply_genomic_control()`), и π₀ из `qvalue` — на каждый метод × признак.
+- Проверки, каждая останавливает прогон:
+  - **A1** — при окне 0 `combine_support()` совпадает с точным подсчётом ключей на **каждой** ступени для всех трёх правил (раньше в `sweep_thresholds.R` проверялась только первая ступень);
+  - **A2** — «≥2 из 3» на каждой ступени и каждом окне совпадает с множеством SNP функции конвейера `.overlap_cross_method()` (`scripts/R/lib/combine_sigsnps.R`) на **12** репликах — по одной (наименьший seed) на ячейку дизайна «генетическая архитектура × плейотропия × режим отбора»;
+  - **A3** — AUC-PR совпадает с `detection600/aucpr_per_seed.tsv` (журнал 16) до 1e-12 на всех **1 800** строках;
+  - **A4** — **600 × 3** строк, без ошибок и пропусков.
+- Проверка воспроизведения легаси-реплики журнала 16 (`mvp_detection_600.R`) здесь **не применяется**: исправление `<=` намеренно меняет пороговые числа, и их совпадение с журналом 07 было бы ошибкой.
+</div>
+
+```{r 17-02-load}
+cv <- fread("/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/remeasure600/pmax/covariates.tsv", colClasses = c(seed = "character"))
+M  <- fread("/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/remeasure600/pmax/calls_per_method.tsv", colClasses = c(seed = "character"))
+C  <- fread("/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/remeasure600/pmax/calls_combine.tsv", colClasses = c(seed = "character"))
+TR <- fread("/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/remeasure600/pmax/calls_per_trait.tsv", colClasses = c(seed = "character"))
+R  <- fread("/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/remeasure600/pmax/rank_metrics.tsv", colClasses = c(seed = "character"))
+PR <- fread("/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/remeasure600/pmax/pr_curves.tsv", colClasses = c(seed = "character"))
+L  <- fread("/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/remeasure600/pmax/lambda_pi0.tsv", colClasses = c(seed = "character"))
+RD <- fread("/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/remeasure600/pmax/rda_pmax_dist.tsv", colClasses = c(seed = "character"))
+AS <- fread("/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/remeasure600/pmax/assert_combine.tsv", colClasses = c(seed = "character"))
+A3 <- fread("/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/remeasure600/pmax/assert_aucpr_detection600.tsv", colClasses = c(seed = "character"))
+GR <- fread("/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/remeasure600/pmax/grid.tsv")
+
+# подписи ступеней в порядке сетки
+lab1 <- function(a, v) switch(a,
+  top    = paste0("top ", format(100 * v, drop0trailing = TRUE), " %"),
+  custom = paste0("p ≤ ", format(v, scientific = TRUE)),
+  paste(a, format(v, drop0trailing = TRUE)))
+GR[, label := mapply(lab1, adjust, value)]
+GR[, family := factor(FAM[adjust], levels = FAM)]
+lvl <- GR$label
+dec <- function(d) {
+  d <- merge(d, GR[, .(rung, label, family)], by = "rung")
+  d[, label := factor(label, levels = lvl)]
+  merge(d, cv[, .(seed, arch_level, block, design_cell, K_authors, k_best, k_floored)], by = "seed")
+}
+M <- dec(M); C <- dec(C)
+M[, method := factor(method, levels = c("LFMM", "EMMAX", "RDA"))]
+C[, rule := factor(CMB[combine], levels = CMB)]
+arch_f <- function(x) factor(ARCH[x], levels = ARCH)
+```
+
+<div class="callout-result">
+- Реплик: **`r uniqueN(cv$seed)`** (5 блоков × **120**)
+- Строк по методам: **`r f0(nrow(M))`**; по правилам объединения: **`r f0(nrow(C))`**; по признакам: **`r f0(nrow(TR))`**
+- Точек PR-кривых: **`r f0(nrow(PR))`**
+- A1 (окно 0 = точный подсчёт): **`r sum(AS$a1_rungs == nrow(GR))` из `r nrow(AS)`** реплик, **`r nrow(GR)`** ступеней каждая
+- A2 (≥2 из 3 = `.overlap_cross_method()` конвейера): **`r sum(AS$check_replicate)`** реплик × **`r unique(AS[check_replicate == TRUE, a2_checks])`** проверок, все совпали
+- A3 (AUC-PR = журнал 16): **`r nrow(A3)`** строк, max |Δ| = **`r format(max(A3$abs_diff))`**
+- Время счёта: **3.7 мин** на **16** ядрах
+</div>
+
+---
+
+## Шаг 3. Число вызовов и доля непустых панелей
+
+Пункты 1–2 спецификации. «Непустая» — вызван хотя бы один SNP. Для методов — объединение по признакам; для правил объединения — при окне 0 и 5 kb.
+
+```{r 17-03-nonempty-methods, fig.height=4.2}
+ne_m <- M[, .(share = mean(n_called > 0)), by = .(label, family, method)]
+ggplot(ne_m, aes(label, 100 * share, colour = method, group = method)) +
+  geom_line(linewidth = 0.6) + geom_point(size = 2) +
+  facet_grid(. ~ family, scales = "free_x", space = "free_x") +
+  scale_colour_manual(values = COL, name = NULL) +
+  scale_y_continuous(limits = c(0, 100), breaks = seq(0, 100, 25)) +
+  labs(x = NULL, y = "реплик с ≥1 вызовом, %") + th() +
+  theme(axis.text.x = element_text(angle = 40, hjust = 1))
+```
+
+Доля непустых панелей у трёх правил объединения; строки — окно согласия.
+
+```{r 17-03-nonempty-combine, fig.height=5.4}
+ne_c <- C[window_kb %in% c(0, 5), .(share = mean(n_called > 0)), by = .(label, family, rule, window_kb)]
+ne_c[, window := factor(paste0("окно ", window_kb, " kb"), levels = c("окно 0 kb", "окно 5 kb"))]
+ggplot(ne_c, aes(label, 100 * share, colour = rule, group = rule)) +
+  geom_line(linewidth = 0.6) + geom_point(size = 2) +
+  facet_grid(window ~ family, scales = "free_x", space = "free_x") +
+  scale_colour_manual(values = COL, name = NULL) +
+  scale_y_continuous(limits = c(0, 100), breaks = seq(0, 100, 25)) +
+  labs(x = NULL, y = "реплик с ≥1 SNP в панели, %") + th() +
+  theme(axis.text.x = element_text(angle = 40, hjust = 1))
+```
+
+```{r 17-03-status}
+st <- TR[adjust == "qval", .(no_hits = sum(status == "no_hits"), ok = sum(status == "ok"),
+                              other = sum(!status %in% c("ok", "no_hits"))), by = .(method, rung)]
+st_other <- sum(TR$status %in% c("too_few_tests", "engine_error"))
+ge2_0 <- C[rule == "≥2 из 3" & window_kb == 0, .(share = mean(n_called > 0)), by = .(rung, label)]
+cal <- ge2_0[grepl("^(bonf|qval)", rung)]
+rda_bonf05 <- M[method == "RDA" & rung == "bonf_0.05", sum(n_called > 0)]
+lf_ne_q01  <- M[method == "LFMM" & rung == "qval_0.1", mean(n_called > 0)]
+em_ne_q01  <- M[method == "EMMAX" & rung == "qval_0.1", mean(n_called > 0)]
+rda_ne_q01 <- M[method == "RDA" & rung == "qval_0.1", mean(n_called > 0)]
+```
+
+<div class="callout-result">
+- Статус `too_few_tests` / `engine_error` на всей сетке: **`r st_other`** случаев из **`r f0(nrow(TR))`** — каждое пустое правило здесь «отработало и ничего не нашло» (`no_hits`)
+- Непустых при qval 0.1: LFMM **`r pct(lf_ne_q01)`**, EMMAX **`r pct(em_ne_q01)`**, RDA **`r pct(rda_ne_q01)`**
+- RDA при bonf 0.05: непусто в **`r rda_bonf05`** из **600** реплик
+- ≥2 из 3, окно 0, bonf 0.01–1 и qval 0.01–0.2: непусто в **`r pct(min(cal$share))`** – **`r pct(max(cal$share))`** реплик
+- ≥2 из 3, окно 0, top 0.1 %: непусто в **`r pct(ge2_0[rung == "top_0.001", share])`**; top 0.25 % и выше — **`r pct(min(ge2_0[rung %in% c("top_0.0025","top_0.005","top_0.01","top_0.02"), share]))`**
+- 3 из 3, окно 0: непусто не более чем в **`r pct(C[rule == "3 из 3" & window_kb == 0 & grepl("^(bonf|qval)", rung), max(mean(n_called > 0)), by = rung][, max(V1)])`** реплик при bonf/qval
+</div>
+
+<details class="callout-note">
+<summary>Полная таблица: медиана числа вызовов [IQR] — метод × ступень × генетическая архитектура</summary>
+
+```{r 17-03-table-arch}
+iq <- function(x) sprintf("%s [%s–%s]", f0(median(x)), f0(quantile(x, .25)), f0(quantile(x, .75)))
+t1 <- M[, .(v = iq(n_called)), by = .(label, method, arch = arch_f(arch_level))]
+knitr::kable(dcast(t1, label ~ method + arch, value.var = "v"))
+```
+</details>
+
+<details class="callout-note">
+<summary>Полная таблица: доля непустых — метод и ≥2 из 3 (окно 0) × демографический блок</summary>
+
+```{r 17-03-table-block}
+tb <- rbind(M[, .(share = mean(n_called > 0)), by = .(label, series = as.character(method), block)],
+            C[rule == "≥2 из 3" & window_kb == 0, .(share = mean(n_called > 0)), by = .(label, block)][, series := "≥2 из 3"],
+            use.names = TRUE)
+knitr::kable(dcast(tb[, .(label, series, block, v = pct(share))], label + series ~ block, value.var = "v"))
+```
+</details>
+
+<details class="callout-note">
+<summary>Полная таблица: доля непустых по генетической архитектуре — ≥2 из 3, окна 0 и 5 kb</summary>
+
+```{r 17-03-table-ge2-arch}
+ta <- C[rule == "≥2 из 3" & window_kb %in% c(0, 5), .(v = pct(mean(n_called > 0))),
+        by = .(label, window_kb, arch = arch_f(arch_level))]
+knitr::kable(dcast(ta, label ~ arch + window_kb, value.var = "v"))
+```
+</details>
+
+<div class="callout-conclusion">
+Калиброванные правила (bonf, qval, custom p) почти никогда не дают RDA ни одного вызова, и поэтому ≥2 из 3 при них в большинстве реплик держится только на совпадениях LFMM с EMMAX — и остаётся пустым в большинстве реплик. Непустые панели во всех репликах дают только ранговые правила `top`. Это факт о pmax-RDA, а не о правиле объединения как таковом: Фаза 3 повторяет это измерение на one-fit RDA.
+</div>
+
+---
+
+## Шаг 4. Точность, полнота, F1 на той же сетке
+
+Пункт 3 спецификации. Медиана по репликам; точность считается только в репликах, где метод что-то вызвал (при 0 вызовов она не определена) — подписи дают, в скольких.
+
+```{r 17-04-pr, fig.height=5.6}
+op <- rbind(
+  M[, .(P = med(precision_strict), Rc = med(recall_testable), n_ne = sum(n_called > 0)),
+    by = .(label, family, series = as.character(method), arch_level)],
+  C[rule == "≥2 из 3" & window_kb == 0,
+    .(P = med(precision_strict), Rc = med(recall_testable), n_ne = sum(n_called > 0)),
+    by = .(label, family, arch_level)][, series := "≥2 из 3"], use.names = TRUE)
+op[, series := factor(series, levels = c("LFMM", "EMMAX", "RDA", "≥2 из 3"))]
+op[, arch := arch_f(arch_level)]
+ggplot(op[n_ne >= 30], aes(Rc, P, colour = series, shape = family)) +
+  geom_point(size = 2.2, stroke = 0.8) +
+  facet_wrap(~ arch, nrow = 1) +
+  scale_colour_manual(values = COL, name = NULL) +
+  scale_shape_manual(values = c(16, 17, 15, 1), name = NULL) +
+  scale_x_continuous(limits = c(0, 1)) + scale_y_continuous(limits = c(0, 1)) +
+  labs(x = "полнота (медиана)", y = "точность (медиана, непустые реплики)") + th()
+```
+
+<details class="callout-note">
+<summary>Полная таблица: медианы P / R / F1 и число непустых реплик — метод × ступень × архитектура</summary>
+
+```{r 17-04-table}
+t2 <- M[, .(v = sprintf("P %s · R %s · F1 %s · n %d", f2(med(precision_strict)), f2(med(recall_testable)),
+                        f2(med(f1)), sum(n_called > 0))),
+        by = .(label, method, arch = arch_f(arch_level))]
+knitr::kable(dcast(t2, label + method ~ arch, value.var = "v"))
+```
+</details>
+
+```{r 17-04-numbers}
+pt <- function(m, r, a, col) M[method == m & rung == r & arch_level == a, med(get(col))]
+```
+
+<div class="callout-result">
+- Точки с <**30** непустыми репликами на рисунке не показаны (медиана точности по горстке реплик ничего не значит)
+- LFMM, qval 0.05, олигогенная: точность **`r f2(pt("LFMM","qval_0.05","oliogenic","precision_strict"))`**, полнота **`r f2(pt("LFMM","qval_0.05","oliogenic","recall_testable"))`**
+- LFMM, qval 0.05, умеренно полигенная: точность **`r f2(pt("LFMM","qval_0.05","mod-polygenic","precision_strict"))`**, полнота **`r f2(pt("LFMM","qval_0.05","mod-polygenic","recall_testable"))`**
+- LFMM, qval 0.05, высоко полигенная: полнота **`r f2(pt("LFMM","qval_0.05","highly-polygenic","recall_testable"))`**
+- top 0.5 %, олигогенная, полнота: LFMM **`r f2(pt("LFMM","top_0.005","oliogenic","recall_testable"))`**, EMMAX **`r f2(pt("EMMAX","top_0.005","oliogenic","recall_testable"))`**, RDA **`r f2(pt("RDA","top_0.005","oliogenic","recall_testable"))`**
+- top 0.5 %, олигогенная, точность: LFMM **`r f2(pt("LFMM","top_0.005","oliogenic","precision_strict"))`**, EMMAX **`r f2(pt("EMMAX","top_0.005","oliogenic","precision_strict"))`**, RDA **`r f2(pt("RDA","top_0.005","oliogenic","precision_strict"))`**
+</div>
+
+<div class="callout-conclusion">
+При калиброванных правилах вызывает почти только LFMM, и его вызовы почти всегда верны (медианная точность около 1), но полнота падает с ростом полигенности. Ранговые правилa `top` делают панели непустыми ценой точности, и у EMMAX точность там остаётся низкой на всех архитектурах.
+</div>
+
+---
+
+## Шаг 5. Беспороговое сравнение методов: AUC-PR, R-precision, PR-кривые
+
+Пункт 4 спецификации. AUC-PR — те же числа, что в журнале 16 (проверка A3); R-precision и PR-кривые — новые.
+
+```{r 17-05-aucpr, fig.height=4.2}
+R2 <- merge(R, cv[, .(seed, arch_level)], by = "seed")
+R2[, method := factor(method, levels = c("LFMM", "EMMAX", "RDA"))]
+R2l <- melt(R2, id.vars = c("seed", "method", "arch_level"),
+            measure.vars = c("aucpr", "r_precision"), variable.name = "metric")
+R2l[, metric := factor(c(aucpr = "AUC-PR", r_precision = "R-precision")[as.character(metric)],
+                       levels = c("AUC-PR", "R-precision"))]
+R2l[, arch := arch_f(arch_level)]
+ggplot(R2l, aes(arch, value, fill = method)) +
+  geom_boxplot(outlier.size = 0.5, linewidth = 0.3, position = position_dodge2(padding = 0.2)) +
+  facet_wrap(~ metric) + scale_fill_manual(values = COL, name = NULL) +
+  scale_y_continuous(limits = c(0, 1)) + labs(x = NULL, y = NULL) + th()
+```
+
+Медианная PR-кривая: на каждой реплике — интерполированная точность (максимальная точность при полноте не ниже r), затем медиана по репликам.
+
+```{r 17-05-prcurve, fig.height=4.2}
+RG <- seq(0.05, 1, by = 0.05)
+PR2 <- merge(PR, cv[, .(seed, arch_level)], by = "seed")
+setorder(PR2, seed, method, -recall)
+PR2[, pint := cummax(precision), by = .(seed, method)]
+ip <- PR2[, .(r = RG, p = vapply(RG, function(g) { k <- which(recall >= g); if (length(k)) max(pint[k]) else 0 }, 0)),
+          by = .(seed, method, arch_level)]
+# реплики без единого найденного каузального в таблице PR отсутствуют — это нулевая кривая
+allr <- CJ(seed = R2$seed, method = c("LFMM", "EMMAX", "RDA"), r = RG, unique = TRUE)
+allr <- merge(allr, cv[, .(seed, arch_level)], by = "seed")
+ip <- merge(allr, ip, by = c("seed", "method", "arch_level", "r"), all.x = TRUE)
+ip[is.na(p), p := 0]
+mc <- ip[, .(p = median(p)), by = .(method, arch_level, r)]
+mc[, method := factor(method, levels = c("LFMM", "EMMAX", "RDA"))][, arch := arch_f(arch_level)]
+ggplot(mc, aes(r, p, colour = method)) + geom_line(linewidth = 0.7) +
+  facet_wrap(~ arch, nrow = 1) + scale_colour_manual(values = COL, name = NULL) +
+  scale_x_continuous(limits = c(0, 1)) + scale_y_continuous(limits = c(0, 1)) +
+  labs(x = "полнота", y = "интерполированная точность (медиана)") + th()
+```
+
+```{r 17-05-table}
+t5 <- R2[, .(`AUC-PR` = f3(med(aucpr)), `R-precision` = f3(med(r_precision)),
+             `R-precision (строгая)` = f3(med(r_precision_strict)), `тестируемых каузальных (медиана)` = f0(med(n_testable))),
+         by = .(архитектура = arch_f(arch_level), метод = method)]
+setorder(t5, архитектура, метод)
+knitr::kable(t5)
+```
+
+<div class="callout-result">
+- AUC-PR, медиана, LFMM: олигогенная **`r f3(R2[method=="LFMM" & arch_level=="oliogenic", med(aucpr)])`**, умеренно **`r f3(R2[method=="LFMM" & arch_level=="mod-polygenic", med(aucpr)])`**, высоко **`r f3(R2[method=="LFMM" & arch_level=="highly-polygenic", med(aucpr)])`**
+- AUC-PR, медиана, RDA: **`r f3(R2[method=="RDA" & arch_level=="oliogenic", med(aucpr)])`** / **`r f3(R2[method=="RDA" & arch_level=="mod-polygenic", med(aucpr)])`** / **`r f3(R2[method=="RDA" & arch_level=="highly-polygenic", med(aucpr)])`**
+- AUC-PR, медиана, EMMAX: **`r f3(R2[method=="EMMAX" & arch_level=="oliogenic", med(aucpr)])`** / **`r f3(R2[method=="EMMAX" & arch_level=="mod-polygenic", med(aucpr)])`** / **`r f3(R2[method=="EMMAX" & arch_level=="highly-polygenic", med(aucpr)])`**
+- R-precision, медиана, LFMM: **`r f3(R2[method=="LFMM" & arch_level=="oliogenic", med(r_precision)])`** / **`r f3(R2[method=="LFMM" & arch_level=="mod-polygenic", med(r_precision)])`** / **`r f3(R2[method=="LFMM" & arch_level=="highly-polygenic", med(r_precision)])`**
+- Ранжирование RDA — по одному многомерному столбцу, LFMM/EMMAX — по min p из двух признаков: основа ранжирования разная
+</div>
+
+<div class="callout-conclusion">
+Беспороговый порядок методов тот же, что в журнале 16: LFMM первый на всех трёх архитектурах. R-precision — точность панели `top(n_causal)`, которую нельзя построить без знания n_causal, поэтому она остаётся метрикой, а не правилом.
+</div>
+
+---
+
+## Шаг 6. n_causal и размеры панелей против порога n ≥ 3
+
+Пункт 5 спецификации. `scripts/rda_offset.R:174` останавливается на панели меньше **3** SNP и роняет всю реплику; здесь видно, какие правила до Фазы 4 дают такие панели.
+
+```{r 17-06-sizes, fig.height=4.6}
+sel <- c("bonf_0.05", "qval_0.1", "custom_0.0001", "top_0.001", "top_0.005")
+nc <- R2[method == "LFMM", .(seed, arch_level, n = n_testable, series = "n_causal (тестируемые)")]
+ps <- C[rule == "≥2 из 3" & window_kb == 0 & rung %in% sel, .(seed, arch_level, n = n_called, series = as.character(label))]
+sz <- rbind(nc, ps)
+sz[, series := factor(series, levels = c("n_causal (тестируемые)", GR[rung %in% sel, label]))]
+sz[, arch := arch_f(arch_level)]
+ggplot(sz, aes(n + 1, colour = series)) + stat_ecdf(linewidth = 0.6) +
+  geom_vline(xintercept = 3 + 1, linetype = "dashed", colour = MS_REF, linewidth = 0.4) +
+  facet_wrap(~ arch, nrow = 1) + scale_x_log10() +
+  scale_colour_manual(values = setNames(c(MS_INK, MS_CATEGORICAL)[seq_len(nlevels(sz$series))],
+                                        levels(sz$series)), name = NULL) +
+  labs(x = "размер + 1 (лог. шкала); пунктир — n = 3", y = "доля реплик ≤ x") + th() +
+  guides(colour = guide_legend(nrow = 2))
+```
+
+```{r 17-06-table}
+t6 <- C[window_kb == 0, .(v = pct(mean(n_called < 3))), by = .(label, rule)]
+knitr::kable(dcast(t6, label ~ rule, value.var = "v"), caption = "Доля реплик с панелью < 3 SNP, окно 0")
+```
+
+<div class="callout-result">
+- n_causal (тестируемые): **`r f0(min(nc$n))`**–**`r f0(max(nc$n))`**, медиана **`r f0(med(nc$n))`**; реплик с n_causal < 10: **`r sum(nc$n < 10)`**
+- ≥2 из 3, окно 0, панель < 3 SNP: qval 0.1 — **`r pct(C[rule=="≥2 из 3" & window_kb==0 & rung=="qval_0.1", mean(n_called < 3)])`**, bonf 0.05 — **`r pct(C[rule=="≥2 из 3" & window_kb==0 & rung=="bonf_0.05", mean(n_called < 3)])`**, top 0.1 % — **`r pct(C[rule=="≥2 из 3" & window_kb==0 & rung=="top_0.001", mean(n_called < 3)])`**, top 0.25 % — **`r pct(C[rule=="≥2 из 3" & window_kb==0 & rung=="top_0.0025", mean(n_called < 3)])`**
+- ≥2 из 3, окно 5 kb, панель < 3 SNP: qval 0.1 — **`r pct(C[rule=="≥2 из 3" & window_kb==5 & rung=="qval_0.1", mean(n_called < 3)])`**, top 0.1 % — **`r pct(C[rule=="≥2 из 3" & window_kb==5 & rung=="top_0.001", mean(n_called < 3)])`**
+</div>
+
+<div class="callout-conclusion">
+При калиброванных правилах большинство панелей ≥2 из 3 ниже порога n = 3 — пустая панель здесь результат (n = 0, полнота 0), и в Фазе 4 она должна записываться, а не отбрасываться. Ранговые правила от top 0.25 % проходят порог во всех репликах, но их размер задан долей SNP, а не числом каузальных.
+</div>
+
+---
+
+## Шаг 7. λ EMMAX, K и ячейки дизайна
+
+Пункт 6 спецификации — один сигнал из четырёх для вопроса «нужна ли K-лестница». λ LFMM ≡ 1 по построению (в `mode=gea` включён геномный контроль, делитель потерян), λ RDA не читается post hoc (GIF применяется внутри `rdadapt`), поэтому здесь только EMMAX.
+
+```{r 17-07-lambda, fig.height=4.2}
+E <- merge(L[method == "EMMAX"], cv, by = "seed")
+E[, kb := factor(paste0("k_best = ", k_best, ifelse(k_floored, " (поднят с K = 1)", "")))]
+E[, kb := factor(kb, levels = unique(kb[order(k_best, k_floored)]))]
+E[, blk := factor(block)]
+p1 <- ggplot(E, aes(kb, lambda_gc)) +
+  geom_hline(yintercept = 1, linetype = "dashed", colour = MS_REF, linewidth = 0.4) +
+  geom_boxplot(fill = COL[["EMMAX"]], outlier.size = 0.6, linewidth = 0.3) +
+  labs(x = NULL, y = "λ EMMAX (на признак)") + th() + theme(axis.text.x = element_text(angle = 30, hjust = 1))
+p2 <- ggplot(E, aes(blk, lambda_gc)) +
+  geom_hline(yintercept = 1, linetype = "dashed", colour = MS_REF, linewidth = 0.4) +
+  geom_boxplot(fill = COL[["EMMAX"]], outlier.size = 0.6, linewidth = 0.3) +
+  labs(x = NULL, y = NULL) + th() + theme(axis.text.x = element_text(angle = 30, hjust = 1))
+patchwork::wrap_plots(p1, p2, nrow = 1)
+```
+
+```{r 17-07-tables}
+knitr::kable(E[, .(признаков = .N, `λ медиана` = f3(med(lambda_gc)), q05 = f3(quantile(lambda_gc, .05)),
+                   q95 = f3(quantile(lambda_gc, .95)), `> 1.05` = sum(lambda_gc > 1.05), `< 0.95` = sum(lambda_gc < 0.95)),
+               by = .(k_best, `K поднят` = k_floored)][order(k_best, `K поднят`)])
+knitr::kable(dcast(cv[, .N, by = .(block, K_authors)], block ~ K_authors, value.var = "N", fill = 0),
+             caption = "K_authors по демографическим блокам (реплик)")
+Es <- E[, .(lam = mean(lambda_gc)), by = .(seed, K_authors, meanFst, r2_pc1_temp, design_cell, block)]
+rho <- function(x) f2(cor(Es$lam, x, method = "spearman"))
+```
+
+<div class="callout-result">
+- λ EMMAX, **`r nrow(E)`** признаков (**600** × **2**): медиана **`r f3(med(E$lambda_gc))`**, 5–95 % **`r f3(quantile(E$lambda_gc,.05))`**–**`r f3(quantile(E$lambda_gc,.95))`**
+- признаков с λ > 1.05 (недокоррекция): **`r sum(E$lambda_gc > 1.05)`**; с λ < 0.95 (перекоррекция): **`r sum(E$lambda_gc < 0.95)`**, из них в блоке nvar_mvar **`r sum(E$lambda_gc < 0.95 & E$block == "nvar_mvar")`**
+- Спирмен λ (среднее по признакам) ~ K_authors: **`r rho(Es$K_authors)`**; ~ meanFst: **`r rho(Es$meanFst)`**; ~ R²(PC1 ~ температура) из манифеста: **`r rho(Es$r2_pc1_temp)`**
+- Реплик с K_authors = 1 (k_best поднят до 2): **`r sum(cv$k_floored)`**, λ в них: медиана **`r f3(med(E[k_floored == TRUE, lambda_gc]))`**
+- π₀ qvalue, медиана: LFMM **`r f3(med(L[method=="LFMM", qvalue_pi0]))`**, EMMAX **`r f3(med(L[method=="EMMAX", qvalue_pi0]))`**, RDA **`r f3(med(L[method=="RDA", qvalue_pi0]))`**
+</div>
+
+<details class="callout-note">
+<summary>Что не измерено: дисперсия ведущих ГК</summary>
+Спецификация просит рядом с λ долю дисперсии ведущих главных компонент. Её источник — `_work/.../MVP{seed}.pca/MVP{seed}.eigenvalues` — удалён очисткой 2026-09-23 у всех реплик, кроме пилотной 1231418 (восстановлен пилотом). В этом журнале она **не** подменяется другой величиной: `meanFst` и R²(PC1 ~ температура) из манифеста — статистики депозита Lotterhos 2023, а не собственные ГК конвейера, и приведены только как корреляты. Собственные значения ГК включаются в сбор Фазы 2a (рядом с таблицами RDA и LD decay) и будут показаны в журнале 18.
+</details>
+
+<div class="callout-conclusion">
+По λ EMMAX на ступени k_best недокоррекции нет: медиана около 1, превышение 1.05 — у одного признака из 1 200, связь с K слабая. Отклонения идут вниз (лёгкая перекоррекция), и все признаки с λ < 0.95 — в блоке `nvar_mvar`. Это один сигнал из четырёх; дисперсию ГК добавит Фаза 2a. Вопрос о K-лестнице — на гейт.
+</div>
+
+---
+
+## Шаг 8. Согласие методов в зависимости от окна
+
+Пункт 7 спецификации. Доля SNP объединения, у которых в пределах окна есть вызов хотя бы ещё одного метода (≥2 из 3 / объединение), и что окно делает с точностью и полнотой ≥2 из 3.
+
+```{r 17-08-agree, fig.height=4}
+W <- dcast(C[rule %in% c("объединение", "≥2 из 3")], seed + rung + label + window_kb + arch_level ~ combine, value.var = "n_called")
+W <- W[union > 0]
+ag <- W[rung %in% c("qval_0.1", "custom_0.0001", "top_0.001", "top_0.005", "top_0.01"),
+        .(share = median(ge2 / union), n = .N), by = .(label, window_kb)]
+ggplot(ag, aes(window_kb, 100 * share, colour = label)) + geom_line(linewidth = 0.7) + geom_point(size = 2) +
+  scale_colour_manual(values = MS_CATEGORICAL, name = NULL) +
+  scale_x_continuous(breaks = c(0, 1, 2.5, 5, 10)) + scale_y_continuous(limits = c(0, 100)) +
+  labs(x = "окно согласия, kb", y = "≥2 из 3 / объединение, % (медиана)") + th()
+```
+
+```{r 17-08-prwin, fig.height=4.4}
+pw <- C[rule == "≥2 из 3" & rung %in% c("top_0.001", "top_0.0025", "top_0.005"),
+        .(P = med(precision_strict), Rc = med(recall_testable)), by = .(label, window_kb, arch_level)]
+pw <- melt(pw, id.vars = c("label", "window_kb", "arch_level"), variable.name = "m")
+pw[, m := factor(c(P = "точность", Rc = "полнота")[as.character(m)], levels = c("точность", "полнота"))]
+pw[, arch := arch_f(arch_level)]
+ggplot(pw, aes(window_kb, value, colour = label, linetype = m)) + geom_line(linewidth = 0.7) +
+  facet_wrap(~ arch, nrow = 1) + scale_colour_manual(values = MS_CATEGORICAL, name = NULL) +
+  scale_linetype_manual(values = c("solid", "dashed"), name = NULL) +
+  scale_x_continuous(breaks = c(0, 1, 2.5, 5, 10)) + scale_y_continuous(limits = c(0, 1)) +
+  labs(x = "окно согласия, kb", y = "медиана, ≥2 из 3") + th()
+```
+
+```{r 17-08-ld}
+ld <- fread("/mnt/data/eugene/ADAPTOGENE/MVP1231418_results/Structure/tables/ld_decay_half_distances.tsv")
+ld_all <- ld[group == "All"]
+ldd <- ld[group != "All"]
+```
+
+<div class="callout-result">
+- top 0.5 %: ≥2 из 3 / объединение — окно 0 **`r pct(ag[label=="top 0.5 %" & window_kb==0, share])`**, 1 kb **`r pct(ag[label=="top 0.5 %" & window_kb==1, share])`**, 5 kb **`r pct(ag[label=="top 0.5 %" & window_kb==5, share])`**, 10 kb **`r pct(ag[label=="top 0.5 %" & window_kb==10, share])`**
+- top 0.1 %, ≥2 из 3, олигогенная: точность при 0 kb **`r f2(pw[label=="top 0.1 %" & window_kb==0 & arch_level=="oliogenic" & m=="точность", value])`** → 5 kb **`r f2(pw[label=="top 0.1 %" & window_kb==5 & arch_level=="oliogenic" & m=="точность", value])`**; полнота **`r f2(pw[label=="top 0.1 %" & window_kb==0 & arch_level=="oliogenic" & m=="полнота", value])`** → **`r f2(pw[label=="top 0.1 %" & window_kb==5 & arch_level=="oliogenic" & m=="полнота", value])`**
+- LD decay — измерен только у пилотной реплики 1231418: половина распада, все **1 000** особей — **`r f0(ld_all$half_decay_bp)`** п.н.; r² = 0.2 на **`r f0(ld_all$r2_02_bp)`** п.н.; по **`r nrow(ldd)`** демам медиана половины распада **`r f0(med(ldd$half_decay_bp))`** п.н. (метод `r paste(unique(ld$method), collapse = "/")`)
+</div>
+
+<div class="callout-conclusion">
+Окно — не нейтральная настройка: от 0 до 5 kb доля «согласованных» SNP растёт в разы, полнота ≥2 из 3 растёт, а точность падает, потому что при окне > 0 сохраняются собственные позиции каждого метода вокруг сигнала. Размер окна надо привязать к измеренному LD, а он пока есть только у одной реплики (~1.6 kb); LD decay по всем 600 даст Фаза 2b, решение об окне — журнал 18.
+</div>
+
+---
+
+## Шаг 9. Базовая линия «до»: объединённое p RDA (pmax)
+
+Пункт 8 спецификации. В замороженном арме p RDA = pmax(p частичной модели, p безусловной модели) — статистика intersection-union теста (Berger 1982): корректная и консервативная, а не ошибка. Это распределение — «до» для замены на one-fit RDA в Фазе 2.
+
+```{r 17-09-rda, fig.height=4}
+RD[, bonf05 := 0.05 / n]
+p3 <- ggplot(RD, aes(-log10(min_p))) + geom_histogram(bins = 40, fill = COL[["RDA"]], colour = "white", linewidth = 0.2) +
+  geom_vline(xintercept = -log10(median(RD$bonf05)), linetype = "dashed", colour = MS_REF, linewidth = 0.4) +
+  labs(x = "−log10(min p RDA) на реплику; пунктир — bonf 0.05 (медианное n)", y = "реплик") + th()
+p4 <- ggplot(RD, aes(lambda_gc)) + geom_histogram(bins = 40, fill = COL[["RDA"]], colour = "white", linewidth = 0.2) +
+  geom_vline(xintercept = 1, linetype = "dashed", colour = MS_REF, linewidth = 0.4) +
+  scale_x_continuous(limits = c(0, 1.1)) + labs(x = "λ p RDA (pmax) на реплику", y = NULL) + th()
+patchwork::wrap_plots(p3, p4, nrow = 1)
+```
+
+```{r 17-09-table}
+t9 <- M[method == "RDA", .(`непусто` = pct(mean(n_called > 0)), `вызовов, медиана` = f0(median(n_called)),
+                           `вызовов, max` = f0(max(n_called))), by = .(ступень = label)]
+knitr::kable(t9, caption = "Вызовы RDA (pmax) по ступеням, 600 реплик")
+```
+
+<div class="callout-result">
+- λ p RDA: медиана **`r f3(med(RD$lambda_gc))`**, диапазон **`r f3(min(RD$lambda_gc))`**–**`r f3(max(RD$lambda_gc))`**
+- медиана p (медиана по репликам): **`r f3(med(RD$median))`**; доля p < 0.05: **`r f3(med(RD$share_lt_005))`**; доля p ≥ 0.99: **`r f3(med(RD$share_ge_099))`**
+- min p на реплику: медиана **`r format(signif(med(RD$min_p), 3))`**; реплик, где min p ≤ bonf 0.05: **`r sum(RD$min_p <= RD$bonf05)`** из **600**
+</div>
+
+<div class="callout-conclusion">
+pmax-RDA сдвинута к единице (λ около 0.3) и практически не пересекает ни один калиброванный порог — это ожидаемое поведение консервативного IUT при большом числе тестов, и именно оно опустошает калиброванные панели ≥2 из 3 (Шаг 3). Фаза 3 измерит на тех же SNP, сколько истинных локусов этот барьер отсекал и сколько ложных блокировал.
+</div>
+
+---
+
+## Итог для гейта Фазы 1
+
+<div class="callout-conclusion">
+**Вопрос 1 — K-лестница в Фазе 2.** Правило плана — λ лишь один сигнал из четырёх. Доступны **три**: λ EMMAX на k_best ≈ 1 без недокоррекции (Шаг 7), слабая связь λ с K_authors и с ячейкой дизайна, распределение K_authors по блокам. Четвёртый — доля дисперсии ведущих ГК — post hoc **не измерим** (собственные значения удалены очисткой у 599 реплик из 600). Предложение — **без лестницы** (`--cells=1`) **на этой суженной основе**, с проверкой ГК в журнале 18; решать, достаточно ли трёх сигналов, — на гейте.
+
+Цена ответа «да»: лестница — это `mvp_write_sweep_configs.R --cells=N` (ступени n_pcs / condition_pcs {0, ⌈k/2⌉, k, 2k, min(20, 4k)}, LFMM K {k−2, k−1, k, k+2, k+4}), т.е. **N прогонов `mode=gea` на реплику** вместо одного — при ~27 мин gea на реплику (пилот) это ≈ N × 27 мин × 600 реплик сверх общего upstream. Решать до запуска Фазы 2b, не после.
+
+**Вопрос 2 — спецификация Фазы 2** (как в плане, с одним добавлением):
+
+- `scripts/rda.R` — один fit (`condition_pcs = 0` безусловный, `> 0` условный), без раздела 14 и pmax;
+- методы LFMM / EMMAX / RDA, `--cells=1`, `SKIP_PREGEA=1`, `BLAS_THREADS=2`;
+- сбор: RDA `{candidates,diagnostics,anova}_K{k}.tsv`, `Structure/tables/ld_decay_half_distances.tsv` и **изменение утверждённого плана** — собственные значения ГК `_work/.../MVP{seed}.pca/MVP{seed}.eigenvalues` (+ `tracywidom`), единственный путь к четвёртому сигналу вопроса 1;
+- пилот на 3 репликах, затем полный прогон 5 блоков.
+
+**Что Фаза 3 будет решать на этих данных:** калиброванное правило против рангового (Шаги 3, 6), единственное окно (Шаг 8, рядом с LD decay по 600), и цену IUT-барьера RDA (Шаг 9 против one-fit).
+</div>
+
+---
+
+## Шаг 10. Фаза 2a: one-fit RDA и пилот на 3 репликах (предзапуск Фазы 2b)
+
+```{r 17-10-check}
+check_files(c(
+  "/mnt/data/eugene/ADAPTOGENE/scripts/rda.R",
+  "/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_run_sweep.sh",
+  "/mnt/data/eugene/ADAPTOGENE/work/phase2a_pilot.sh",
+  "/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_onefit_pilot_check.R",
+  "/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/onefit_pilot/pmax_diag_1231418/RDA_diagnostics.tsv",
+  "/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/onefit_pilot/data_sha256_before.txt",
+  "/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/onefit_pilot/data_sha256_after.txt",
+  "/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/onefit_pilot/repro_compare_lfmm_emmax.tsv",
+  "/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/onefit_pilot/pilot_check.tsv",
+  "/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/onefit_pilot/pilot_walltime.tsv",
+  "/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/onefit_pilot/pilot_disk.tsv",
+  "/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/params_onefit/MVP1231418/c1/RDA_pvalues.tsv",
+  "/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/params_onefit/MVP1231310/c1/RDA_pvalues.tsv",
+  "/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/params_onefit/MVP1231131/c1/RDA_pvalues.tsv"))
+```
+
+```{bash 17-10-cmd, eval=FALSE}
+# НЕ ПЕРЕЗАПУСКАТЬ — выполнено 2026-09-29
+cd /mnt/data/eugene/ADAPTOGENE
+# (1) правки кода (не команды): scripts/rda.R — раздел 14 и pmax удалены; scripts/R/lib/rdadapt.R —
+#     только комментарий; scripts/clinego.app/R/{mod_rda_details,fct_help_notes}.R — удалённые ключи
+#     и тексты; benchmarks/mvp_run_sweep.sh — HARVEST_DIAG=1 (harvest_diag()).
+# (2) снимок pmax-эпохи вспомогательных таблиц RDA реплики 1231418 (их записал пилот Фазы 0) и sha256 данных
+P=benchmarks/mvp_eval/onefit_pilot
+for f in candidates diagnostics anova; do
+  cp -p MVP1231418_results/GEA/tables/methods/RDA/RDA_${f}_K3.tsv $P/pmax_diag_1231418/RDA_${f}.tsv; done
+for s in 1231418 1231310 1231131; do (cd data/mvp/MVP$s && sha256sum *.tsv | sed "s|  |  MVP$s/|"); done \
+  > $P/data_sha256_before.txt
+# (3) переконвертация, sha256 после, c1-конфиги без BLINK
+benchmarks/convert_mvp_all.sh 3 "1231418,1231310,1231131"
+for s in 1231418 1231310 1231131; do (cd data/mvp/MVP$s && sha256sum *.tsv | sed "s|  |  MVP$s/|"); done \
+  > $P/data_sha256_after.txt
+nix shell nixpkgs#docker-client -c docker run --rm --name mvp-swcfg-onefit-pilot \
+  --user "$(id -u):$(id -g)" -e USER=pipeline -e OPENBLAS_NUM_THREADS=2 --cpus=2 --memory=8g \
+  -v "$PWD":/pipeline cline-go:latest Rscript /pipeline/benchmarks/mvp_write_sweep_configs.R \
+  --seeds=1231418,1231310,1231131 --cells=1 --methods=EMMAX,LFMM,RDA \
+  --manifest-out=benchmarks/mvp_eval/onefit_pilot/cells.tsv
+# (4) пилот: processing -> prestructure -> structure -> gea (PreGEA пропущен), 3 реплики параллельно
+work/phase2a_pilot.sh > benchmarks/mvp_eval/onefit_pilot/pilot_driver.log 2>&1
+# (5) проверки: LFMM/EMMAX побайтово против замороженного арма; RDA и сбор — A1-A4
+nix shell nixpkgs#docker-client -c docker run --rm --name mvp-onefit-repro \
+  --user "$(id -u):$(id -g)" -e USER=pipeline --cpus=1 --memory=4g -v "$PWD":/pipeline cline-go:latest \
+  Rscript /pipeline/benchmarks/mvp_repro_compare.R --seeds=1231418,1231310,1231131 \
+  --new=benchmarks/mvp_eval/params_onefit --methods=LFMM,EMMAX \
+  --out=benchmarks/mvp_eval/onefit_pilot/repro_compare_lfmm_emmax.tsv
+nix shell nixpkgs#docker-client -c docker run --rm --name mvp-onefit-check \
+  --user "$(id -u):$(id -g)" -e USER=pipeline --cpus=1 --memory=8g -v "$PWD":/pipeline cline-go:latest \
+  Rscript /pipeline/benchmarks/mvp_onefit_pilot_check.R --seeds=1231418,1231310,1231131
+# (6) объём на реплику
+{ printf "seed\tresults_mb\tharvest_mb\n"; for s in 1231418 1231310 1231131; do
+  printf "%s\t%s\t%s\n" $s $(du -sm MVP${s}_results | cut -f1) $(du -sm benchmarks/mvp_eval/params_onefit/MVP$s | cut -f1)
+done; } > benchmarks/mvp_eval/onefit_pilot/pilot_disk.tsv
+# (7) карточка RDA в Shiny (dev.R, образ cline-go:latest) на MVP1231418: playwright, python3 —
+#     проверка текста карточки: ключи есть, удалённых нет, ошибок JS нет, карточки «RDA run notice» нет
+```
+
+<div class="callout-method">
+**Решение гейта Фазы 1** (пользователь, 2026-09-29):
+
+- K-лестница — **нет**, `--cells=1` (одна ступень `n_pcs = condition_pcs = LFMM K = k_best`).
+- Сбор Фазы 2 дополнен собственными значениями ГК (`pca.eigenvalues`, `pca.tracywidom`) — изменение утверждённого плана, единственный путь к четвёртому сигналу для журнала 18.
+- Тестовый гейт `tests/run_all.sh` **не выполнялся**: в образе **cline-go:latest = 93bd6025** (собран 2026-07-31) нет пакета `testthat` (добавлен в Dockerfile 2026-09-10), а пересборка `latest` лишила бы силы побайтовую воспроизводимость Фазы 0. Замена — проверки ниже и прямой прогон `rda.R` на промежуточных файлах реплики 1231418.
+
+**Изменение `scripts/rda.R`** — один fit вместо двух (R 4.5, vegan, robust; тот же образ):
+
+- раздел 14 удалён целиком: второй, неограниченный `rda()` без `Condition()`, его `rdadapt()` с K, прикреплённым к частичному fit, три его `anova.cca()` и `pmax(p_partial, p_unconstrained)`;
+- раздел 13: `rdadapt_res <- rdadapt(RDA_env, K_sel)` — p этого одного fit пишутся как `climate_multivariate`, его q (цепочка storey → lambda=0 → BH) — как столбец `q_value`;
+- `condition_pcs > 0` → частичный RDA, `condition_pcs = 0` → безусловный; позиционные аргументы 1–26 не тронуты;
+- из диагностики удалены ключи `gif_lambda_partial`, `gif_lambda_unconstrained`, `k_partial`, `k_unconstrained`, `k_pin_capped`, `unconstrained_fit_status`; `gif_lambda` и `qvalue_method` остались (теперь — одного fit);
+- из таблицы кандидатов удалены `mahalanobis_partial`, `mahalanobis_unconstrained`, `p_value_partial`, `p_value_unconstrained` — в обеих ветках (с кандидатами и пустой заголовок);
+- из таблицы anova удалён столбец `model`;
+- заголовок файла (строки 16–30) переписан: `pmax` — корректный консервативный IUT-тест (Berger 1982, заметка 109), удаление — осознанный компромисс (цитируемость), цену измеряет Фаза 3;
+- приложение Shiny: `mod_rda_details.R` больше не читает удалённые ключи (и не показывает предупреждение о сбое второго fit), `fct_help_notes.R` — тексты справки без B6.
+
+**Сбор (`benchmarks/mvp_run_sweep.sh`, `HARVEST_DIAG=1`)** в `benchmarks/mvp_eval/params_onefit/MVP{seed}/c1/`:
+
+- `RDA_{candidates,diagnostics,anova}.tsv` — из `GEA/tables/methods/RDA/*_K{k}.tsv`;
+- `ld_decay_half_distances.tsv` — из `Structure/tables/` (mode=gea тянет его через `assoc_wza`);
+- `pca.eigenvalues`, `pca.tracywidom` — из единственного `_work/*/*/*.pca/` (иначе FATAL);
+- каждый файл обязателен (FATAL при отсутствии), и сбор идёт **до** таблиц p, чтобы флаг пропуска реплики (`RDA_pvalues.tsv`) по-прежнему означал «ячейка собрана полностью».
+
+**Пилот** — по одной реплике на генетический уровень, все с k_best ≥ 3, т.е. `condition_pcs > 0` и второй fit в замороженном арме реально работал:
+
+- **1231418** — умеренно полигенная, блок `ssclines_nvar_mvar`, K = 3, 56 каузальных (реплика пилота Фазы 0, якорь);
+- **1231310** — олигогенная, блок `ssclines_ncline_ns`, K = 4, 7 каузальных;
+- **1231131** — высоко полигенная, блок `ssclines_nequal_mbreaks`, K = 4, 747 каузальных;
+- ресурсы как у исходных прогонов всех трёх реплик: `--cpus=4 --memory=40g`, `snakemake -c2`, `BLAS_THREADS=2`, PreGEA пропущен (`SKIP_PREGEA=1`), 3 реплики параллельно, отдельный `RUNLOG_DIR` (драйвер обнуляет лог реплики в начале);
+- детерминизм: все стохастические шаги `rda.R` под `set.seed(SEED)`, SEED = **42** (из конфига); раздел 14 шёл **после** `rdadapt()` частичного fit, поэтому его удаление не может сдвинуть частичные p.
+
+**Проверки** (`mvp_repro_compare.R`, `mvp_onefit_pilot_check.R`; любое нарушение — выход 1):
+
+- LFMM и EMMAX — побайтово равны замороженным `params/` (метод не менялся);
+- A1 — сбор полон (9 файлов), BLINK не собран;
+- A2 — `p_new ≤ pmax_old` на **каждом** SNP, те же ключи в том же порядке;
+- A3 — удалённые ключи/столбцы отсутствуют, т.е. работал новый `rda.R`;
+- A4 — якорь 1231418, точное равенство: `gif_lambda` = прежний `gif_lambda_partial`, `rda_axes` = прежний `k_partial`, равны `adj_r_squared`, `n_markers_fitted`, `max_vif`, `qvalue_method`, `rda_axes_max`, а таблица anova совпадает со строками `model == "partial"` прежней. A2 прошла бы и при сдвинувшемся частичном fit; A4 — свидетель, что он не сдвинулся.
+</div>
+
+```{r 17-10-result}
+rc10 <- fread("/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/onefit_pilot/repro_compare_lfmm_emmax.tsv")
+pc10 <- fread("/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/onefit_pilot/pilot_check.tsv")
+wt10 <- fread("/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/onefit_pilot/pilot_walltime.tsv")
+sh_b <- fread("/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/onefit_pilot/data_sha256_before.txt", header = FALSE)
+sh_a <- fread("/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/onefit_pilot/data_sha256_after.txt", header = FALSE)
+sh <- merge(sh_b, sh_a, by = "V2", suffixes = c("_before", "_after"))
+knitr::kable(rc10[, .(seed, method, identical, same_keys, n_snps_ref, n_snps_new)],
+             caption = "LFMM / EMMAX: one-fit прогон против замороженного pmax-арма")
+knitr::kable(pc10[, .(seed, k_best, condition_pcs, rda_axes, gif_lambda = f3(gif_lambda), n_snps,
+                      `p_new > pmax_old` = n_violations, `равно (частичный связывал)` = n_equal,
+                      `ниже (неогранич. связывал)` = n_lower)],
+             caption = "RDA: one-fit p против pmax p, по SNP")
+knitr::kable(pc10[, .(seed, `медиана p: pmax` = f3(median_p_old), `медиана p: one-fit` = f3(median_p_new),
+                      `min p: pmax` = signif(min_p_old, 3), `min p: one-fit` = signif(min_p_new, 3),
+                      `bonf 0.05: pmax` = bonf005_old, `bonf 0.05: one-fit` = bonf005_new,
+                      `qval 0.1: pmax` = qval01_old, `qval 0.1: one-fit` = qval01_new,
+                      `top 0.5 %` = top05pct_new)],
+             caption = "RDA: вызовы по порогам конвейера (включительно, как sig_snps.R)")
+wt_w <- dcast(wt10, seed ~ step, value.var = "minutes")[, .(seed, processing, prestructure, structure, gea)]
+dk10 <- fread("/mnt/data/eugene/ADAPTOGENE/benchmarks/mvp_eval/onefit_pilot/pilot_disk.tsv")
+knitr::kable(merge(wt_w, pc10[, .(seed = as.integer(seed), n_snps)], by = "seed"),
+             caption = "Время по шагам драйвера, мин (3 реплики параллельно, --cpus=4 -c2)")
+knitr::kable(dk10, caption = "Объём на реплику, МБ: дерево MVP{seed}_results и сбор params_onefit")
+```
+
+<div class="callout-result">
+- Данные после переконвертации: изменены **`r sum(sh$V1_before != sh$V1_after)`** из **`r nrow(sh)`** TSV — по одному `conversion_provenance.tsv` на реплику (столбец `converted_utc`); `truth_any.tsv` — sha256 без изменений у **`r sum(sh[grepl("truth_any", V2), V1_before == V1_after])`** из **3**
+- c1-конфиги: отличаются от прежних **только** удалённым блоком BLINK (1231310, 1231131; 1231418 — без изменений с Фазы 0)
+- LFMM / EMMAX: **`r sum(rc10$identical)`** из **`r nrow(rc10)`** таблиц побайтово равны замороженным
+- RDA, SNP с `p_new > pmax_old`: **`r sum(pc10$n_violations)`** из **`r f0(sum(pc10$n_snps))`**
+- RDA, SNP, где связывал неограниченный fit (`p_new < pmax_old`): **`r f0(sum(pc10$n_lower))`** (**`r pct(sum(pc10$n_lower) / sum(pc10$n_snps))`**)
+- Якорь 1231418: `gif_lambda` = **`r pc10[seed == 1231418, format(gif_lambda, digits = 15)]`** — равно прежнему `gif_lambda_partial`; `rda_axes` = **`r pc10[seed == 1231418, rda_axes]`**
+- Медиана p RDA: pmax **`r f3(med(pc10$median_p_old))`** → one-fit **`r f3(med(pc10$median_p_new))`** (медиана по репликам)
+- Вызовы bonf 0.05, сумма по 3 репликам: pmax **`r sum(pc10$bonf005_old)`** → one-fit **`r sum(pc10$bonf005_new)`**
+- Вызовы qval 0.1, сумма по 3 репликам: pmax **`r sum(pc10$qval01_old)`** → one-fit **`r sum(pc10$qval01_new)`**
+- Время gea на реплику: **`r f1(min(wt10[step == "gea", minutes]))`**–**`r f1(max(wt10[step == "gea", minutes]))`** мин; вся реплика: **`r f1(min(wt10[, sum(minutes), by = seed]$V1))`**–**`r f1(max(wt10[, sum(minutes), by = seed]$V1))`** мин
+- Объём на реплику: дерево результатов **`r f0(min(dk10$results_mb))`**–**`r f0(max(dk10$results_mb))`** МБ, сбор **`r f0(min(dk10$harvest_mb))`**–**`r f0(max(dk10$harvest_mb))`** МБ (из них Manhattan-рисунки — основная часть)
+- Карточка RDA в Shiny (MVP1231418): `gif_lambda` **1.39721299951008**, удалённых ключей **0**, ошибок JS **0**, таблица anova — **8** строк без столбца `model`
+</div>
+
+<div class="callout-conclusion">
+**One-fit RDA работает так, как задумано, и меняет только RDA.** Частичный fit не сдвинулся (якорь 1231418 — точное равенство λ, осей и anova), LFMM и EMMAX побайтово те же, ни один SNP не стал менее значимым. Неограниченный fit давал бо́льшее p примерно на половине SNP — барьер IUT **затрагивал** половину генома, но **вызовы** он менял мало: на трёх репликах bonf 0.05 — **0** → **0**, qval 0.1 — **0** → **10** в одной. Сколько истинных локусов и сколько артефактов структуры он отсекал при каждом пороге, измерит Фаза 3 на 600 репликах против замороженного `params/`.
+
+**Что уже видно на трёх репликах:** шкала p one-fit RDA откалибрована (медиана **0.5** против **~0.71** у pmax), но при калиброванных порогах вызовов по-прежнему почти нет — bonf 0.05: **0** в каждой реплике, qval 0.1: **10** в одной из трёх. Значит, одно лишь снятие барьера не наполнит калиброванные панели ≥2 из 3; выбор правила — вопрос Фазы 3, а не этого прогона.
+
+**Цена Фазы 2b** (оценка по пилоту, при предположении, что время реплики сохранится при бо́льшем параллелизме): время реплики растёт с числом SNP — **33** / **66** / **83** мин при **9 831** / **25 259** / **31 890** SNP; медиана корпуса **25 705** SNP, p90 **31 806** → в среднем около **70** мин на реплику. При **14** репликах параллельно (как блок 5: `--cpus=4 --memory=40g`, 56 ядер, 560 ГБ) — около **10 ч** на блок из 120, около **50 ч** на 5 блоков подряд. Диск: около **1.3 ГБ** на реплику (деревья результатов хранятся до конца Фазы 4) → около **0.8 ТБ** на 600; свободно **33 ТБ**.
+
+**Ограничение:** это изменение конвейера, а не настройка бенчмарка — RDA-выходы реальных проектов (Trifolium, LandraceHordeumGBS, WBDC), посчитанные до него, с новыми не сопоставимы.
+
+**Гейт Фазы 2a:** запуск Фазы 2b (5 блоков: переконвертация, c1-конфиги `--methods=EMMAX,LFMM,RDA --cells=1`, драйвер с `SKIP_PREGEA=1 HARVEST_DIAG=1`, `PARAMS_DIR=params_onefit`, отдельный `RUNLOG_DIR`) — после одобрения пользователем.
+</div>
+
+---
+
+```{r sessioninfo}
+sessionInfo()
+```
