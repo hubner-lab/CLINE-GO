@@ -231,6 +231,12 @@ Organized by **module** (matching pipeline modes). Each module owns its plots an
 ├── pipeline_summary.tsv                   # all modes append here
 ├── _work/maf{}_miss{}_smiss{}/ld{}_win{}_step{}/  # parameterized intermediates
 └── _intermediate/                         # internal: samples/, annotation/, enrichment/, {method}/{SUFFIX}/, haplotype/, qs_cache/, flags/
+    └── snp_sets/                          # curated SNP sets mode=maladaptation reads (Maladaptation.snp_sets)
+        ├── manifest.json                  # app-saved sets only; the pipeline never writes it
+        ├── {name}/                        # saved from the GEA tab: selected_snps.tsv + snp_set.yaml (record + config_snippet)
+        └── {gea,gwas}.{name}/             # declared in GEA/GWAS.snp_sets, built by mode=gea/gwas (snp_set_declare →
+                                           # snp_set_build, scripts/build_snp_set.R on the app's own selection lib
+                                           # scripts/R/lib/snp_set_select.R): selected_snps.tsv, snp_set.yaml, declaration.json
 
 {PROJECT}_logs/{module}/                   # per-module log directories
 ```
@@ -705,7 +711,13 @@ load-bearing and not obvious:
 rewrite the tracked SIMDATA fixtures in place. A denylist test enforces it rather than leaving it
 to review.
 
-**Baseline 2026-10-14** (after the `sNMF.imputed_maf` tests): `tests/` = **1421 passing / 8
+**Baseline 2026-10-14, after declared SNP sets** (`GEA/GWAS.snp_sets`, measured on this tree with
+the full gate incl. `--heavy`): `tests/` = **1525 passing / 8 skipped**, app = **926 / 2**,
+python = **211 / 1 skipped**, heavy = **65 passing**, WARN 0. The libs increment is
+`test-snp_set_select.R`, the `build_snp_set.R` wrapper row + content tests and Tier 5 Block 7b; app
++91 and python +44 are the SNP-set record/snippet/picker tests and `test_snp_set_declarations.py`.
+
+Previous baseline 2026-10-14 (after the `sNMF.imputed_maf` tests): `tests/` = **1421 passing / 8
 skipped**, app = **835 / 2**, python = **167 / 1 skipped**, heavy = **65 passing**, WARN 0.
 
 Previous baseline as of 2026-10-03, **measured on the merged tree** (after the `/findings` sweep of the 11

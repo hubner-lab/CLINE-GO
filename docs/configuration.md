@@ -305,10 +305,58 @@ GEA:
 
 **Combine strategy** — there are two, and they are separate on purpose:
 
-- **Interactive (set in Shiny, not config)** — the GEA/GWAS filter bar's strategy selector: `All` (union of all methods), `Overlap` (≥2 methods agree within the SNP clumping distance), or `MethodOverlap` (same, plus the two methods must agree on the same predictor). It re-derives from the per-method sig-SNP tables, drives the live region table/rectangles, and is stamped as provenance onto any SNP set you save for maladaptation — so **every genetic-offset run already carries the strategy you picked there**. Persisted per project in `_intermediate/region_params.json`, not in this YAML.
+- **Interactive (set in Shiny, or declared per SNP set)** — the GEA/GWAS filter bar's strategy selector: `All` (union of all methods), `Overlap` (≥2 methods agree within the SNP clumping distance), or `MethodOverlap` (same, plus the two methods must agree on the same predictor). It re-derives from the per-method sig-SNP tables, drives the live region table/rectangles, and is stamped as provenance onto any SNP set you save for maladaptation — so **every genetic-offset run already carries the strategy you picked there**. Persisted per project in `_intermediate/region_params.json`. The same selection, strategy included, can be written into config as a declared SNP set (`GEA.snp_sets`, below), which runs the app's own selection code.
 - **Static (config)** — `GEA.combine_method` / `GWAS.combine_method` (above). Governs the pipeline-written `selected_snps.tsv`, the `regions_*`/`genes_*`/enrichment tables Snakemake derives from it, the `mode=gea_x_gwas` pairwise overlap table, and the combined/Miami background superset. Default `All` is a plain union with no family-wise control across methods — with ~10 methods configured it is the least selective option, and it is deliberately the default because these tables are the recall-maximal superset the interactive path curates down from. Set it only if you want the *published static* tables themselves narrowed.
 
 Note that `Overlap` is a ≥2-of-N rule over whatever methods are configured — with 11 methods, ≥2-of-11 is much weaker than the ≥2-of-3 panel used in the MVP benchmark. To get that scheme, configure three methods, not eleven.
+
+**Declared SNP sets (`GEA.snp_sets`, mirrored by `GWAS.snp_sets`)** — the config twin of the GEA tab's "Save SNP set for maladaptation". Each entry names one curated SNP set. `mode=gea` (or `mode=gwas`) builds it into `_intermediate/snp_sets/gea.<name>/` (`gwas.<name>/`), where `mode=maladaptation` picks it up exactly like a set saved from the app. The selection is the app's own code (`scripts/R/lib/snp_set_select.R`), so a declared set reproduces a saved one SNP for SNP. Omitted entirely, nothing changes.
+
+```yaml
+GEA:
+  snp_sets:
+    - name: default                # each method's own GEA.configs rule, every column, Union
+    - name: strict
+      threshold_type: bonf
+      threshold_value: 0.01        # every cell; RDA keeps its registry rule (bonf 0.01)
+    - name: tuned
+      threshold_type: bonf
+      threshold_value: 0.05
+      methods: [EMMAX, LFMM]       # omitted = every GEA.configs method
+      traits: [bio_1, bio_12]      # omitted = every column those methods emit
+      overrides:                   # applied method -> trait -> trait::method
+        LFMM: {value: 0.01}        # no type: keeps the type of the rule it overrides
+        bio_12: {type: custom, value: 1.0e-5}
+        "bio_1::EMMAX": {type: qval, value: 0.1}
+      strategy: Cross-method       # Union (default) | Cross-method | Cross-method per-trait | one method
+      clumping_distance: 100000    # Cross-method window (bp); default GEA.snp_clumping_distance
+    - name: picked
+      pairs: ["bio_1::LFMM", "bio_12::EMMAX", "climate_multivariate::RDA"]
+```
+
+| Key | Meaning | Default |
+|-----|---------|---------|
+| `name` | `^[A-Za-z0-9_]+$`, unique within the group. The `gea.` / `gwas.` prefix is added for you, and the app refuses to save a set under either prefix | required |
+| `threshold_type` / `threshold_value` | One rule for every cell (a cell is one `trait::method` p-value column). Types: `bonf`, `qval`, `top`, `custom`. Type alone takes that type's default value (`0.05` / `0.05` / `100` / `1e-5`); value alone takes the type of the **first** `configs` entry, as the app's master rule does | neither: each method's own `configs` rule |
+| `overrides` | Per-cell exceptions keyed by a method, a trait, or a quoted `"trait::method"`. Applied in that order, so the most specific wins. A rule gives `type`, `value` or both: a missing `value` takes the type's default, a missing `type` keeps the type it overrides. A bare key that is both a trait and a method name is refused | none |
+| `methods`, `traits` | Select the `traits × methods` rectangle | all `configs` methods × every column they emit |
+| `pairs` | An explicit `trait::method` list instead of a rectangle. Exclusive with `methods`/`traits` | — |
+| `strategy` | `Union` (`All`, `Sum`), `Cross-method` (`Overlap`), `Cross-method per-trait` (`MethodOverlap`, `PairOverlap`), or one method name from the set's own pairs | `Union` |
+| `clumping_distance` | Window (bp) within which two methods' calls count as agreeing. Used only by the Cross-method strategies. A positive integer — `auto_*` is refused | `snp_clumping_distance` of the group when it is a fixed integer, else `100000` (the app's default) |
+| `regime` | Only `snp`. `wza` is refused (not declarable yet) | `snp` |
+
+The rules a set resolves to, and how they differ from the app's sidebar:
+
+- **No threshold declared** — every cell, RDA included, uses its method's own `configs` rule. That makes `gea.default` the same rule set as the static `selected_snps.tsv`.
+- **Any threshold declared** — a multivariate method (RDA) keeps its registry rule (`bonf 0.01`, `workflow/methods/gea.py`), as in the app. An `RDA:` override lifts that pin.
+- **RDA emits one column, `climate_multivariate`**. With RDA configured, `traits: [bio_1]` and no `methods:` is refused, because RDA has no `bio_1` column. List `methods` without RDA, or add `climate_multivariate` to `traits`.
+- **Everything is checked at parse time**: an unknown key, method, trait or override key; a duplicate name or pair; `pairs` together with `traits`/`methods`; a value outside its type's range. A typo fails `snakemake -n`, not the build after every GEA job has run.
+- **A set that selects zero SNPs is not an error.** It is written as a header-only TSV with `n_snps: 0` in its record, and `mode=maladaptation` skips it under `snp_sets: all`.
+- **A one-item list may be a bare string** (`traits: bio_1`). The app's YAML writer collapses `[bio_1]` that way when it re-saves a config.
+
+Each set directory holds `selected_snps.tsv` (`SNPID chr pos min_pvalue`), `declaration.json` (the resolved inputs above, rule input of the build) and `snp_set.yaml`, the reproducibility record (declaration + `k_best`, `n_snps`, `created`). A set saved from the app writes the same record, plus `config_snippet`.
+
+**From the app to config**: saving a set in the GEA tab opens a dialog showing the `GEA.snp_sets` entry that reproduces it, with a copy button. The Maladaptation tab's set details show the same block. Paste it under `GEA.snp_sets`, run `mode=gea`, and `_intermediate/snp_sets/gea.<name>/selected_snps.tsv` matches the saved set. A set saved before records existed shows a block rebuilt from its manifest, with a note that its pair selection is unknown.
 
 ---
 
@@ -398,7 +446,17 @@ Gradient Forest settings are nested under `Maladaptation.methods.gradient_forest
 | `random_model` | Also run a neutral (random SNP) GF model for comparison. When no random SNP has a positive R² the model is written as an `empty_forest` sentinel (the null behaving as a null) and the importance/cumimp plots show the adaptive model alone | `false` |
 | `extrap` | How `predict.gradientForest()` projects the offset onto raster cells whose climate lies **outside the training range**: `true` = linear continuation of each turnover function at its boundary slope (the gradientForest default, and what every published GF-offset code base runs by omission); `false` = the predictor is clamped to the range limit, so the turnover function plateaus (conservative, underestimates offset in novel climate). The manual calls extrapolation "an experimental feature"; Rellstab et al. 2021 ask that novel-climate predictions be flagged, which `gradient_forest_diagnostics.tsv` does (per-predictor training envelope, % of present / future cells outside it). Added 2026-09-13 (audit SC1) | `true` |
 
-**`Maladaptation.snp_sets`** (sibling of `methods`, not nested under `gradient_forest`): `"all"` or a list of SNP set names to run maladaptation on. SNP sets are named and saved from the GEA tab's "Save SNP set for maladaptation" action in Shiny — there is no pipeline-side `run_label`/`combine_method`/`combine_gap` selection anymore; SNP selection happens interactively before the set is saved.
+**`Maladaptation.snp_sets`** (sibling of `methods`, not nested under `gradient_forest`): `"all"` or a list of SNP set names to run maladaptation on. A set comes from one of two places, and both land in the same store, `_intermediate/snp_sets/<name>/`:
+
+- **Saved in the app** — the GEA tab's "Save SNP set for maladaptation". Any name without a `gea.`/`gwas.` prefix.
+- **Declared in config** — `GEA.snp_sets` / `GWAS.snp_sets` (see the GEA section), named `gea.<name>` / `gwas.<name>`. Built at the end of `mode=gea` / `mode=gwas`, never by `mode=maladaptation` itself.
+
+How the names resolve at parse time:
+
+- `all` = every set in the store plus every declared name.
+- A declared set that has not been built yet raises, telling you to run `mode=gea` (or `mode=gwas`) first.
+- A set with zero SNPs is skipped under `all` with an `INFO` line, and raises when named explicitly.
+- A directory left behind by a declaration you have since removed stays in `all` until you delete it (from the app's set list or by hand). Deleting a declared set's directory blocks `all` until `mode=gea` rebuilds it.
 
 ---
 
@@ -425,6 +483,7 @@ GWAS:
 | `GWAS.region_ld_decay_group` | LD decay group (defaults to `GEA.region_ld_decay_group`) | inherited |
 | `GWAS.combine_gap` | Gap for merging SNP sets (defaults to `GEA.combine_gap`) | inherited |
 | `GWAS.combine_method` | Same as `GEA.combine_method`, for the static GWAS tables. **Not** inherited from GEA — the two sources have different method sets, so a single-method name valid for one is invalid for the other | `"All"` |
+| `GWAS.snp_sets` | Same grammar as `GEA.snp_sets`, over `GWAS.configs` and the trait columns; sets are named `gwas.<name>` and built by `mode=gwas`. Thresholds, methods and clumping distance come from the GWAS group, never from GEA | none |
 | `GWAS.promoter_length` | Promoter length (defaults to `GEA.promoter_length`) | inherited |
 
 **Missing value strategies**:
@@ -552,7 +611,11 @@ Set `GFF.go_field: "NULL"` to skip enrichment.
 │   └── {name}.snmfProject/
 │
 └── _intermediate/                         # internal: samples/, annotation/, {method}/, qs_cache/
-    └── region_params.json                 # per-region Shiny parameter persistence
+    ├── region_params.json                 # per-region Shiny parameter persistence
+    └── snp_sets/                          # curated SNP sets read by mode=maladaptation
+        ├── manifest.json                  # app-saved sets only (the pipeline never writes it)
+        ├── <name>/                        # saved in the GEA tab: selected_snps.tsv, snp_set.yaml
+        └── {gea,gwas}.<name>/             # declared in config: selected_snps.tsv, snp_set.yaml, declaration.json
 
 {project_name}_logs/{module}/              # per-module log directories
 ```
