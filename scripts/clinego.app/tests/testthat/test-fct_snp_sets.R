@@ -9,7 +9,7 @@
 # The fixture shape matters and is easy to get wrong: save_snp_set() aggregates
 # min(min_pvalue), so its input must be the EIGHT-column success shape of
 # compute_interactive_sigsnps(), not the seven-column .empty_sigsnps_assoc().
-# combine_sigsnps() stamps min_pvalue at fct_combine.R:135; the empty path never
+# combine_sigsnps() stamps min_pvalue at lib/snp_set_select.R:118; the empty path never
 # does.
 #
 # Writes land under project_base(), redirected to a session tempdir by

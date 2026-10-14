@@ -27,7 +27,7 @@
 # a sibling file and re-open a closed decision.
 
 # ---------------------------------------------------------------------------
-# 1. fct_combine.R:290 — format_threshold_rule()'s no-value branch ends in
+# 1. fct_combine.R:153 — format_threshold_rule()'s no-value branch ends in
 #    `names(which(THRESHOLD_TYPE_CHOICES == type))[1] %||% type`. For a mode that
 #    is not in THRESHOLD_TYPE_CHOICES, which() is empty, names() is character(0),
 #    and [1] is NA_character_ — NOT NULL — so %||% never fires and the `type`
@@ -40,7 +40,7 @@
 # ---------------------------------------------------------------------------
 
 test_that("format_threshold_rule names an unrecognised mode instead of NA", {
-    skip("known bug: fct_combine.R:290 %||% cannot catch NA_character_ — filed 2026-09-12")
+    skip("known bug: fct_combine.R:153 %||% cannot catch NA_character_ — filed 2026-09-12")
 
     expect_identical(format_threshold_rule("something_new", NULL), "something_new")
     expect_identical(format_threshold_rule("fdr", NA), "fdr")

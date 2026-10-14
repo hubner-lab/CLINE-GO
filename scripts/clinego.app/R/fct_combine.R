@@ -36,21 +36,16 @@ method_shape_map <- function(methods) {
     stats::setNames(shapes, methods_sorted)
 }
 
-#' Normalize legacy and alias strategy names to current canonical names
-#' @noRd
-.normalize_strategy <- function(s) {
-    switch(s,
-        # Legacy pipeline names
-        All          = "Union",
-        Sum          = "Union",
-        Overlap      = "Cross-method",
-        MethodOverlap = "Cross-method per-trait",
-        PairOverlap  = "Cross-method per-trait",
-        s  # pass through "Union", "Cross-method", "Cross-method per-trait" unchanged
-    )
-}
-
 #' Combine per-method sig SNPs using a specified strategy (on-the-fly in Shiny)
+#'
+#' Thin wrapper: the implementation is combine_sigsnps_long() in the shared
+#' pipeline lib scripts/R/lib/snp_set_select.R (loaded via CLINEGO_SHARED_LIBS,
+#' zzz.R), so a set saved here and a set declared in config (GEA.snp_sets,
+#' built by scripts/build_snp_set.R) run the same code. The name and formals
+#' stay so callers and the Tier 5 equivalence suite address it unchanged; the
+#' pipeline's own, different combine_sigsnps() lives in lib/combine_sigsnps.R.
+#' .normalize_strategy(), .spatial_overlap_ids() and the .empty_sigsnps*()
+#' skeletons moved to the same lib.
 #'
 #' @param sigsnps_list Named list of data.tables, one per method.
 #'   Each must have columns: SNPID, chr, pos, pvalue, method, trait.
@@ -61,135 +56,7 @@ method_shape_map <- function(methods) {
 #'   Empty data.table if nothing passes.
 #' @noRd
 combine_sigsnps <- function(sigsnps_list, strategy = "All", gap = 200000L) {
-    if (length(sigsnps_list) == 0) return(.empty_sigsnps())
-
-    strategy <- .normalize_strategy(strategy)
-
-    # Drop empty methods
-    sigsnps_list <- sigsnps_list[vapply(sigsnps_list, nrow, integer(1)) > 0]
-    if (length(sigsnps_list) == 0) return(.empty_sigsnps())
-
-    methods_vec <- names(sigsnps_list)
-    gap <- as.integer(gap)
-
-    result <- if (strategy %in% methods_vec) {
-        # ── Single-method ───────────────────────────────────────────────────────
-        data.table::copy(sigsnps_list[[strategy]])
-
-    } else if (strategy == "Union") {
-        # ── Union: all sig SNPs from all methods ────────────────────────────────
-        data.table::rbindlist(sigsnps_list, use.names = TRUE, fill = TRUE)
-
-    } else if (strategy == "Cross-method") {
-        # ── Cross-method spatial overlap (trait-agnostic) ───────────────────────
-        # A SNP passes if any partner exists in another method within gap bp.
-        selected_ids <- character(0)
-        for (n1 in methods_vec) {
-            for (n2 in methods_vec) {
-                if (n1 == n2) next
-                ids <- .spatial_overlap_ids(sigsnps_list[[n1]], sigsnps_list[[n2]], gap)
-                selected_ids <- c(selected_ids, ids)
-            }
-        }
-        selected_ids <- unique(selected_ids)
-        if (length(selected_ids) == 0) return(.empty_sigsnps())
-        all_snps <- data.table::rbindlist(sigsnps_list, use.names = TRUE, fill = TRUE)
-        all_snps[SNPID %in% selected_ids]
-
-    } else if (strategy == "Cross-method per-trait") {
-        # ── Cross-method spatial overlap, same-trait only ───────────────────────
-        all_snps <- data.table::rbindlist(sigsnps_list, use.names = TRUE, fill = TRUE)
-        all_traits <- unique(all_snps$trait)
-        selected_rows <- list()
-        for (n1 in methods_vec) {
-            for (n2 in methods_vec) {
-                if (n1 == n2) next
-                for (bio in all_traits) {
-                    m1_bio <- sigsnps_list[[n1]][trait == bio]
-                    m2_bio <- sigsnps_list[[n2]][trait == bio]
-                    if (nrow(m1_bio) == 0 || nrow(m2_bio) == 0) next
-                    ids1 <- .spatial_overlap_ids(m1_bio, m2_bio, gap)
-                    ids2 <- .spatial_overlap_ids(m2_bio, m1_bio, gap)
-                    if (length(ids1) > 0)
-                        selected_rows <- c(selected_rows, list(m1_bio[SNPID %in% ids1]))
-                    if (length(ids2) > 0)
-                        selected_rows <- c(selected_rows, list(m2_bio[SNPID %in% ids2]))
-                }
-            }
-        }
-        if (length(selected_rows) == 0) return(.empty_sigsnps())
-        unique(data.table::rbindlist(selected_rows, use.names = TRUE, fill = TRUE))
-
-    } else {
-        stop(paste0("Unknown combine strategy: '", strategy,
-                    "'. Valid values: Union, Cross-method, Cross-method per-trait, or a method name."))
-    }
-
-    if (is.null(result) || nrow(result) == 0) return(.empty_sigsnps())
-
-    # Deduplicate — same SNP can appear in multiple methods/traits
-    result <- unique(result, by = c("SNPID", "method", "trait"))
-
-    # Add min_pvalue column for combined Manhattan y-placement
-    # (background PNG y-axis spans the minimum p-value per SNP across all methods)
-    result[, min_pvalue := min(pvalue, na.rm = TRUE), by = "SNPID"]
-
-    result
-}
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
-#' Find SNP IDs from dt1 that have a partner in dt2 within gap bp on same chr
-#' @noRd
-.spatial_overlap_ids <- function(dt1, dt2, gap) {
-    if (nrow(dt1) == 0 || nrow(dt2) == 0) return(character(0))
-
-    # Expand dt1 to windows [pos-gap, pos+gap]; dt2 stays as points [pos, pos]
-    win <- data.table::data.table(
-        chr   = as.character(dt1$chr),
-        start = pmax(1L, as.integer(dt1$pos) - gap),
-        end   = as.integer(dt1$pos) + gap,
-        SNPID = dt1$SNPID
-    )
-    pts <- data.table::data.table(
-        chr   = as.character(dt2$chr),
-        start = as.integer(dt2$pos),
-        end   = as.integer(dt2$pos),
-        SNPID = dt2$SNPID
-    )
-    data.table::setkey(win, chr, start, end)
-    data.table::setkey(pts, chr, start, end)
-    ov <- data.table::foverlaps(pts, win, type = "within", nomatch = NULL)
-    if (nrow(ov) == 0) return(character(0))
-    # Return IDs from dt1 (window side)
-    unique(ov$SNPID)
-}
-
-#' Empty sig SNPs skeleton
-#' @noRd
-.empty_sigsnps <- function() {
-    data.table::data.table(
-        SNPID  = character(),
-        chr    = character(),
-        pos    = integer(),
-        pvalue = numeric(),
-        method = character(),
-        trait  = character()
-    )
-}
-
-#' Empty sig SNPs skeleton with region_id column (for interactive combine output)
-#' @noRd
-.empty_sigsnps_assoc <- function() {
-    data.table::data.table(
-        SNPID     = character(),
-        chr       = character(),
-        pos       = integer(),
-        pvalue    = numeric(),
-        method    = character(),
-        trait     = character(),
-        region_id = character()
-    )
+    combine_sigsnps_long(sigsnps_list, strategy = strategy, gap = gap)
 }
 
 # ── Shared UI / server helpers ────────────────────────────────────────────────
@@ -716,17 +583,8 @@ compute_interactive_sigsnps <- function(all_method_sigsnps, tm_selection_json,
         if (is.null(parsed) || length(parsed) == 0) all_valid_pairs else parsed
     }
 
-    # Filter each method to selected traits for that method
-    filtered <- lapply(names(all_method_sigsnps), function(m) {
-        paired_traits <- sub("::.*", "",
-            selected_pairs[grepl(paste0("::", m, "$"), selected_pairs, fixed = FALSE)])
-        if (length(paired_traits) == 0) return(NULL)
-        dt <- all_method_sigsnps[[m]]
-        if (nrow(dt) == 0) return(NULL)
-        dt[trait %in% paired_traits]
-    })
-    names(filtered) <- names(all_method_sigsnps)
-    filtered <- Filter(function(x) !is.null(x) && nrow(x) > 0, filtered)
+    # Filter each method to selected traits for that method (shared lib)
+    filtered <- filter_to_pairs(all_method_sigsnps, selected_pairs)
 
     if (length(filtered) == 0) return(.empty_sigsnps_assoc())
 

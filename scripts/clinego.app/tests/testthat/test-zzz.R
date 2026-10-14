@@ -41,7 +41,8 @@ test_that(".onLoad actually put the shared functions in the package namespace", 
     # session that happened to attach them.
     ns <- asNamespace("clinego.app")
     for (fn in c("compute_pval_threshold", "cluster_snps_to_regions",
-                 "extract_gene_id")) {
+                 "extract_gene_id", "combine_sigsnps_long", "filter_to_pairs",
+                 "select_snp_set")) {
         expect_true(exists(fn, envir = ns, inherits = FALSE),
                     info = paste0(fn, " is not in the clinego.app namespace — ",
                                   "zzz.R's load_shared_libs() did not deliver it"))

@@ -52,7 +52,7 @@ skip_without_app <- function() {
 
 # The LONG per-method significant-SNP table. This is the single source of truth
 # for every block below: it is the shape BOTH sides accept
-# (pipeline combine_sigsnps.R:51, app fct_combine.R:63 / fct_regions.R:23).
+# (pipeline combine_sigsnps.R:51, app lib/snp_set_select.R:46 (via fct_combine.R:58) / fct_regions.R:23).
 sig_long <- function(SNPID, chr, pos, trait, method, pvalue) {
     data.table::data.table(SNPID = SNPID, chr = as.character(chr),
                            pos = as.integer(pos), trait = trait,
@@ -473,14 +473,14 @@ test_that("the pipeline's gene_id extraction handles all three attribute shapes"
 #
 # TWO implementations sharing the name combine_sigsnps. Output shapes differ by
 # design: pipeline WIDE one row per SNPID (combine_sigsnps.R:116-117), app LONG
-# one row per (SNPID, method, trait) (fct_combine.R:131-135). So membership is
+# one row per (SNPID, method, trait) (lib/snp_set_select.R:114-118). So membership is
 # compared first and min_pvalue separately.
 
 # suppressWarnings, not just quiet(), on BOTH sides. When a strategy selects
 # NOTHING, each implementation's rbindlist over an empty list produces a table
 # that data.table then flags with its "shallow copy ... := can add or remove
 # columns by reference" notice. The wart is symmetric — pipeline
-# combine_sigsnps.R:166 and app fct_combine.R:121 — belongs to the empty path
+# combine_sigsnps.R:166 and app lib/snp_set_select.R:104 — belongs to the empty path
 # rather than to anything these blocks measure, and this suite's warning
 # baseline is zero, so letting it through would leave standing noise for the
 # next real warning to hide in.
@@ -554,7 +554,7 @@ test_that("Cross-method selects the same SNP set on both sides", {
 
 test_that("KNOWN DIVERGENCE: app Cross-method keeps rows that never matched", {
     # CORRECT behaviour, deliberately not made to pass.
-    # After selecting consensus SNP ids, fct_combine.R:96-97 returns
+    # After selecting consensus SNP ids, lib/snp_set_select.R:79-80 returns
     # all_snps[SNPID %in% selected_ids] — EVERY row for a selected SNP,
     # including (method, trait) rows that were not part of the match. The
     # pipeline returns only the matched rows (combine_sigsnps.R:193-198). So the
@@ -749,12 +749,12 @@ test_that("a scalar distance reaches the shared clusterer identically", {
 #
 # Block 3 above compares Union, single-method and plain Cross-method. The
 # per-trait branch — pipeline .overlap_cross_method(per_trait = TRUE)
-# (combine_sigsnps.R:132-167) against the app's loop (fct_combine.R:99-121) —
+# (combine_sigsnps.R:132-167) against the app's loop (lib/snp_set_select.R:82-104) —
 # has never been compared, only its ALIAS was (block 3's first test).
 #
 # SCOPE NOTE, because the filing is easy to over-read: the superset defect
 # skip()ped at the Cross-method block is the plain Cross-method branch ONLY
-# (fct_combine.R:97 returns all_snps[SNPID %in% selected_ids], every row for a
+# (lib/snp_set_select.R:80 returns all_snps[SNPID %in% selected_ids], every row for a
 # selected SNP). The per-trait branch returns unique(rbindlist(selected_rows)) —
 # matched rows only — and is structurally correct. Do not read that filing as
 # covering this branch.
@@ -875,7 +875,7 @@ test_that("both sides iterate unordered method pairs to the same result set", {
     skip_without_app()
     # The pipeline fixed its double loop to unordered pairs
     # (combine_sigsnps.R:136-142); the app still runs the ordered loop AND calls
-    # both directions inside it (fct_combine.R:104-112). Same answer, 4x the
+    # both directions inside it (lib/snp_set_select.R:87-95). Same answer, 4x the
     # foverlaps calls for two methods. Asserted as agreement so that porting the
     # optimisation cannot silently change the result.
     gap <- 1000L

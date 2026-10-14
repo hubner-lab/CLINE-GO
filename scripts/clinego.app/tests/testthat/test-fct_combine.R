@@ -127,7 +127,7 @@ test_that("every THRESHOLD_TYPE_CHOICES mode is renderable and has a default", {
 })
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# compute_interactive_sigsnps() — fct_combine.R:690
+# compute_interactive_sigsnps() — fct_combine.R:557
 #
 # The trait x method matrix's selection arrives as a JSON string from JS, and the
 # contract at :706-708 is that an EMPTY array means "the matrix rendered with no
@@ -246,7 +246,7 @@ test_that("tm_selection_json = character(0) errors rather than falling back", {
 })
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# default_threshold() vs resolve_adjust() — fct_combine.R:202 and
+# default_threshold() vs resolve_adjust() — fct_combine.R:69 and
 # utils_helpers.R:61.
 #
 # Both read the SAME config block, {GEA|GWAS}.configs, by two different rules:
@@ -291,7 +291,7 @@ test_that("default_threshold falls back to bonf/0.05 when the module has no conf
 
 test_that("the two helpers disagree on an empty GWAS block: GEA fallback vs hardcoded default", {
     # resolve_adjust falls back to GEA.configs (utils_helpers.R:65);
-    # default_threshold does not (fct_combine.R:205). With GWAS.configs empty and
+    # default_threshold does not (fct_combine.R:72). With GWAS.configs empty and
     # GEA populated, the path and the threshold come from different sources.
     cfg <- two_method_config()
     expect_identical(resolve_adjust(cfg, "LFMM", "GWAS"), "qval_0.1")
