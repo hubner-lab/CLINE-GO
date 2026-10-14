@@ -41,6 +41,16 @@ row <- function(step, metric, value) {
     data.table(step = step, metric = metric, value = as.character(value))
 }
 
+# Rows from filter_imputed_maf.R's one-row report (sNMF.imputed_maf on the imputed matrix).
+# Structure reports the LD-pruned set, gea / gwas the full set; the step says which.
+imputed_maf_rows <- function(step, path) {
+    if (identical(path, 'NULL') || !file.exists(path)) return(NULL)
+    rep <- fread(path)
+    rbind(row(step, 'imputed_maf_threshold',   rep$threshold[1]),
+          row(step, 'snps_before_imputed_maf', rep$n_snps_before[1]),
+          row(step, 'snps_after_imputed_maf',  rep$n_snps_after[1]))
+}
+
 #################### Main
 
 # Read existing summary
@@ -360,7 +370,7 @@ if (MODE == 'processing') {
 
 } else if (MODE == 'structure') {
     # args: MODE OUTPUT K_BEST climate_site predictors ld_decay_path ld_decay_group_by ld_decay_scope
-    #       climate_na_excluded
+    #       climate_na_excluded imputed_maf_report
     K_BEST = args[3]
     CLIMATE_SITE = args[4]
     PREDICTORS = args[5]
@@ -368,8 +378,10 @@ if (MODE == 'processing') {
     LD_DECAY_GROUP_BY = if (length(args) >= 7) args[7] else "NULL"
     LD_DECAY_SCOPE_VAL = if (length(args) >= 8) args[8] else "NULL"
     CLIMATE_NA_EXCLUDED = if (length(args) >= 9) args[9] else "NULL"
+    IMP_MAF_REPORT = if (length(args) >= 10) args[10] else "NULL"
 
-    new_rows <- rbind(row('structure', 'K_best', K_BEST))
+    new_rows <- rbind(row('structure', 'K_best', K_BEST),
+                      imputed_maf_rows('structure', IMP_MAF_REPORT))
 
     if (CLIMATE_SITE != 'NULL') {
         predictors_list <- str_split(PREDICTORS, ',')[[1]]
@@ -413,7 +425,7 @@ if (MODE == 'processing') {
 
 } else if (MODE %in% c('gea', 'gwas')) {
     # args: MODE OUTPUT selected_snps regions_per_trait regions_combined genes_per_region
-    #        [region_dist_spec r2_threshold ld_decay_group ld_decay_path]
+    #        [region_dist_spec r2_threshold ld_decay_group ld_decay_path imputed_maf_report]
     is_gwas <- MODE == 'gwas'
     arg_offset <- if (is_gwas) 1L else 0L  # gwas has an extra missing_summary arg before selected_snps
     MISSING_SUMMARY   <- if (is_gwas) args[3] else NULL
@@ -425,6 +437,7 @@ if (MODE == 'processing') {
     R2_THRESHOLD_VAL  <- if (length(args) >= 8 + arg_offset) as.numeric(args[8 + arg_offset]) else 0.2
     LD_DECAY_GROUP_VAL <- if (length(args) >= 9 + arg_offset) args[9 + arg_offset] else 'All'
     LD_DECAY_PATH_VAL <- if (length(args) >= 10 + arg_offset) args[10 + arg_offset] else 'NULL'
+    IMP_MAF_REPORT    <- if (length(args) >= 11 + arg_offset) args[11 + arg_offset] else 'NULL'
 
     # Count selected SNPs
     snps <- fread(SELECTED_SNPS)
@@ -454,7 +467,8 @@ if (MODE == 'processing') {
         row(MODE, 'genes_found',       n_genes),
         row(MODE, 'region_distance_spec',    REGION_DIST_SPEC),
         row(MODE, 'region_r2_threshold',     R2_THRESHOLD_VAL),
-        row(MODE, 'region_ld_decay_group',   LD_DECAY_GROUP_VAL)
+        row(MODE, 'region_ld_decay_group',   LD_DECAY_GROUP_VAL),
+        imputed_maf_rows(MODE, IMP_MAF_REPORT)
     )
 
     # Per-chromosome distances from LD decay table (when auto mode)

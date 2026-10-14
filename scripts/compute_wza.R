@@ -37,8 +37,11 @@ LD_DECAY_GROUP = if (length(args) >= 6) args[6] else "All"
 OUTPUT         = args[7]
 ################
 
-# No WZA-specific MAF cut. The SNP set is whatever `Filter.maf` already admitted — WZA does
-# not get to apply a second, invisible filter on top of the user's.
+# No WZA-specific MAF cut. The SNP set is whatever the method tested -- `Filter.maf` on observed
+# calls, then `sNMF.imputed_maf` (default Filter.maf) on the imputed matrix -- and WZA does not
+# get to apply a further, invisible filter on top of the user's. The weights below use the
+# OBSERVED-call MAF (qc_maf_pos), the unbiased frequency estimate; imputed frequencies are pulled
+# toward each ancestry cluster's mode.
 #
 # This used to be `MIN_MAF_WZA <- 0.05` (Booker et al. §3), applied before windowing. The
 # recommendation is sound in its original setting, but hardcoding it here made the WZA arm
@@ -139,11 +142,11 @@ maf_dt$pos <- as.integer(maf_dt$pos)
 pval_dt <- merge(pval_dt, maf_dt[, .(chr, pos, maf)], by = c("chr", "pos"), all.x = TRUE)
 
 # Drop only SNPs with no usable MAF — see the note at MIN_MAF_WZA's removal above. The MAF
-# threshold itself belongs to Filter.maf and has already been applied upstream.
+# thresholds belong to Filter.maf / sNMF.imputed_maf and have already been applied upstream.
 n_before <- nrow(pval_dt)
 pval_dt  <- pval_dt[!is.na(maf) & maf > 0]
 message(paste0("INFO: SNPs with a usable MAF: ", nrow(pval_dt), "/", n_before,
-               " (no WZA-specific MAF cut; Filter.maf governs)"))
+               " (no WZA-specific MAF cut; Filter.maf + sNMF.imputed_maf govern)"))
 
 if (nrow(pval_dt) == 0) {
     message("WARNING: No SNPs carry a usable MAF. Writing empty WZA output.")

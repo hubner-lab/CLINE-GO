@@ -49,6 +49,18 @@ vcfsnp <- fread(VCFSNP, header = FALSE) %>%
   dplyr::mutate(chrpos = paste0(chr, ':', pos)) %>%
   .$chrpos
 
+# Column i of LFMM is entry i of vcfsnp; the masks below index columns by that position.
+if (ncol(lfmm_dt) != length(vcfsnp)) {
+  stop(sprintf('gradient_forest_model.R: %s has %d SNP columns but %s has %d rows -- the SNP mask would select the wrong columns',
+               LFMM, ncol(lfmm_dt), VCFSNP, length(vcfsnp)))
+}
+n_absent <- sum(!sigsnps %in% vcfsnp)
+if (n_absent > 0) {
+  message(sprintf(paste0('WARNING: %d of %d SNP-set entries are not in this matrix (%s), e.g. dropped by ',
+                         'the sNMF.imputed_maf filter after the set was curated; they are skipped'),
+                  n_absent, length(sigsnps), VCFSNP))
+}
+
 removed_dt <- fread(REMOVED, header = FALSE)
 if (!is.null(removed_dt) && nrow(removed_dt) > 0) {
   removed <- removed_dt %>%

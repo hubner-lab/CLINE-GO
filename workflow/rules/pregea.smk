@@ -126,7 +126,7 @@ rule pregea_lfmm_rung_trait:
         lfmm_ld   = W['lfmm_imp_climate'],
         lfmm_test = W['lfmm_imp_climate'],
         climate   = O['climate_site_scaled'],
-        vcfsnp    = W['vcfsnp'],
+        vcfsnp    = W['vcfsnp_imp'],
     output: f"{INTER}pregea/lfmm/K{{k}}/{{trait}}_pvalues.tsv"
     wildcard_constraints: k = r"\d+", trait = r"[A-Za-z0-9_.]+"
     log:    f"{LOGDIR}pregea/lfmm_K{{k}}_{{trait}}.log"
@@ -312,7 +312,7 @@ rule pregea_rda_setup:
     them, not a Snakemake-level fan-out."""
     input:
         lfmm_pruned   = W['lfmm_imp_climate'],
-        vcfsnp_pruned = W['vcfsnp'],
+        vcfsnp_pruned = W['vcfsnp_imp'],
         climate       = O['climate_site_scaled'],
         pca           = W['pca_projections'],
         samples_order = W['samples_order'],
@@ -400,7 +400,7 @@ if PREGEA_TRANSFER_GUARD:
         input:
             lfmm_pruned   = W['lfmm_imp_climate'],
             lfmm_full     = W['lfmm_imp_full_climate'],
-            vcfsnp_full   = W['vcfsnp_full'],
+            vcfsnp_full   = W['vcfsnp_imp_full'],
             climate       = O['climate_site_scaled'],
             recs          = O['pregea_recommendations'],
             pca           = W['pca_projections'],

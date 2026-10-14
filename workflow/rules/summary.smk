@@ -137,7 +137,8 @@ elif MODE == 'structure':
         input:
             climate_site = O['climate_site'] if CLIMATE_ENABLED else [],
             climate_na_excluded = O['climate_na_excluded'] if CLIMATE_ENABLED and CLIMATE_SOURCE == 'worldclim' else [],
-            ld_decay = O['ld_decay_table']
+            ld_decay = O['ld_decay_table'],
+            imputed_maf_report = W['imputed_maf_report']
         output: W['summary_done']
         params:
             k = K_BEST,
@@ -155,7 +156,7 @@ elif MODE == 'structure':
                 structure {params.summary_tsv} \
                 {params.k} {params.climate_site_path} {params.predictors} \
                 {params.ld_decay_path} {params.ld_decay_group_by} {params.ld_decay_scope} \
-                {params.climate_na_excluded_path} > {log} 2>&1
+                {params.climate_na_excluded_path} {input.imputed_maf_report} > {log} 2>&1
             touch {output}
             """
 
@@ -167,7 +168,8 @@ elif MODE == 'gea':
             regions_per_trait = O['regions_per_trait'],
             regions_combined = O['regions_combined'],
             genes = O['genes_per_region'],
-            ld_decay = ld_decay_input(REGION_DISTANCE_MODE)
+            ld_decay = ld_decay_input(REGION_DISTANCE_MODE),
+            imputed_maf_report = W['imputed_maf_report_full']
         output: W['summary_done']
         params:
             summary_tsv      = O['summary'],
@@ -182,7 +184,7 @@ elif MODE == 'gea':
                 gea {params.summary_tsv} \
                 {input.selected_snps} {input.regions_per_trait} {input.regions_combined} \
                 {input.genes} {params.region_dist_spec} {params.r2_threshold} \
-                {params.ld_decay_group} {params.ld_decay_path} > {log} 2>&1
+                {params.ld_decay_group} {params.ld_decay_path} {input.imputed_maf_report} > {log} 2>&1
             touch {output}
             """
 
@@ -252,7 +254,8 @@ elif MODE == 'gwas':
             regions_per_trait = O['pheno_regions_per_trait'],
             regions_combined = O['pheno_regions_combined'],
             genes = O['pheno_genes_per_region'],
-            ld_decay = ld_decay_input(PHENO_REGION_DISTANCE_MODE)
+            ld_decay = ld_decay_input(PHENO_REGION_DISTANCE_MODE),
+            imputed_maf_report = W['imputed_maf_report_full']
         output: W['summary_done']
         params:
             summary_tsv      = O['summary'],
@@ -267,7 +270,8 @@ elif MODE == 'gwas':
                 gwas {params.summary_tsv} \
                 {input.missing_summary} {input.selected_snps} {input.regions_per_trait} \
                 {input.regions_combined} {input.genes} {params.region_dist_spec} \
-                {params.r2_threshold} {params.ld_decay_group} {params.ld_decay_path} > {log} 2>&1
+                {params.r2_threshold} {params.ld_decay_group} {params.ld_decay_path} \
+                {input.imputed_maf_report} > {log} 2>&1
             touch {output}
             """
 

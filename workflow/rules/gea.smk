@@ -38,7 +38,7 @@ rule snmf_full:
 rule impute_full:
     """Impute missing genotypes in full dataset using SNMF."""
     input:  snmf = W['snmf_full'], lfmm = W['lfmm_full'], nmissing = W['lfmm_full_nmissing']
-    output: W['lfmm_imp_full']
+    output: W['lfmm_imp_full_raw']
     params: k = K_BEST
     log:    f"{LOGDIR}gea/impute_full.log"
     shell:
@@ -48,13 +48,28 @@ rule impute_full:
 
 rule lfmm2vcf_full:
     """Convert imputed full LFMM to VCF format."""
-    input:  vcf = W['vcf_filt'], lfmm_imp = W['lfmm_imp_full']
-    output: W['vcf_imp_full']
+    input:  vcf = W['vcf_filt'], lfmm_imp = W['lfmm_imp_full_raw']
+    output: W['vcf_imp_full_raw']
     params: blocksize = 20000
     log:    f"{LOGDIR}gea/lfmm2vcf_full.log"
     shell:
         """
         Rscript /pipeline/scripts/lfmm2vcf.R {input.lfmm_imp} {input.vcf} {params.blocksize} > {log} 2>&1
+        """
+
+rule filter_imputed_maf_full:
+    """sNMF.imputed_maf filter on the full imputed matrix -- same script and contract as
+    filter_imputed_maf_ld (structure.smk). Its outputs are the W['*_imp_full'] files every
+    GEA / GWAS / maladaptation consumer reads; vcfsnp_imp_full labels the lfmm columns."""
+    input:  lfmm_imp = W['lfmm_imp_full_raw'], vcfsnp = W['vcfsnp_full'], vcf = W['vcf_imp_full_raw']
+    output: lfmm = W['lfmm_imp_full'], vcfsnp = W['vcfsnp_imp_full'], vcf = W['vcf_imp_full'],
+            report = W['imputed_maf_report_full']
+    params: threshold = IMPUTED_MAF
+    log:    f"{LOGDIR}gea/filter_imputed_maf_full.log"
+    shell:
+        """
+        Rscript /pipeline/scripts/filter_imputed_maf.R {input.lfmm_imp} {input.vcfsnp} {input.vcf} \
+            {params.threshold} {output.lfmm} {output.vcfsnp} {output.vcf} {output.report} > {log} 2>&1
         """
 
 # TPED/kinship for association, from the sNMF-imputed full VCF. Only consumer is
@@ -212,7 +227,7 @@ if "LFMM" in GEA_OTHER_CONFIGS:
             lfmm_ld  = W['lfmm_imp_climate'],
             lfmm_full = W['lfmm_imp_full_climate'],
             climate  = O['climate_site_scaled'],
-            vcfsnp   = W['vcfsnp_full'],
+            vcfsnp   = W['vcfsnp_imp_full'],
         output: f"{INTER}gea_per_trait/LFMM/{{trait}}_pvalues_K{K_BEST}.tsv"
         wildcard_constraints:
             trait = r"bio_\d+"
@@ -262,8 +277,8 @@ if "RDA" in GEA_OTHER_CONFIGS:
             lfmm_full     = W['lfmm_imp_full_climate'],
             lfmm_pruned   = W['lfmm_imp_climate'],
             climate       = O['climate_site_scaled'],
-            vcfsnp_full   = W['vcfsnp_full'],
-            vcfsnp_pruned = W['vcfsnp'],
+            vcfsnp_full   = W['vcfsnp_imp_full'],
+            vcfsnp_pruned = W['vcfsnp_imp'],
             pca           = W['pca_projections'],
             samples_order = W['samples_order'],
             climate_valid = W['climate_valid_samples'],

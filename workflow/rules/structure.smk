@@ -5,7 +5,7 @@
 rule impute_ld:
     """Impute missing genotypes using SNMF results for K_BEST."""
     input:  snmf = W['snmf'], lfmm = W['lfmm'], nmissing = W['lfmm_nmissing']
-    output: W['lfmm_imp']
+    output: W['lfmm_imp_raw']
     params: k = K_BEST
     log:    f"{LOGDIR}structure/impute_ld.log"
     shell:
@@ -15,8 +15,8 @@ rule impute_ld:
 
 rule lfmm2vcf_ld:
     """Convert imputed LFMM back to VCF format."""
-    input:  vcf = W['vcf_ld'], lfmm_imp = W['lfmm_imp']
-    output: W['vcf_imp']
+    input:  vcf = W['vcf_ld'], lfmm_imp = W['lfmm_imp_raw']
+    output: W['vcf_imp_raw']
     params: blocksize = 20000
     log:    f"{LOGDIR}structure/lfmm2vcf_ld.log"
     shell:
@@ -24,6 +24,23 @@ rule lfmm2vcf_ld:
         Rscript /pipeline/scripts/lfmm2vcf.R {input.lfmm_imp} {input.vcf} {params.blocksize} > {log} 2>&1
         """
     # NOTE: lfmm2vcf.R already exists, outputs .vcf with same base as .lfmm input
+
+rule filter_imputed_maf_ld:
+    """Keep SNPs whose MAF in the sNMF-IMPUTED LD-pruned matrix is >= sNMF.imputed_maf
+    (default Filter.maf; 0 = keep all). Filter.maf ran on OBSERVED calls (filter_vcf), and
+    imputation fills non-carriers' missing calls, so the matrix every method tests can fall
+    below it. Writes one consistent set -- lfmm columns, vcfsnp rows, VCF rows -- plus a
+    one-row report; REF/ALT and header are copied verbatim (no plink, which swaps alleles)."""
+    input:  lfmm_imp = W['lfmm_imp_raw'], vcfsnp = W['vcfsnp'], vcf = W['vcf_imp_raw']
+    output: lfmm = W['lfmm_imp'], vcfsnp = W['vcfsnp_imp'], vcf = W['vcf_imp'],
+            report = W['imputed_maf_report']
+    params: threshold = IMPUTED_MAF
+    log:    f"{LOGDIR}structure/filter_imputed_maf_ld.log"
+    shell:
+        """
+        Rscript /pipeline/scripts/filter_imputed_maf.R {input.lfmm_imp} {input.vcfsnp} {input.vcf} \
+            {params.threshold} {output.lfmm} {output.vcfsnp} {output.vcf} {output.report} > {log} 2>&1
+        """
 
 if CLIMATE_SOURCE == 'worldclim':
     rule download_climate_present:

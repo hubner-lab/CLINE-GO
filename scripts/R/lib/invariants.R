@@ -399,6 +399,30 @@ check_summary_accounting <- function(summary_dt) {
                                          " predictors but n_climate_variables = ", n_pred))
         }
     }
+
+    # sNMF.imputed_maf filter (filter_imputed_maf.R): it can only remove SNPs, and its input is
+    # the set processing counted -- LD-pruned for structure, the full filtered set for gea/gwas.
+    # A mismatch on "before" is a warn: it is also what a stale processing row looks like.
+    imp_input <- c(structure = "snps_after_ld_pruning", gea = "snps_after_filtering",
+                   gwas = "snps_after_filtering")
+    for (st in names(imp_input)) {
+        before <- num(st, "snps_before_imputed_maf")
+        after_ <- num(st, "snps_after_imputed_maf")
+        if (!any(is.na(c(before, after_))) && after_ > before) {
+            out[[paste0("imp_rise_", st)]] <- violation(
+                "imputed_maf_count_rises", "error", "pipeline_summary.tsv",
+                paste0(st, "/snps_after_imputed_maf"),
+                paste0("the imputed-MAF filter cannot add SNPs: ", before, " before, ", after_, " after"))
+        }
+        upstream <- num("processing", imp_input[[st]])
+        if (!any(is.na(c(before, upstream))) && !isTRUE(all.equal(before, upstream))) {
+            out[[paste0("imp_input_", st)]] <- violation(
+                "imputed_maf_input_disagrees", "warn", "pipeline_summary.tsv",
+                paste0(st, "/snps_before_imputed_maf"),
+                paste0("imputed set has ", before, " SNPs before the filter but processing/",
+                       imp_input[[st]], " = ", upstream))
+        }
+    }
     do.call(combine_violations, unname(out))
 }
 

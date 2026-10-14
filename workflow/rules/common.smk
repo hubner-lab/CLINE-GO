@@ -180,6 +180,20 @@ REPEAT = _as_int(config['sNMF']['repeats'], 'snmf.repeats')
 K_BEST = int(_cfg('sNMF', 'k_best', None)) if _cfg('sNMF', 'k_best', None) is not None else None
 _validate_k_sweep(K_START, K_END, K_BEST)
 SNMF_PROJECT_MODE = 'new'  # LEA project mode: 'new' for fresh runs, 'continue' to resume
+# MAF floor applied to the sNMF-IMPUTED matrices (LD-pruned and full), i.e. the SNP set every
+# GEA/GWAS method tests. Filter.maf runs on OBSERVED calls (plink --maf in filter_vcf); imputation
+# fills non-carriers' missing calls, so the tested MAF can fall below it. Blank/null -> Filter.maf;
+# 0 -> filter off. Cast to float: it is interpolated into file names (0 and 0.0 must be one path).
+_imp_maf_raw = _cfg('sNMF', 'imputed_maf', None)
+if _imp_maf_raw is None or (isinstance(_imp_maf_raw, str) and not _imp_maf_raw.strip()):
+    IMPUTED_MAF = float(MAF)
+else:
+    try: IMPUTED_MAF = float(_imp_maf_raw)
+    except (TypeError, ValueError):
+        raise ValueError(f"sNMF.imputed_maf must be a number in [0, 0.5), got: {_imp_maf_raw}")
+if not (0.0 <= IMPUTED_MAF < 0.5):
+    raise ValueError(f"sNMF.imputed_maf must be in [0, 0.5) (0 = filter off), got: {IMPUTED_MAF}")
+IMP_TAG = f"_K{K_BEST}imp_maf{IMPUTED_MAF}"  # filtered imputed-set file stem; used only when K_BEST is set
 
 # MAP parameters
 CLIMATE_EXTENT = _cfg('Map', 'climate_extent', 'auto')
@@ -1148,6 +1162,10 @@ def _ph(key):
 # --- from add_kbest_paths() ---
 W['lfmm_imp']             = _ph('lfmm_imp')
 W['vcf_imp']              = _ph('vcf_imp')
+W['lfmm_imp_raw']         = _ph('lfmm_imp_raw')
+W['vcf_imp_raw']          = _ph('vcf_imp_raw')
+W['vcfsnp_imp']           = _ph('vcfsnp_imp')
+W['imputed_maf_report']   = _ph('imputed_maf_report')
 W['climate_raster']       = _ph('climate_raster')
 W['ld_decay_work']        = _ph('ld_decay_work')
 W['ld_decay_sample_lists']= _ph('ld_decay_sample_lists')
@@ -1185,6 +1203,10 @@ W['removed_full']         = _ph('removed_full')
 W['snmf_full']            = _ph('snmf_full')
 W['lfmm_imp_full']        = _ph('lfmm_imp_full')
 W['vcf_imp_full']         = _ph('vcf_imp_full')
+W['lfmm_imp_full_raw']    = _ph('lfmm_imp_full_raw')
+W['vcf_imp_full_raw']     = _ph('vcf_imp_full_raw')
+W['vcfsnp_imp_full']      = _ph('vcfsnp_imp_full')
+W['imputed_maf_report_full'] = _ph('imputed_maf_report_full')
 W['emmax_work']           = _ph('emmax_work')
 W['assoc_tped']           = _ph('assoc_tped')
 W['assoc_tfam']           = _ph('assoc_tfam')
@@ -1274,9 +1296,15 @@ def add_kbest_paths():
     if K_BEST is None:
         return
 
-    # Imputed files in LD directory
-    W['lfmm_imp'] = f"{WORK_LD}{VCF_BASE}_K{K_BEST}imp.lfmm"
-    W['vcf_imp'] = f"{WORK_LD}{VCF_BASE}_K{K_BEST}imp.vcf"
+    # Imputed files in LD directory. *_raw = what impute_ld / lfmm2vcf_ld write; the
+    # unsuffixed keys are the sNMF.imputed_maf-filtered set (filter_imputed_maf_ld) that
+    # every consumer tests, with vcfsnp_imp labelling its lfmm columns.
+    W['lfmm_imp_raw'] = f"{WORK_LD}{VCF_BASE}_K{K_BEST}imp.lfmm"
+    W['vcf_imp_raw'] = f"{WORK_LD}{VCF_BASE}_K{K_BEST}imp.vcf"
+    W['lfmm_imp'] = f"{WORK_LD}{VCF_BASE}{IMP_TAG}.lfmm"
+    W['vcf_imp'] = f"{WORK_LD}{VCF_BASE}{IMP_TAG}.vcf"
+    W['vcfsnp_imp'] = f"{WORK_LD}{VCF_BASE}{IMP_TAG}.vcfsnp"
+    W['imputed_maf_report'] = f"{WORK_LD}{VCF_BASE}{IMP_TAG}_report.tsv"
 
     # Climate rasters
     W['climate_raster'] = f"{MOD_CLIMATE}rasters/present/climate_present_rasterstack.tif"
@@ -1419,8 +1447,14 @@ def _add_full_matrix_paths():
     W['vcfsnp_full'] = f"{WORK_FILT}{VCF_BASE}.vcfsnp"
     W['removed_full'] = f"{WORK_FILT}{VCF_BASE}.removed"
     W['snmf_full'] = f"{WORK_FILT}{VCF_BASE}.snmfProject"
-    W['lfmm_imp_full'] = f"{WORK_FILT}{VCF_BASE}_K{K_BEST}imp.lfmm"
-    W['vcf_imp_full'] = f"{WORK_FILT}{VCF_BASE}_K{K_BEST}imp.vcf"
+    # *_raw = impute_full / lfmm2vcf_full output; unsuffixed = the sNMF.imputed_maf-filtered
+    # set (filter_imputed_maf_full) that every method tests; vcfsnp_imp_full labels its columns.
+    W['lfmm_imp_full_raw'] = f"{WORK_FILT}{VCF_BASE}_K{K_BEST}imp.lfmm"
+    W['vcf_imp_full_raw'] = f"{WORK_FILT}{VCF_BASE}_K{K_BEST}imp.vcf"
+    W['lfmm_imp_full'] = f"{WORK_FILT}{VCF_BASE}{IMP_TAG}.lfmm"
+    W['vcf_imp_full'] = f"{WORK_FILT}{VCF_BASE}{IMP_TAG}.vcf"
+    W['vcfsnp_imp_full'] = f"{WORK_FILT}{VCF_BASE}{IMP_TAG}.vcfsnp"
+    W['imputed_maf_report_full'] = f"{WORK_FILT}{VCF_BASE}{IMP_TAG}_report.tsv"
 
 def _add_assoc_kinship_paths():
     """Full-cohort TPED + BN kinship (tped_gea / kinship_gea). Their only consumer
@@ -1936,75 +1970,6 @@ def wza_sig_windows(source, method, adjust):
 def wza_manhattan(source, method, trait, adjust):
     """WZA per-method Manhattan background PNG path."""
     return f"{ASSOC_SOURCES[source]['mod']}plots/manhattan/{method}/manhattan_wza_{trait}_K{K_BEST}_{adjust}_background.png"
-
-
-#=============================================================================
-# RULE FACTORIES — per-engine helpers for dynamic rule declaration
-#=============================================================================
-# These are called from the top-level for-loops in association.smk /
-# phenotype_assoc.smk (same loop idiom). Each helper returns a
-# plain Python dict or string; the rule: blocks live in the .smk files.
-
-def _gea_inputs(engine):
-    """Input dict for a GEA non-GAPIT rule of a given engine."""
-    if engine == "emmax":
-        return dict(
-            vcf      = W['vcf_filt'],
-            tped     = W['assoc_tped'],
-            kinship  = W['assoc_kinship'],
-            traits   = O['climate_site_scaled'],
-            covariates = W['pca_projections'],
-            metadata = O['metadata'],
-        )
-    elif engine == "lfmm":
-        return dict(
-            lfmm_ld  = W['lfmm_imp'],
-            lfmm_full = W['lfmm_imp_full'],
-            climate  = O['climate_site_scaled'],
-            vcfsnp   = W['vcfsnp_full'],
-        )
-    raise ValueError(f"_gea_inputs: unknown engine '{engine}'")
-
-def _gea_params(engine, method):
-    """Params dict for a GEA non-GAPIT rule of a given engine."""
-    if engine == "emmax":
-        return dict(
-            k           = K_BEST,
-            predictors  = PREDICTORS_SELECTED,
-            inter_dir   = INTER,
-            tables_dir  = f"{MOD_GEA}tables/methods/EMMAX/",
-            tped_prefix = f"{WORK_FILT}emmax/{VCF_BASE}",
-        )
-    elif engine == "lfmm":
-        return dict(
-            k          = K_BEST,
-            predictors = PREDICTORS_SELECTED,
-            tables_dir = f"{MOD_GEA}tables/methods/LFMM/",
-        )
-    raise ValueError(f"_gea_params: unknown engine '{engine}'")
-
-
-def _pheno_a_inputs(engine):
-    """Input dict for phenotype Path A (MEAN/MEDIAN) rule of a given engine."""
-    if engine == "emmax":
-        return dict(
-            vcf        = W['vcf_filt'],
-            tped       = W['pheno_tped'],
-            kinship    = W['pheno_kinship'],
-            pca        = W['pca_projections'],
-            phenotypes = W['pheno_all_phenotypes'],
-        )
-    raise ValueError(f"_pheno_a_inputs: unknown engine '{engine}'")
-
-def _pheno_a_params(engine, method):
-    """Params dict for phenotype Path A (MEAN/MEDIAN) rule of a given engine."""
-    if engine == "emmax":
-        return dict(
-            tped_prefix = f"{WORK_FILT}phenotypes/emmax/{VCF_BASE}",
-            k           = K_BEST,
-            tables_dir  = f"{MOD_GWAS}tables/methods/",
-        )
-    raise ValueError(f"_pheno_a_params: unknown engine '{engine}'")
 
 
 #=============================================================================

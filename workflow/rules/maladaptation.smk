@@ -135,7 +135,7 @@ rule gradient_forest_adaptive:
     input:
         lfmm    = W['lfmm_imp_full_climate'],
         sigsnps = lambda wc: snp_set_file(wc.run_label),
-        vcfsnp  = W['vcfsnp_full'],
+        vcfsnp  = W['vcfsnp_imp_full'],
         removed = W['removed_full'],
         samples = W['metadata_climate_valid'],
         climate = O['climate_site'],
@@ -167,7 +167,7 @@ rule gradient_forest_random:
     input:
         lfmm    = W['lfmm_imp_full_climate'],
         sigsnps = lambda wc: snp_set_file(wc.run_label),
-        vcfsnp  = W['vcfsnp_full'],
+        vcfsnp  = W['vcfsnp_imp_full'],
         removed = W['removed_full'],
         samples = W['metadata_climate_valid'],
         climate = O['climate_site'],
@@ -308,7 +308,7 @@ rule geometric_offset:
     """Compute geometric genetic offset using LEA::genetic.gap()."""
     input:
         lfmm_full   = W['lfmm_imp_full_climate'],
-        vcfsnp      = W['vcfsnp_full'],
+        vcfsnp      = W['vcfsnp_imp_full'],
         removed     = W['removed_full'],
         sigsnps     = lambda wc: snp_set_file(wc.run_label),
         env_site_pres  = O['climate_site'],
@@ -361,7 +361,7 @@ rule rda_offset:
     conditioning by default) — see scripts/rda_offset.R and docs/rda_research.md Part B."""
     input:
         lfmm_full     = W['lfmm_imp_full_climate'],
-        vcfsnp        = W['vcfsnp_full'],
+        vcfsnp        = W['vcfsnp_imp_full'],
         removed       = W['removed_full'],
         sigsnps       = lambda wc: snp_set_file(wc.run_label),
         env_site_pres = O['climate_site'],

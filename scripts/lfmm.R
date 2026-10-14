@@ -61,6 +61,13 @@ vcfsnp <- fread(VCFSNP, sep = ' ', header = F) %>%
                   SNPID = paste0(chr, ':', pos)) %>%
     dplyr::select(SNPID, chr, pos)
 
+# Column i of the imputed matrix is row i of the vcfsnp. A count mismatch must stop here:
+# data.table recycles a shorter p-value vector into pval_dt when the lengths divide evenly.
+if (ncol(lfmm_imp) != nrow(vcfsnp)) {
+    stop(sprintf('lfmm.R: %s has %d SNP columns but %s has %d rows -- the SNP labels would not line up',
+                 LFMM_IMP, ncol(lfmm_imp), VCFSNP, nrow(vcfsnp)))
+}
+
 # Run LFMM2 for the single predictor
 message(paste0('INFO: Train LFMM model on LD dataset with ', TRAIT, ' predictor'))
 lfmm.model <- lfmm2(lfmm_ld_imp,
