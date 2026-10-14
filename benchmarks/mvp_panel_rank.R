@@ -12,7 +12,7 @@
 #
 # Under random ranking every panel sits at k/6 (16.7 / 33.3 / 50 %); that reference is
 # drawn on every figure, so separation is read against chance, not as a raw percentage.
-# With six panels top-3 and bottom-3 are complements (ties aside).
+# With six panels top-3 and bottom-3 are complements (exactly so under the tie rule below).
 #
 # Engines are kept APART (GFoffset, LFMM2offset, RDA-uncorrected): they may disagree, and
 # which engine favours which panel is itself a result. "median of 3" -- the median accuracy
@@ -30,6 +30,12 @@
 # "worst" is a coin flip. rank_gaps.tsv records, for every top-1 / bottom-1 call, the gap to
 # the next panel, and rank_summary.tsv the share of those calls decided by a gap < 0.001 and
 # < 0.005 (-tau units; panel-vs-oracle deltas are ~0.03).
+#
+# TIES [changed 2026-10-14, user]. Tied panels share the average rank (frank); every top-k /
+# bottom-k share and V4 then count them by the one tie rule of mvp_rank_ties.R: a panel tied
+# for ranks k and k + 1 counts 0.5 at each. Before, top-k / bottom-k counted rank <= k /
+# rank >= 7 - k, so a tie at 4.5 was never "bottom 2" and one at 5.5 never "bottom 1", while
+# V4 drew round(rank). Units without a tie give exactly the counts they gave before (checked).
 #
 # Outputs (FIG_OUT): rank_long.tsv, rank_summary.tsv (+ bootstrap 95 % CI over replicates),
 # rank_gaps.tsv, winrate.tsv, and figure variants V1-V5 (ms_save, 180 mm wide).
@@ -52,6 +58,7 @@ if (!nzchar(OFF) || !nzchar(OUT)) stop("set OFFSET_DIR and FIG_OUT explicitly (n
 dir.create(OUT, recursive = TRUE, showWarnings = FALSE)
 source(file.path(ROOT, "benchmarks/mvp_arm.R"))
 source(file.path(ROOT, "benchmarks/ms_style.R"))
+source(file.path(ROOT, "benchmarks/mvp_rank_ties.R"))
 B_BOOT <- as.integer(Sys.getenv("N_BOOT", "2000"))
 
 rd <- function(...) {
@@ -125,11 +132,23 @@ acc[, panel := factor(PANELS[marker_set], levels = RULES)]
 acc[, engine := factor(ENGINES[method_label], levels = ENGINES)]
 
 # ------------------------------------------------------------------ ranks
-# rank 1 = most accurate; an empty panel gets -Inf, i.e. last. Ties share the average rank.
+# rank 1 = most accurate; an empty panel gets -Inf, i.e. last. Ties share the average rank here;
+# every count below splits them evenly (mvp_rank_ties.R).
 acc[, key := fifelse(empty, -Inf, accuracy)]
 acc[, rank := frank(-key, ties.method = "average"), by = .(seed, engine)]
 n_tied <- acc[, .(tied = any(duplicated(key))), by = .(seed, engine)][, sum(tied)]
 message(sprintf("(seed, engine) units with a tie: %d of %d", n_tied, uniqueN(acc[, .(seed, engine)])))
+# Tie groups from the raw accuracies (key) must be the groups the tie rule finds from the ranks
+# (sets sharing an average rank): the same partition of every unit. Their sizes are reported,
+# because a tie of three or more sets averages to a whole number.
+acc[, `:=`(g_key = .GRP), by = .(seed, engine, key)][, `:=`(g_rank = .GRP), by = .(seed, engine, rank)]
+stopifnot(uniqueN(acc[, .(g_key, g_rank)]) == uniqueN(acc$g_key),
+          uniqueN(acc$g_key) == uniqueN(acc$g_rank))
+TG <- acc[, .N, by = .(seed, engine, key)][N > 1L]
+message(sprintf("tie groups from the raw accuracies: %d (two sets: %d, three or more: %d); non-integer ranks: %d",
+                nrow(TG), sum(TG$N == 2L), sum(TG$N > 2L), acc[, sum(rank != round(rank))]))
+acc[, c("g_key", "g_rank") := NULL]
+RX <- rank_split(acc, c("seed", "engine"))      # (rank, weight) rows, one per tied rank
 
 # gap from each top-1 / bottom-1 panel to the next one (-tau units); empty panels excluded
 gaps <- acc[!(empty), {
@@ -142,16 +161,40 @@ emit(gaps, "rank_gaps")
 emit(acc[, .(seed, block, arch_lab, engine, panel, empty, accuracy, oracle, delta, rank)], "rank_long")
 
 # ------------------------------------------------------------------ summary + bootstrap
-ind <- function(dt) dt[, .(seed, engine, panel, stratum,
-    top1 = rank <= 1, top2 = rank <= 2, top3 = rank <= 3,
-    bottom1 = rank >= N_PANEL, bottom2 = rank >= N_PANEL - 1, bottom3 = rank >= N_PANEL - 2,
-    mean_rank = rank)]
+# [changed 2026-10-14] Indicators under the tie rule: one fractional row per (seed, engine,
+# panel), computed once and joined onto every stratum row of LONG in LONG's own row order --
+# so each summary row keeps its n and its bootstrap resampling stream, and only tied units move.
+METRICS <- c("top1", "top2", "top3", "bottom1", "bottom2", "bottom3", "mean_rank")
+EXPECT  <- c(top1 = 1, top2 = 2, top3 = 3, bottom1 = 1, bottom2 = 2, bottom3 = 3) / N_PANEL
+IND  <- rank_indicators(RX, c("seed", "engine"), n_set = N_PANEL)
 LONG <- rbind(acc[, stratum := "pooled"][],
               copy(acc)[, stratum := as.character(arch_lab)][],
               copy(acc)[, stratum := block][], use.names = TRUE)
-I <- ind(LONG)
-METRICS <- c("top1", "top2", "top3", "bottom1", "bottom2", "bottom3", "mean_rank")
-EXPECT  <- c(top1 = 1, top2 = 2, top3 = 3, bottom1 = 1, bottom2 = 2, bottom3 = 3) / N_PANEL
+I <- IND[LONG[, .(seed, engine, panel, stratum)], on = .(seed, engine, panel)]
+stopifnot(nrow(I) == nrow(LONG), !anyNA(I[, ..METRICS]))
+setcolorder(I, c("seed", "engine", "panel", "stratum"))
+
+# Check against the previous counts (rank <= k / rank >= 7 - k): units without a tie give exactly
+# the same indicator; in a tied unit a panel moves by 0.5 where the cutoff falls inside its tie
+# (the old count put the average rank on the wrong side), never otherwise; the mean rank is the
+# average rank either way.
+OLD <- acc[, .(seed, engine, panel,
+               top1 = as.numeric(rank <= 1), top2 = as.numeric(rank <= 2), top3 = as.numeric(rank <= 3),
+               bottom1 = as.numeric(rank >= N_PANEL), bottom2 = as.numeric(rank >= N_PANEL - 1),
+               bottom3 = as.numeric(rank >= N_PANEL - 2), mean_rank = rank)]
+CMP <- merge(OLD, IND, by = c("seed", "engine", "panel"), suffixes = c(".old", ".new"))
+stopifnot(nrow(CMP) == nrow(acc))
+CMP <- merge(CMP, RX[, .(tied = any(tie_n > 1L)), by = .(seed, engine)], by = c("seed", "engine"))
+MOVED <- rbindlist(lapply(METRICS, function(v) {
+    d <- CMP[[paste0(v, ".new")]] - CMP[[paste0(v, ".old")]]
+    if (any(d[!CMP$tied] != 0)) stop(v, ": a unit without a tie changed its count")
+    if (!all(abs(d[CMP$tied]) %in% c(0, 0.5))) stop(v, ": a tied panel moved by other than 0 or 0.5")
+    if (v == "mean_rank" && any(abs(d) > 1e-12)) stop("mean rank changed")
+    CMP[d != 0, .(metric = v, change = d[d != 0], seed, engine, panel)]
+}))
+message(sprintf("tie rule vs previous counts: untied units identical; %d panel x metric values moved by 0.5 (all in tied units)",
+                nrow(MOVED)))
+if (nrow(MOVED)) print(dcast(MOVED[, .N, by = .(engine, metric)], engine ~ metric, value.var = "N", fill = 0L))
 
 set.seed(20261003)
 boot_ci <- function(m) {
@@ -171,6 +214,14 @@ SUMM[, n := I[, .N, by = .(engine, panel, stratum)][SUMM, on = .(engine, panel, 
 SUMM[metric != "mean_rank", `:=`(value = 100 * value, lo = 100 * lo, hi = 100 * hi,
                                  expected = 100 * EXPECT[metric])]
 SUMM[metric == "mean_rank", expected := (N_PANEL + 1) / 2]
+# Invariants only the split rule satisfies exactly (each panel spreads one unit of weight over the
+# six ranks, and each rank holds one unit of weight): top 3 + bottom 3 = 100 % on every row, and
+# per engine x stratum the six panels' top-k (bottom-k) shares sum to k x 100 %.
+TB <- dcast(SUMM[metric %in% c("top3", "bottom3")], engine + panel + stratum ~ metric, value.var = "value")
+KS <- SUMM[metric %like% "^(top|bottom)[123]$", .(s = sum(value)), by = .(engine, stratum, metric)]
+stopifnot(max(abs(TB$top3 + TB$bottom3 - 100)) < 1e-9,
+          max(abs(KS$s - 100 * as.integer(substring(KS$metric, nchar(KS$metric))))) < 1e-9)
+message("invariants: top3 + bottom3 = 100 % on every row; top-k and bottom-k sum to k x 100 % per engine x stratum")
 
 # share of top-1 / bottom-1 calls decided by a hair
 hair <- gaps[, .(calls = .N, gap_median = median(gap),
@@ -229,8 +280,9 @@ diverging <- function(k) {
 }
 for (k in 1:3) ms_save(file.path(OUT, sprintf("V%d_rank_top%d", k, k)), diverging(k), 180, 62)
 
-# V4: full rank distribution, ranks 1-6 stacked
-R4 <- acc[, .(n = .N), by = .(engine, panel, r = pmin(N_PANEL, pmax(1, round(rank))))]
+# V4: full rank distribution, ranks 1-6 stacked; a tied panel counts half at each of its ranks
+# [changed 2026-10-14: was round(rank), half to even]
+R4 <- RX[, .(n = sum(w)), by = .(engine, panel, r)]
 R4[, pct := 100 * n / sum(n), by = .(engine, panel)]
 R4[, r := factor(r, levels = N_PANEL:1)]
 R4[, panel := factor(panel, levels = rev(RULES))]
