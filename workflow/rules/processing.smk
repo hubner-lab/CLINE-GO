@@ -321,7 +321,7 @@ rule filter_vcf:
         # header and body agree. scripts/normalize_gff.py applies the SAME rule to the GFF
         # and then compares the two contig sets (audit 2026-09-13 B1).
         sed -E -i '/^#/! s/^[Cc][Hh][Rr]//' {output}
-        sed -E -i 's/^(##contig=<ID=)[Cc][Hh][Rr]/\1/' {output}
+        sed -E -i 's/^(##contig=<ID=)[Cc][Hh][Rr]/\\1/' {output}
 
         echo "INFO: Normalized chromosome names (case-insensitive 'chr' strip; X/Y/MT kept as letters)" >> {log}
         """
