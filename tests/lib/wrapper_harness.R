@@ -447,6 +447,51 @@ fx_geo_triple <- function(d, n_sites = 8L, n_per_site = 2L, k = 3L) {
     c(samples, clusters, env)
 }
 
+# The sNMF-imputed triple filter_imputed_maf.R reads, row/column-aligned exactly as
+# impute.R / vcf2lfmm.R / lfmm2vcf.R write it: an .lfmm (samples x SNPs, no 9s), LEA's
+# .vcfsnp (space-separated with a TRAILING space — the real files have one, and the
+# script must copy kept lines byte for byte), and a tab-separated imputed VCF.
+#
+# Column j carries exactly ac[j] copies of the counted allele (2s, then a 1 when odd),
+# so its minor-allele count is min(ac[j], 2n - ac[j]) by construction. The default is
+# built around a REAL floating-point boundary: n_ind = 25 -> 2n = 50, and
+# 0.14 * 50 == 7.000000000000001, so a SNP with mac 7 sits exactly on MAF 0.14 and a
+# frequency comparison without the epsilon would drop it. At threshold 0.14 the
+# default keeps columns 1, 2, 4, 6 (mac 25, 7, 7, 12) and drops 3, 5 (mac 6, 6).
+fx_imputed_triple <- function(d, ac = c(25L, 7L, 6L, 43L, 44L, 12L), n_ind = 25L,
+                              prefix = "imp") {
+    n_snp <- length(ac)
+    g <- matrix(0L, nrow = n_ind, ncol = n_snp)
+    for (j in seq_len(n_snp)) {
+        twos <- ac[j] %/% 2L
+        if (twos > 0L) g[seq_len(twos), j] <- 2L
+        if (ac[j] %% 2L) g[twos + 1L, j] <- 1L
+    }
+    chr <- rep(c("1", "2"), length.out = n_snp)
+    pos <- seq_len(n_snp) * 1000L
+    samples <- sprintf("0_S%02d", seq_len(n_ind))
+
+    lfmm <- file.path(d, paste0(prefix, ".lfmm"))
+    writeLines(apply(g, 1, paste, collapse = " "), lfmm)
+
+    vcfsnp <- file.path(d, paste0(prefix, ".vcfsnp"))
+    writeLines(sprintf("%s %d snp%d A G . . PR GT ", chr, pos, seq_len(n_snp)), vcfsnp)
+
+    gt <- c("0/0", "0/1", "1/1")[g + 1L]
+    dim(gt) <- dim(g)
+    vcf <- file.path(d, paste0(prefix, ".vcf"))
+    writeLines(c("##fileformat=VCFv4.2",
+                 "##contig=<ID=1,length=100000>",
+                 paste(c("#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO",
+                         "FORMAT", samples), collapse = "\t"),
+                 vapply(seq_len(n_snp), function(j) paste(
+                     c(chr[j], pos[j], paste0("snp", j), "A", "G", ".", ".", "PR", "GT",
+                       gt[, j]), collapse = "\t"), "")),
+               vcf)
+
+    list(lfmm = lfmm, vcfsnp = vcfsnp, vcf = vcf, g = g, ac = ac, n_ind = n_ind)
+}
+
 # A PopLDdecay .stat.gz as read_stat_gz() actually parses it (:39-49): gzipped,
 # WITH a header, and SIX columns renamed positionally to
 # dist_bp, mean_r2, mean_dprime, sum_r2, sum_dprime, n_pairs.

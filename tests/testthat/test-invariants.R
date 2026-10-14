@@ -321,6 +321,50 @@ test_that("check_summary_accounting catches the predictor-count discrepancy", {
     expect_false("climate_predictor_count_disagrees" %in% check_summary_accounting(s_fixed)$check)
 })
 
+# sNMF.imputed_maf rows: SIMDATA's real counts (337 filtered, 230 LD-pruned) with the
+# forced 0.3 run's expected removals. Structure filters the LD-pruned set, gea/gwas the full.
+summary_imputed_maf_ok <- function() rbind(summary_ok(), dt(
+    step   = c("processing", "processing", rep(c("structure", "gea", "gwas"), each = 3L)),
+    metric = c("snps_after_filtering", "snps_after_ld_pruning",
+               rep(c("imputed_maf_threshold", "snps_before_imputed_maf",
+                     "snps_after_imputed_maf"), 3L)),
+    value  = c("337", "230", "0.3", "230", "229", "0.3", "337", "334", "0.3", "337", "334")))
+
+test_that("check_summary_accounting passes imputed-MAF rows that close", {
+    expect_no_violations(check_summary_accounting(summary_imputed_maf_ok()))
+})
+
+test_that("check_summary_accounting catches an imputed-MAF filter that adds SNPs", {
+    s <- summary_imputed_maf_ok()
+    s[step == "gea" & metric == "snps_after_imputed_maf", value := "340"]
+    v <- check_summary_accounting(s)
+    expect_equal(v$check, "imputed_maf_count_rises")
+    expect_equal(v$severity, "error")
+    expect_equal(v$key, "gea/snps_after_imputed_maf")
+})
+
+test_that("check_summary_accounting warns when the imputed set is not the set processing counted", {
+    # structure's input is the LD-pruned set: comparing it with snps_after_filtering
+    # (337) would be the wrong pairing and must not fire.
+    s <- summary_imputed_maf_ok()
+    s[step == "structure" & metric == "snps_before_imputed_maf", value := "231"]
+    v <- check_summary_accounting(s)
+    expect_equal(v$check, "imputed_maf_input_disagrees")
+    expect_equal(v$severity, "warn")
+    expect_equal(v$key, "structure/snps_before_imputed_maf")
+
+    s <- summary_imputed_maf_ok()
+    s[step == "gwas" & metric == "snps_before_imputed_maf", value := "338"]
+    expect_equal(check_summary_accounting(s)$key, "gwas/snps_before_imputed_maf")
+})
+
+test_that("check_summary_accounting skips imputed-MAF checks on a summary that predates them", {
+    # summary_ok() has no imputed-MAF rows at all; a results tree written before the
+    # filter existed must stay clean rather than report NA comparisons.
+    s <- summary_imputed_maf_ok()[!grepl("imputed_maf", metric)]
+    expect_no_violations(check_summary_accounting(s))
+})
+
 test_that("check_summary_counts compares a stated count with the real table", {
     s <- dt(step = "gea", metric = "selected_snps_total", value = "8")
     expect_no_violations(check_summary_counts(s, "gea", list(selected_snps_total = 8L)))

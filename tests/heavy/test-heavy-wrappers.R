@@ -223,3 +223,24 @@ test_that("filter_vcf's plink + sed leave the same contig names normalize_gff.py
                      c("1", "2", "3", "5H", "2H", "X", "MT"))
     expect_true(any(grepl("7 chromosome name\\(s\\) shared", res)))
 })
+
+test_that("lfmm.R stops when the vcfsnp does not label every tested SNP column", {
+    # Since sNMF.imputed_maf, the matrix LFMM tests and the vcfsnp that names its columns
+    # come from filter_imputed_maf.R as a pair. A rule pairing the filtered matrix with the
+    # UNFILTERED vcfsnp used to run clean: data.table recycles the shorter p-value vector
+    # into the SNP table when the lengths divide, so every label after the first removed
+    # SNP was silently wrong. The guard fires before LEA fits anything, so this is cheap;
+    # it lives here only because lfmm.R attaches LEA and WGCNA at the top.
+    skip_if_not(dir.exists(SCRIPTS), "scripts/ not mounted")
+    d <- withr::local_tempdir()
+    f <- fx_imputed_triple(d)                      # 25 samples x 6 SNP columns
+    writeLines(readLines(f$vcfsnp)[-6], f$vcfsnp)   # 5 labels
+    clim <- write_tsv(data.table::data.table(bio_1 = seq_len(f$n_ind) / 10),
+                      file.path(d, "climate.tsv"))
+    out <- file.path(d, "lfmm_pvalues_bio_1.tsv")
+    res <- run_wrapper("lfmm.R", c(f$lfmm, f$lfmm, clim, "2", "bio_1", f$vcfsnp, out), wd = d)
+
+    expect_gt(res$status, 0L)
+    expect_match(res$output, "has 6 SNP columns but .* has 5 rows")
+    expect_false(file.exists(out))
+})

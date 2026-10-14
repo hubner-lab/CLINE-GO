@@ -15,8 +15,9 @@ is a perfectly valid EMMAX input, the scan exits 0, and the p-values merely come
 from a different genotype matrix than the rest of the GEA. The contract is a
 property of the DAG, so it is checked on the DAG: every rule that writes a TPED
 (``--recode12``) or runs an EMMAX scan script must trace its ``vcf`` back, through
-any sample-subsetting rules, to an ``lfmm2vcf_*`` rule — the only producers of an
-imputed VCF.
+any sample-subsetting rules and the ``sNMF.imputed_maf`` filter
+(``filter_imputed_maf_*``, which every chain must pass), to an ``lfmm2vcf_*`` rule —
+the only producers of an imputed VCF.
 
 The rule graph comes from parsing ``workflow/rules/*.smk`` as text and evaluating
 each ``input:`` / ``params:`` expression in the namespace ``_smk_harness.load()``
@@ -191,6 +192,10 @@ class TestEmmaxReadsImputedGenotypes(unittest.TestCase):
                         chain and chain[-1] in IMPUTED_PRODUCERS,
                         f"{name}.{key} = {path} does not come from the sNMF-imputed "
                         f"matrix (producer chain: {chain or 'none'})")
+                    self.assertTrue(
+                        any(r.startswith("filter_imputed_maf_") for r in chain),
+                        f"{name}.{key} = {path} bypasses the sNMF.imputed_maf filter "
+                        f"(producer chain: {chain})")
 
     def test_no_emmax_rule_reads_the_unimputed_vcfs(self):
         for label, cfg in self.configs.items():
@@ -208,11 +213,19 @@ class TestGeaLessGwasHasTheImputedMatrix(unittest.TestCase):
     every K-dependent key with a placeholder."""
 
     def test_full_matrix_paths_are_real_without_gea(self):
-        namespace = H.load(H.make_config(GEA__configs=[]))
-        for key in ("vcf_imp_full", "lfmm_imp_full", "snmf_full", "lfmm_full",
-                    "vcfsnp_full", "gapit_gd", "assoc_kinship"):
-            with self.subTest(key=key):
-                self.assertNotIn("__placeholder_", namespace["W"][key])
+        # The sNMF.imputed_maf keys ride in the same block as lfmm_imp_full; the gwas
+        # summary rule reads imputed_maf_report_full, and the structure one the LD
+        # report, so all of them must resolve in a gwas_only project with no GEA.
+        for label, cfg in (("standard", H.make_config(GEA__configs=[])),
+                           ("gwas_only", H.make_config(GEA__configs=[],
+                                                       Regime={"mode": "gwas_only"}))):
+            namespace = H.load(cfg)
+            for key in ("vcf_imp_full", "lfmm_imp_full", "snmf_full", "lfmm_full",
+                        "vcfsnp_full", "gapit_gd", "assoc_kinship", "vcfsnp_imp_full",
+                        "imputed_maf_report_full", "lfmm_imp_full_raw", "vcf_imp_full_raw",
+                        "imputed_maf_report", "vcfsnp_imp", "lfmm_imp_raw", "vcf_imp_raw"):
+                with self.subTest(regime=label, key=key):
+                    self.assertNotIn("__placeholder_", namespace["W"][key])
 
     def test_gwas_only_emmax_chain_is_fully_resolved(self):
         """Walk every input upstream of each GWAS EMMAX rule in a gwas_only project

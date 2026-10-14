@@ -93,6 +93,14 @@ snp_pos <- as.numeric(vapply(snp_fields, `[`, "", 2))
 # ---- VCF: header verbatim, body rows checked against vcfsnp and filtered -----------------------
 con_in <- file(VCF_IMP, "r")
 con_out <- file(OUT_VCF, "w")
+# A VCF error is found mid-stream, after OUT_VCF has been opened: remove the partial file so
+# a failed run leaves no output behind (nothing else is written before this block finishes).
+fail_vcf <- function(msg) {
+    close(con_in)
+    close(con_out)
+    unlink(OUT_VCF)
+    stop(msg, call. = FALSE)
+}
 row_i <- 0L
 repeat {
     chunk <- readLines(con_in, n = 100000L)
@@ -100,7 +108,7 @@ repeat {
     is_head <- startsWith(chunk, "#")
     if (any(is_head)) {
         if (row_i > 0L || any(is_head[-seq_len(sum(cumprod(is_head)))])) {
-            stop("filter_imputed_maf.R: header line after a body row in ", VCF_IMP)
+            fail_vcf(paste0("filter_imputed_maf.R: header line after a body row in ", VCF_IMP))
         }
         writeLines(chunk[is_head], con_out)
     }
@@ -108,8 +116,8 @@ repeat {
     if (length(body) == 0) next
     idx <- row_i + seq_along(body)
     if (max(idx) > n_snp) {
-        stop(sprintf("filter_imputed_maf.R: %s has more body rows than the %d SNPs in %s",
-                     VCF_IMP, n_snp, LFMM_IMP))
+        fail_vcf(sprintf("filter_imputed_maf.R: %s has more body rows than the %d SNPs in %s",
+                         VCF_IMP, n_snp, LFMM_IMP))
     }
     head2 <- strsplit(substr(body, 1, 200), "\t", fixed = TRUE)
     b_chr <- vapply(head2, `[`, "", 1)
@@ -117,20 +125,19 @@ repeat {
     bad <- which(b_chr != snp_chr[idx] | b_pos != snp_pos[idx])
     if (length(bad)) {
         j <- idx[bad[1]]
-        stop(sprintf("filter_imputed_maf.R: VCF row %d is %s:%s but vcfsnp row %d is %s:%s -- %s and %s are not row-aligned",
-                     j, b_chr[bad[1]], format(b_pos[bad[1]], scientific = FALSE),
-                     j, snp_chr[j], format(snp_pos[j], scientific = FALSE), VCF_IMP, VCFSNP))
+        fail_vcf(sprintf("filter_imputed_maf.R: VCF row %d is %s:%s but vcfsnp row %d is %s:%s -- %s and %s are not row-aligned",
+                         j, b_chr[bad[1]], format(b_pos[bad[1]], scientific = FALSE),
+                         j, snp_chr[j], format(snp_pos[j], scientific = FALSE), VCF_IMP, VCFSNP))
     }
     writeLines(body[keep[idx]], con_out)
     row_i <- max(idx)
 }
+if (row_i != n_snp) {
+    fail_vcf(sprintf("filter_imputed_maf.R: %s has %d body rows but %s has %d SNP columns",
+                     VCF_IMP, row_i, LFMM_IMP, n_snp))
+}
 close(con_in)
 close(con_out)
-if (row_i != n_snp) {
-    unlink(OUT_VCF)
-    stop(sprintf("filter_imputed_maf.R: %s has %d body rows but %s has %d SNP columns",
-                 VCF_IMP, row_i, LFMM_IMP, n_snp))
-}
 
 writeLines(snp_lines[keep], OUT_VCFSNP)
 

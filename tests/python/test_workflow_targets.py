@@ -278,6 +278,73 @@ class TestConfigValidation(unittest.TestCase):
         self.assertEqual(ns["K_BEST"], 3)
 
 
+class TestImputedMafConfig(unittest.TestCase):
+    """sNMF.imputed_maf — the MAF floor on the sNMF-imputed matrices.
+
+    Its value is interpolated into the filtered-set file names (IMP_TAG), so the
+    spelling rules matter as much as the range: `0` and `0.0` must address one
+    file, a blank must mean "same as Filter.maf", and 0 must stay 0 (it is the
+    off switch — an `or`-style fallback would silently turn it into Filter.maf).
+    """
+
+    @staticmethod
+    def _load(value=None, unset=False):
+        config = H.make_config()
+        if not unset:
+            config["sNMF"]["imputed_maf"] = value
+        return H.load(config)
+
+    def test_zero_spellings_give_one_path(self):
+        as_int, as_float = self._load(0), self._load(0.0)
+        self.assertEqual(as_int["IMPUTED_MAF"], 0.0)
+        for key in ("lfmm_imp", "vcf_imp", "vcfsnp_imp", "lfmm_imp_full", "vcf_imp_full",
+                    "vcfsnp_imp_full", "imputed_maf_report", "imputed_maf_report_full"):
+            with self.subTest(key=key):
+                self.assertEqual(as_int["W"][key], as_float["W"][key])
+        for mode in ("structure", "gea", "gwas"):
+            with self.subTest(mode=mode):
+                self.assertEqual(sorted(H.targets(as_int, mode)),
+                                 sorted(H.targets(as_float, mode)))
+
+    def test_zero_is_not_replaced_by_filter_maf(self):
+        self.assertEqual(self._load(0)["IMPUTED_MAF"], 0.0)
+
+    def test_blank_falls_back_to_filter_maf(self):
+        for label, kwargs in (("unset", {"unset": True}), ("null", {"value": None}),
+                              ("empty", {"value": ""}), ("spaces", {"value": "  "})):
+            with self.subTest(spelling=label):
+                ns = self._load(**kwargs)
+                self.assertEqual(ns["IMPUTED_MAF"], float(ns["MAF"]))
+                self.assertIn(f"imp_maf{float(ns['MAF'])}", ns["W"]["lfmm_imp_full"])
+
+    def test_string_numbers_are_accepted(self):
+        # The Shiny form and hand-written YAML can both deliver a quoted number.
+        self.assertEqual(self._load("0.1")["IMPUTED_MAF"], 0.1)
+
+    def test_out_of_range_and_non_numeric_are_rejected(self):
+        for value in (0.5, 0.7, -0.1, "abc", [0.1]):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    self._load(value)
+
+    def test_filtered_and_raw_keys_point_at_different_files(self):
+        """Unsuffixed keys = the filtered set every method reads; *_raw = the
+        impute_* / lfmm2vcf_* output it is filtered from."""
+        W = self._load(0.1)["W"]
+        for level in ("", "_full"):
+            for kind in ("lfmm", "vcf"):
+                filtered, raw = W[f"{kind}_imp{level}"], W[f"{kind}_imp{level}_raw"]
+                with self.subTest(key=f"{kind}_imp{level}"):
+                    self.assertNotIn("__placeholder_", filtered)
+                    self.assertIn("imp_maf0.1.", filtered)
+                    self.assertTrue(raw.endswith(f"_K3imp.{kind}"), raw)
+                    self.assertEqual(filtered.rsplit("/", 1)[0], raw.rsplit("/", 1)[0])
+            with self.subTest(key=f"vcfsnp_imp{level}"):
+                self.assertTrue(W[f"vcfsnp_imp{level}"].endswith("imp_maf0.1.vcfsnp"))
+                self.assertNotEqual(W[f"vcfsnp_imp{level}"], W[f"vcfsnp{level}"])
+        self.assertTrue(W["imputed_maf_report_full"].endswith("imp_maf0.1_report.tsv"))
+
+
 class TestConfigValidationGaps(unittest.TestCase):
     """QUARANTINE — correct behaviour for configs the parser wrongly accepts.
 

@@ -234,6 +234,19 @@ WRAPPERS <- list(
         fails_without_input = TRUE
     ),
     list(
+        # Plumbing only; the keep set, the triple's alignment and the failure
+        # modes are asserted in test-filter_imputed_maf.R.
+        label   = "filter_imputed_maf.R",
+        script  = "filter_imputed_maf.R",
+        build   = function(d) fx_imputed_triple(d),
+        args    = function(d, f) c(f$lfmm, f$vcfsnp, f$vcf, "0.14",
+                                   file.path(d, c("out.lfmm", "out.vcfsnp", "out.vcf",
+                                                  "out_report.tsv"))),
+        outputs = function(d) file.path(d, c("out.lfmm", "out.vcfsnp", "out.vcf",
+                                             "out_report.tsv")),
+        fails_without_input = TRUE
+    ),
+    list(
         label   = "prepare_phenotypes.R (MEAN)",
         script  = "prepare_phenotypes.R",
         build   = function(d) fx_metadata(d),
@@ -341,7 +354,8 @@ WRAPPERS <- list(
         script  = "write_summary.R",
         build   = function(d) fx_ld_decay_table(d),
         args    = function(d, f) c("structure", file.path(d, "pipeline_summary.tsv"),
-                                   "3", "NULL", "NULL", f, "site", "both", "NULL"),
+                                   "3", "NULL", "NULL", f, "site", "both", "NULL",
+                                   "NULL"),
         outputs = function(d) file.path(d, "pipeline_summary.tsv"),
         fails_without_input = FALSE
     ),
@@ -360,11 +374,16 @@ WRAPPERS <- list(
                   file.path(d, "climate_present_site.tsv"))
             na_ex <- write_tsv(data.table::data.table(sample = "ID003"),
                                file.path(d, "climate_na_excluded.tsv"))
-            c(cs, fx_ld_decay_table(d), na_ex)
+            # filter_imputed_maf.R's one-row report (argv[10], summary.smk structure rule).
+            imp <- write_tsv(data.table::data.table(
+                       threshold = 0.05, n_samples = 50L, n_snps_before = 230L,
+                       n_snps_after = 229L, n_snps_removed = 1L),
+                   file.path(d, "imputed_maf_report.tsv"))
+            c(cs, fx_ld_decay_table(d), na_ex, imp)
         },
         args    = function(d, f) c("structure", file.path(d, "pipeline_summary.tsv"),
                                    "3", f[1], "bio_1,bio_12", f[2], "site",
-                                   "both", f[3]),
+                                   "both", f[3], f[4]),
         outputs = function(d) file.path(d, "pipeline_summary.tsv"),
         fails_without_input = FALSE
     ),
