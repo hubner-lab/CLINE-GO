@@ -52,6 +52,7 @@ sNMF:
   k_end: 6                         # Maximum K to test
   k_best: null                     # Set after reviewing cross-entropy plots
   repeats: 10                      # Repetitions per K (higher = more stable)
+  imputed_maf: null                # MAF filter on the imputed matrices; null = Filter.maf, 0 = off
 
 #-----------------------------------------------------------------------------
 # MAP: Geographic extent and resolution for climate data

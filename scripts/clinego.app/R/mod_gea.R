@@ -682,6 +682,8 @@ mod_gea_ui <- function(id) {
 
     lab_root("a", module = "gea",
 
+        lab_kpi_row(ns, alert_id = NULL),
+
         shiny::uiOutput(ns("config_badges")),
 
         # ── Controls: collapsed by default, above the plot they drive ─────────

@@ -125,6 +125,13 @@ config_schema <- function() {
           "numeric", TRUE,
           min = 1, max = 20, step = 1,
           help = "Selected K for all downstream analysis. Review cross-entropy plot first."),
+        s("sNMF.imputed_maf",      "Imputed MAF threshold", "structure", "Structure",
+          "numeric", FALSE,
+          min = 0, max = 0.49, step = 0.01,
+          help = paste("MAF filter on the sNMF-imputed genotype matrices (LD-pruned and full),",
+                       "i.e. the SNP set every GEA/GWAS method tests. Imputation fills missing calls,",
+                       "so SNPs that passed Filter.maf on observed calls can fall below it.",
+                       "Leave blank to use Filter.maf (default); 0 disables the filter.")),
         # Climate.enabled is no longer user-editable here -- it is derived from
         # Regime.mode on every write (fct_config_writer.R). A project declares its
         # regime at creation; see config_regime() in fct_config.R.

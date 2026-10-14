@@ -218,8 +218,49 @@ mod_traits_dashboard_outputs <- function(id, project_data) {
 }
 
 
+#' KPI strip shared by the GEA and GWAS tabs: significant SNPs, regions, genes,
+#' methods, and the sNMF.imputed_maf filter (tested SNPs before -> after).
+#' @param s pipeline_summary as a data.frame (step / metric / value)
+#' @param step "gea" or "gwas"
+#' @noRd
+assoc_summary_boxes <- function(s, step) {
+    sv <- function(metric, default = NA) {
+        if (nrow(s) == 0) return(default)
+        row <- s[s$step == step & s$metric == metric, ]
+        if (nrow(row) == 0) default else row$value[1]
+    }
+    num <- function(x) suppressWarnings(as.numeric(x))
+
+    meth <- if (nrow(s) == 0) character(0) else
+        s$metric[s$step == step & grepl("^sig_snps_", s$metric)]
+    n_snps     <- num(sv("selected_snps_total"))
+    snps_theme <- if (is.na(n_snps)) "secondary"
+                  else if (n_snps == 0) "danger" else "primary"
+
+    bslib::layout_column_wrap(
+        width = 1 / 5, fill = FALSE,
+        imputed_maf_value_box(imputed_maf_counts(s, step)),
+        lab_value_box("Significant SNPs",
+                      as.character(sv("selected_snps_total", "\u2014")),
+                      snps_theme, "bullseye"),
+        lab_value_box("Regions", as.character(sv("regions_combined", "\u2014")),
+                      "info", "geo-alt"),
+        lab_value_box("Genes", as.character(sv("genes_found", "\u2014")),
+                      "success", "diagram-2"),
+        lab_value_box("Methods",
+                      if (length(meth) > 0) as.character(length(meth)) else "\u2014",
+                      "info", "layers")
+    )
+}
+
+
 mod_gea_dashboard_outputs <- function(id, project_data) {
     shiny::moduleServer(id, function(input, output, session) {
+        output$summary_boxes <- shiny::renderUI({
+            pd <- project_data()
+            assoc_summary_boxes(as.data.frame(load_pipeline_summary(pd$name)), "gea")
+        })
+
         for (out_id in c("threshold_bar", "filter_bar", "wza_collapse_note")) {
             ok <- tryCatch({
                 shiny::outputOptions(output, out_id, suspendWhenHidden = FALSE)
@@ -238,33 +279,7 @@ mod_gwas_dashboard_outputs <- function(id, project_data) {
     shiny::moduleServer(id, function(input, output, session) {
         output$summary_boxes <- shiny::renderUI({
             pd <- project_data()
-            s  <- as.data.frame(load_pipeline_summary(pd$name))
-            sv <- function(metric, default = NA) {
-                if (nrow(s) == 0) return(default)
-                row <- s[s$step == "gwas" & s$metric == metric, ]
-                if (nrow(row) == 0) default else row$value[1]
-            }
-            num <- function(x) suppressWarnings(as.numeric(x))
-
-            meth <- if (nrow(s) == 0) character(0) else
-                s$metric[s$step == "gwas" & grepl("^sig_snps_", s$metric)]
-            n_snps     <- num(sv("selected_snps_total"))
-            snps_theme <- if (is.na(n_snps)) "secondary"
-                          else if (n_snps == 0) "danger" else "primary"
-
-            bslib::layout_column_wrap(
-                width = 1 / 4, fill = FALSE,
-                lab_value_box("Significant SNPs",
-                              as.character(sv("selected_snps_total", "—")),
-                              snps_theme, "bullseye"),
-                lab_value_box("Regions", as.character(sv("regions_combined", "—")),
-                              "info", "geo-alt"),
-                lab_value_box("Genes", as.character(sv("genes_found", "—")),
-                              "success", "diagram-2"),
-                lab_value_box("Methods",
-                              if (length(meth) > 0) as.character(length(meth)) else "—",
-                              "info", "layers")
-            )
+            assoc_summary_boxes(as.data.frame(load_pipeline_summary(pd$name)), "gwas")
         })
     })
 }

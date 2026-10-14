@@ -131,6 +131,27 @@ load_pipeline_summary <- function(project) {
     )
 }
 
+#' sNMF.imputed_maf filter counts for one step of pipeline_summary.tsv
+#'
+#' The threshold is read from the summary row, not the live config, so the value
+#' describes the run that produced the results on disk.
+#' @param summary_df long-format summary (step / metric / value)
+#' @param step "structure" (LD-pruned set), "gea" or "gwas" (full set)
+#' @return list(threshold, before, after) or NULL when any of the three rows is absent
+#' @noRd
+imputed_maf_counts <- function(summary_df, step) {
+    if (is.null(summary_df) || nrow(summary_df) == 0) return(NULL)
+    get <- function(metric) {
+        v <- summary_df$value[summary_df$step == step & summary_df$metric == metric]
+        if (length(v) == 0) NA_real_ else suppressWarnings(as.numeric(v[1]))
+    }
+    out <- list(threshold = get("imputed_maf_threshold"),
+                before    = get("snps_before_imputed_maf"),
+                after     = get("snps_after_imputed_maf"))
+    if (any(is.na(unlist(out)))) return(NULL)
+    out
+}
+
 #' Load regions per trait
 #' @noRd
 load_regions_per_trait <- function(project, module = MOD_GEA) {

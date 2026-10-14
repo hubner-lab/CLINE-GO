@@ -57,6 +57,32 @@ lab_value_box <- function(title, value, theme = "primary", icon = "dot") {
     )
 }
 
+#' "before -> after" value for a KPI box (e.g. SNPs raw -> filtered). Both
+#' arguments are display strings; format numbers before passing them.
+lab_arrow_value <- function(before, after) {
+    htmltools::div(
+        style = "display:flex; align-items:baseline; gap:0.4rem;",
+        htmltools::span(style = "opacity:0.7;", before),
+        htmltools::span(style = "opacity:0.6; font-size:0.9em;", "\u2192"),
+        htmltools::strong(after)
+    )
+}
+
+#' KPI box for the sNMF.imputed_maf filter: tested SNPs before -> after.
+#' @param counts list(threshold, before, after) from imputed_maf_counts(), or NULL
+#'   when the run predates the filter (box shows a dash).
+imputed_maf_value_box <- function(counts) {
+    if (is.null(counts)) {
+        return(lab_value_box("Imputed MAF filter", "\u2014", "secondary", "funnel"))
+    }
+    fmt <- function(x) format(x, big.mark = ",", scientific = FALSE, trim = TRUE)
+    title <- if (counts$threshold > 0) {
+        paste0("Imputed MAF filter (\u2265 ", format(counts$threshold), ")")
+    } else "Imputed MAF filter (off)"
+    lab_value_box(title, lab_arrow_value(fmt(counts$before), fmt(counts$after)),
+                  "info", "funnel")
+}
+
 #' Uppercase domain divider (Sample QC / SNP QC).
 #'
 #' `aside` is an optional right-aligned slot for a control that governs the

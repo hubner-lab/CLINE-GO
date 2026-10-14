@@ -139,9 +139,12 @@ mod_maladaptation_server <- function(id, project_data, snp_sets_trigger = NULL) 
                 nrow(data.table::fread(snps_path, select = 1L))
             }, error = function(e) NULL)
             if (is.null(n)) return(NULL)
-            # Get total filtered SNP count for context
+            # Total for context: the SNP set GEA actually tested (after the sNMF.imputed_maf
+            # filter), falling back to the observed filtered count for runs that predate it.
             summ <- load_pipeline_summary(pd$name)
-            n_total_row <- summ[summ$step == "processing" & summ$metric == "snps_after_filtering", ]
+            n_total_row <- summ[summ$step == "gea" & summ$metric == "snps_after_imputed_maf", ]
+            if (nrow(n_total_row) == 0)
+                n_total_row <- summ[summ$step == "processing" & summ$metric == "snps_after_filtering", ]
             n_total <- if (nrow(n_total_row) > 0) suppressWarnings(as.integer(n_total_row$value[1])) else NA_integer_
             label <- if (!is.na(n_total) && n_total > 0) {
                 pct <- round(100 * n / n_total, 1)

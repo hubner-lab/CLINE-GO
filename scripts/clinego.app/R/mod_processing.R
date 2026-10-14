@@ -40,16 +40,6 @@ mod_processing_server <- function(id, project_data) {
                 if (nrow(row) == 0) default else as.character(row$value[1])
             }
 
-            # Arrow display helper
-            arrow_val <- function(raw, filtered) {
-                htmltools::div(
-                    style = "display:flex; align-items:baseline; gap:0.4rem;",
-                    htmltools::span(style = "opacity:0.7;", raw),
-                    htmltools::span(style = "opacity:0.6; font-size:0.9em;", "\u2192"),
-                    htmltools::strong(filtered)
-                )
-            }
-
             # Samples — warning if >10% removed
             n_samp_raw <- sv("samples_total")
             n_samp_flt <- sv("samples_after_filtering")
@@ -58,7 +48,7 @@ mod_processing_server <- function(id, project_data) {
             } else "primary"
             samp_box <- bslib::value_box(
                 title    = "Samples",
-                value    = arrow_val(sv_str("samples_total"), sv_str("samples_after_filtering")),
+                value    = lab_arrow_value(sv_str("samples_total"), sv_str("samples_after_filtering")),
                 theme    = samp_theme,
                 showcase = bsicons::bs_icon("people-fill")
             )
@@ -71,7 +61,7 @@ mod_processing_server <- function(id, project_data) {
             } else "info"
             snp_box <- bslib::value_box(
                 title    = "SNPs",
-                value    = arrow_val(sv_str("snps_raw"), sv_str("snps_after_filtering")),
+                value    = lab_arrow_value(sv_str("snps_raw"), sv_str("snps_after_filtering")),
                 theme    = snp_theme,
                 showcase = bsicons::bs_icon("database-fill")
             )
