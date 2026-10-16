@@ -22,3 +22,24 @@ test_that("null coalescing operator works", {
     expect_equal("value" %||% "default", "value")
     expect_equal(character(0) %||% "default", "default")
 })
+
+test_that("config_mala_predictors falls back to Climate.predictors", {
+    clim <- list(Climate = list(predictors = "bio_1,bio_3,bio_5,bio_12"))
+    expect_equal(config_mala_predictors(clim), c("bio_1", "bio_3", "bio_5", "bio_12"))
+    for (unset in list(NULL, "", "auto", " auto ")) {
+        cfg <- clim
+        cfg$Maladaptation <- list(predictors = unset)
+        expect_equal(config_mala_predictors(cfg), c("bio_1", "bio_3", "bio_5", "bio_12"))
+    }
+    expect_equal(config_mala_predictors(list()), character(0))
+})
+
+test_that("config_mala_predictors reads Maladaptation.predictors as string or list", {
+    cfg <- list(Climate = list(predictors = "bio_1,bio_3,bio_5,bio_12"),
+                Maladaptation = list(predictors = "bio_1, bio_5"))
+    expect_equal(config_mala_predictors(cfg), c("bio_1", "bio_5"))
+    cfg$Maladaptation$predictors <- list("bio_3", "bio_12")
+    expect_equal(config_mala_predictors(cfg), c("bio_3", "bio_12"))
+    cfg$Maladaptation$predictors <- "bio_12"    # R's yaml writer collapses a one-item list
+    expect_equal(config_mala_predictors(cfg), "bio_12")
+})

@@ -456,8 +456,39 @@ def _resolve_scenarios():
 SCENARIOS = _resolve_scenarios()
 SCENARIO_NAMES = list(SCENARIOS)
 
-# GRADIENT FOREST parameters
+# OFFSET PREDICTORS -- the climate predictors every maladaptation model is fitted on.
+# Separate from Climate.predictors because collinearity is harmless for the univariate
+# scans (EMMAX/LFMM test one predictor at a time) and harmful for the offset models:
+# the RDA offset aliases predictors beyond (n_sites - 1) by column order, and Gradient
+# Forest splits importance across correlated predictors. 'auto' (or unset/blank) =
+# Climate.predictors, so an existing config is unchanged. Must be a subset of
+# Climate.predictors -- those are the columns the climate tables are built for.
 _mala_cfg = config.get('Maladaptation', {})
+
+def _resolve_mala_predictors(raw, climate_predictors):
+    climate = climate_predictors if isinstance(climate_predictors, (list, tuple)) \
+        else str(climate_predictors or '').split(',')
+    climate = [str(p).strip() for p in climate if str(p).strip()]
+    if raw is None or (isinstance(raw, str) and raw.strip() in ('', 'auto')):
+        return ','.join(climate)
+    items = raw if isinstance(raw, (list, tuple)) else str(raw).split(',')
+    items = [str(p).strip() for p in items if str(p).strip()]
+    if not items:
+        raise ValueError("Maladaptation.predictors is empty; use 'auto' for Climate.predictors.")
+    dup = sorted({p for p in items if items.count(p) > 1})
+    if dup:
+        raise ValueError(f"Maladaptation.predictors lists {dup} more than once.")
+    unknown = [p for p in items if p not in climate]
+    if unknown:
+        raise ValueError(
+            f"Maladaptation.predictors {unknown} not in Climate.predictors ({','.join(climate)}). "
+            "The offset models can only use predictors the climate tables were built for.")
+    return ','.join(items)
+
+MALA_PREDICTORS = _resolve_mala_predictors(_mala_cfg.get('predictors', 'auto'), PREDICTORS_SELECTED) \
+    if CLIMATE_ENABLED else ''
+
+# GRADIENT FOREST parameters
 _gf = _mala_cfg.get('methods', {}).get('gradient_forest', {})
 NTREE = _gf.get('ntree', '500')
 COR_THRESHOLD = _gf.get('cor_threshold', '0.5')

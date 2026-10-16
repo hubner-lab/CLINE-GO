@@ -67,6 +67,25 @@ config_predictors <- function(config) {
     if (is.character(preds)) preds else character(0)
 }
 
+#' Get the predictors the offset models are fitted on
+#'
+#' `Maladaptation.predictors`, or `Climate.predictors` when unset, blank or
+#' `auto` -- the same resolution as `MALA_PREDICTORS` in common.smk. Accepts a
+#' comma string or a YAML list; returns a character vector of names.
+#' @noRd
+config_mala_predictors <- function(config) {
+    split_preds <- function(x) {
+        x <- trimws(unlist(strsplit(as.character(unlist(x)), ",", fixed = TRUE)))
+        x[nzchar(x)]
+    }
+    raw <- config_get(config, "Maladaptation", "predictors")
+    if (is.null(raw) || identical(trimws(paste(raw, collapse = "")), "") ||
+        identical(trimws(paste(raw, collapse = "")), "auto")) {
+        return(split_preds(config_predictors(config)))
+    }
+    split_preds(raw)
+}
+
 #' Get top_regions setting from config
 #' @noRd
 config_top_regions <- function(config, module = "GEA") {

@@ -235,6 +235,8 @@ Maladaptation:
   snp_sets: 'all'                      # SNP set(s) to run maladaptation on — 'all' or a list of
                                         # names saved from the GEA tab's "Save SNP set" action
                                         # or declared under GEA/GWAS.snp_sets (gea.<name>, gwas.<name>)
+  # predictors: auto                   # predictors the offset models are fitted on; auto = Climate.predictors,
+                                        # else a non-redundant subset of it (RDA offset aliases > n_sites-1 predictors)
 
 #-----------------------------------------------------------------------------
 # OVERLAP: Combined GEA + GWAS analysis (mode=overlapping)

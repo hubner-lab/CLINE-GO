@@ -600,7 +600,7 @@ mod_maladaptation_server <- function(id, project_data, snp_sets_trigger = NULL) 
 
             # Find climate inputs from config
             cfg    <- project_data()$config
-            preds  <- config_get(cfg, "Climate", "predictors") %||% character(0)
+            preds  <- config_mala_predictors(cfg)   # the predictors the offsets were fitted on
             env_sp <- mod_path(project_data()$name, MOD_CLIMATE, "tables", "present",
                                "climate_present_site.tsv")
             env_ap <- mod_path(project_data()$name, MOD_CLIMATE, "tables", "present",

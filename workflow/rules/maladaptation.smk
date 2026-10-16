@@ -143,7 +143,7 @@ rule gradient_forest_adaptive:
         dbmem_selected = lambda wc: O['climate_vp_selected']   if wc.spatial_tag == 'spatial' else []
     output: mala_model('gradient_forest', '{run_label}', '{spatial_tag}', 'adaptive')
     params:
-        predictors    = PREDICTORS_SELECTED,
+        predictors    = MALA_PREDICTORS,
         ntree         = NTREE,
         cor_threshold = COR_THRESHOLD,
         pcnm          = lambda wc: 'with' if wc.spatial_tag == 'spatial' else 'without',
@@ -175,7 +175,7 @@ rule gradient_forest_random:
         dbmem_selected = lambda wc: O['climate_vp_selected']   if wc.spatial_tag == 'spatial' else []
     output: mala_model('gradient_forest', '{run_label}', '{spatial_tag}', 'random')
     params:
-        predictors    = PREDICTORS_SELECTED,
+        predictors    = MALA_PREDICTORS,
         ntree         = NTREE,
         cor_threshold = COR_THRESHOLD,
         pcnm          = lambda wc: 'with' if wc.spatial_tag == 'spatial' else 'without',
@@ -219,7 +219,7 @@ rule gradient_forest_frequency:
         dbmem_selected = lambda wc: O['climate_vp_selected']   if wc.spatial_tag == 'spatial' else []
     output: mala_model('gradient_forest', '{run_label}', '{spatial_tag}', 'frequency')
     params:
-        predictors    = PREDICTORS_SELECTED,
+        predictors    = MALA_PREDICTORS,
         ntree         = NTREE,
         cor_threshold = COR_THRESHOLD,
         pcnm          = lambda wc: 'with' if wc.spatial_tag == 'spatial' else 'without',
@@ -252,7 +252,7 @@ rule gf_sensitivity_check:
         clim_future  = climate_future_site(DEFAULT_SCENARIO)
     output: mala_sensitivity('gradient_forest', '{run_label}', '{spatial_tag}')
     params:
-        predictors = PREDICTORS_SELECTED,
+        predictors = MALA_PREDICTORS,
         samples    = W['metadata_climate_valid'],
         extrap     = 'TRUE' if GF_EXTRAP else 'FALSE'
     log: f"{LOGDIR}maladaptation/gf_sensitivity_check_{{run_label}}_{{spatial_tag}}.log"
@@ -283,7 +283,7 @@ rule gradient_forest_offset:
         # projection setup, written once (per-scenario outside-range shares are rows inside).
         diagnostics = mala_diagnostics('gradient_forest', '{run_label}', '{spatial_tag}')
     params:
-        predictors = PREDICTORS_SELECTED,
+        predictors = MALA_PREDICTORS,
         scenarios  = ','.join(SCENARIO_NAMES),
         extrap     = 'TRUE' if GF_EXTRAP else 'FALSE',
         future_arg = lambda wc, input:  ','.join(input.future_all),
@@ -328,7 +328,7 @@ rule geometric_offset:
     wildcard_constraints:
         spatial_tag = r"nospatial"   # geometric_offset is nospatial-only
     params:
-        predictors = PREDICTORS_SELECTED,
+        predictors = MALA_PREDICTORS,
         k          = lambda wc: GO_K if GO_K != '' else K_BEST,
         scale      = GO_SCALE,
         scenarios  = ','.join(SCENARIO_NAMES),
@@ -388,7 +388,7 @@ rule rda_offset:
         # One rule serves both registered RDA methods; they differ only in params.
         rda_method  = r"rda_offset|rda_offset_corrected"
     params:
-        predictors   = PREDICTORS_SELECTED,
+        predictors   = MALA_PREDICTORS,
         axes         = lambda wc: rdo_cfg(wc.rda_method)['axes'],
         axis_alpha   = lambda wc: rdo_cfg(wc.rda_method)['axis_alpha'],
         permutations = lambda wc: rdo_cfg(wc.rda_method)['permutations'],
@@ -429,7 +429,7 @@ rule plot_gf_cumimp:
     output: mala_cumimp('gradient_forest', '{run_label}', '{spatial_tag}')
     params:
         gf_random_path = lambda wc: mala_model('gradient_forest', wc.run_label, wc.spatial_tag, 'random') if GF_RANDOM_MODEL else 'NULL',
-        predictors     = PREDICTORS_SELECTED,
+        predictors     = MALA_PREDICTORS,
         inter_dir      = INTER
     log: f"{LOGDIR}maladaptation/plot_gf_cumimp_{{run_label}}_{{spatial_tag}}.log"
     shell:
