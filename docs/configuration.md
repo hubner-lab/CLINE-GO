@@ -434,7 +434,12 @@ Maladaptation:
       random_model: false
       extrap: true
   snp_sets: all
+  predictors: auto
 ```
+
+**`Maladaptation.predictors`** (sibling of `methods`): the climate predictors every offset model is fitted on — Gradient Forest (adaptive, random, frequency refit, sensitivity check, offset, cumulative-importance plot), geometric offset and RDA offset. `auto` (or unset/blank) = `Climate.predictors`, so an existing config is unchanged. Otherwise a comma string or a list that must be a subset of `Climate.predictors` (the climate tables are built for those columns); anything else fails at parse time. Default `auto`.
+
+It exists because collinearity matters differently by use. The univariate scans (EMMAX, LFMM) test one predictor at a time, so a large correlated `Climate.predictors` does them no harm. The offset models fit all predictors jointly on one row per sample, and climate only varies among sites. With more predictors than sites − 1 the RDA offset aliases the surplus by **column order**: on 16 predictors and 11 sites it silently dropped bio_11, bio_12, bio_13, bio_15, bio_16, bio_19, which is every precipitation predictor. Gradient Forest splits importance across correlated predictors. Pass a non-redundant subset here (e.g. the GEA RDA's `predictor_set`, screened at site level for |r| and VIF). `density_plot_future` (climate characterization) keeps `Climate.predictors`. The predictors are not part of the output path: changing the key reruns the maladaptation rules in place.
 
 Gradient Forest settings are nested under `Maladaptation.methods.gradient_forest`:
 
