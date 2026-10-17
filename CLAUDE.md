@@ -339,7 +339,7 @@ script in the diff is the exact failure this rule exists to prevent.
 
 ## Important Rules
 
-1. **Do NOT read/view image files** (PNG, SVG, JPG) - User checks plots themselves
+1. **Image files may be viewed** (PNG, SVG, JPG) — the old ban ("User checks plots themselves") was lifted by the user on 2026-10-17. Look at a figure whenever a claim depends on what it shows; prefer the PNG (some region SVGs are 20–50 MB). The user still judges how a figure looks.
 2. **Do NOT modify `Snakefile_old`** - Reference only
 3. **Chromosome normalization** - Pipeline strips "chr" prefix early (chr1→1, chr2H→2H). Both VCF and GFF normalized in processing mode. All outputs use normalized names.
 4. **Log every manual workaround to `docs/pipeline_improvement_requests.md`** — see below. This is mandatory in every session, not optional.
