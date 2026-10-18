@@ -133,8 +133,9 @@ RULE_COL <- c("2/3 methods" = MINOU[["teal"]], "1/3 methods" = MINOU[["sage"]],
               "3/3 methods" = MINOU[["navy"]], "LFMM" = MINOU[["red"]],
               "RDA" = MINOU[["amber"]], "EMMAX" = MS_ORANGE)
 # Offset engines as mvp_panel_rank.R writes them -> manuscript labels.
-ENG_LAB <- c(gradientForest = "Gradient Forest", LFMM2 = "LFMM2", RDA = "RDA",
-             `median of 3` = "median of 3")
+# [2026-10-18] display labels follow the manuscript text; the keys stay the data keys.
+ENG_LAB <- c(gradientForest = "Gradient Forest", LFMM2 = "Geometric offset", RDA = "RDA-based offset",
+             `median of 3` = "Median of the three")
 N_PANEL <- length(RULES)
 # Manuscript vocabulary (user, 2026-10-14). The six things compared are CANDIDATE SETS: three single
 # methods and three AGREEMENT SETS. RULES stay the data keys of every input table; whatever a reader
@@ -327,6 +328,9 @@ message("set order, previous count (rank >= 6, >= 5): ",
 message("set order, ties split evenly:                ",
         paste(sprintf("%s %.3f / %.3f%%", ORD$panel, ORD$bottom1, ORD$bottom2), collapse = " < "))
 if (!identical(ORD_OLD$panel, PANEL_ORDER)) stop("the tie rule changed the order of the candidate sets")
+# [2026-10-18] the order of Figure 2b, as in the 2026-10-14 build (display work must not move it)
+stopifnot(identical(PANEL_ORDER, c("2/3 methods", "1/3 methods", "LFMM", "3/3 methods", "RDA", "EMMAX")))
+message("set order unchanged since 2026-10-14: ", paste(PANEL_ORDER, collapse = " < "))
 
 # =============================================================================
 # Detection plane (A1, D5-det, D6-det)
@@ -383,7 +387,9 @@ bags_of <- function(D, keys) {
     B[, grp := do.call(paste, c(.SD, sep = "|")), .SDcols = keys][]
 }
 
-plane_ms <- function(D, facet, y_lab = TP_LAB) {
+# y0 = FALSE (A1 only, 2026-10-18): the true-positive axis starts just below the lowest bag instead of at 0;
+# the false-positive axis keeps its 0.
+plane_ms <- function(D, facet, y_lab = TP_LAB, y0 = TRUE) {
     keys <- c("label", facet$vars)
     M  <- D[, .(TP = median(TP), FP = median(FP)), by = keys]
     B  <- bags_of(D, keys)
@@ -398,8 +404,8 @@ plane_ms <- function(D, facet, y_lab = TP_LAB) {
                          fontface = "bold", label.size = 0, label.padding = 0.12, box.padding = 0.3,
                          min.segment.length = 0, segment.size = 0.25, segment.colour = MS_INK,
                          seed = JITTER_SEED, show.legend = FALSE, max.overlaps = Inf)
-    # Both count axes start at 0 (the scales train on bags + medians only).
-    p + facet$layer + expand_limits(x = 0, y = 0) +
+    # Both count axes start at 0 (the scales train on bags + medians only); with y0 = FALSE only x does.
+    p + facet$layer + (if (y0) expand_limits(x = 0, y = 0) else expand_limits(x = 0)) +
         scale_x_sqrt(breaks = sqrt_even_breaks) + scale_y_sqrt(breaks = sqrt_even_breaks) +
         scale_colour_manual(values = c(RULE_COL, TEXT_TONES), guide = "none") +
         scale_fill_manual(values = RULE_COL, guide = "none") +
@@ -445,13 +451,21 @@ y_title_fits <- function(p, h_mm, label) {
     need <= h_mm - fixed
 }
 # Every detection plane gives each panel its own false-positive axis (scales = "free_x").
-pA1 <- plane_ms(DET, list(vars = "arch", layer = facet_grid(cols = vars(arch), scales = "free_x")))
+pA1 <- plane_ms(DET, list(vars = "arch", layer = facet_grid(cols = vars(arch), scales = "free_x")), y0 = FALSE)
 if (!y_title_fits(pA1, 62, TP_LAB))
     pA1 <- plane_ms(DET, list(vars = "arch", layer = facet_grid(cols = vars(arch), scales = "free_x")),
-                    y_lab = sub(" (", "\n(", TP_LAB, fixed = TRUE))
+                    y_lab = sub(" (", "\n(", TP_LAB, fixed = TRUE), y0 = FALSE)
 for (pp in ggplot_build(pA1)$layout$panel_params)
     message("A1 panel axis labels  x: ", paste(pp$x$get_labels(), collapse = " "),
             "   y: ", paste(pp$y$get_labels(), collapse = " "))
+# [2026-10-18] y no longer pinned at 0: it must start above 0 and below the lowest bag vertex / median
+A1_LOW <- min(bags_of(DET, c("label", "arch"))$TP, DET[, .(TP = median(TP)), by = .(label, arch)]$TP)
+for (pp in ggplot_build(pA1)$layout$panel_params) {
+    y_lo <- pp$y$continuous_range[1]^2                    # range is on the sqrt scale
+    message(sprintf("A1 panel y range  %.1f to %.1f (lowest bag vertex or median %.1f)",
+                    y_lo, pp$y$continuous_range[2]^2, A1_LOW))
+    stopifnot(pp$y$continuous_range[1] > 0, y_lo < A1_LOW)
+}
 check_ticks(pA1, "A1_detection_plane")
 save_ms("A1_detection_plane", pA1, 180, 62, "part", "detection_per_seed.tsv")
 
@@ -570,8 +584,11 @@ rank_dist <- function(D, extra = NULL, facet_layer) {
         scale_y_discrete(labels = SET_LAB) +
         scale_fill_manual(values = RANK_COL, name = "rank (1 = most accurate)",
                           breaks = as.character(1:N_PANEL)) +
-        scale_x_continuous(labels = function(x) paste0(x, "%"), expand = c(0, 0)) +
-        labs(x = "% replicates at each rank", y = NULL) + theme_ms()
+        # [2026-10-18] ticks 0 / 50 / 100 without "%" (the axis title carries the unit) and room between the
+        # facets, so neighbouring tick labels never touch ("100%0%")
+        scale_x_continuous(breaks = c(0, 50, 100), labels = c("0", "50", "100"), expand = c(0, 0)) +
+        labs(x = "% replicates at each rank", y = NULL) + theme_ms() +
+        theme(panel.spacing.x = unit(4, "mm"))
 }
 pR1 <- rank_dist(RX, NULL, facet_wrap(~ engine_lab, nrow = 1))
 save_ms("R1_rank_distribution", pR1, 180, 66, "part", "rank_long.tsv")
