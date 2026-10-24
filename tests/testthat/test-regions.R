@@ -45,6 +45,27 @@ test_that(".get_dist warns and uses the max when the chromosome is absent", {
     expect_identical(d, 9000L)
 })
 
+# --- distance_for_chr ------------------------------------------------------
+# The one lookup the region clumping, the agreement between methods and the
+# cross-trait overlap annotation share, so all three read a distance alike.
+
+test_that("distance_for_chr repeats an unnamed scalar for every chromosome", {
+    expect_identical(distance_for_chr(500L, c("1", "2", "2")), c(500L, 500L, 500L))
+    expect_identical(distance_for_chr(500, character(0)), integer(0))
+})
+
+test_that("distance_for_chr looks each chromosome up in a per-chromosome map", {
+    spec <- c("1" = 1000L, "2" = 9000L)
+    expect_identical(distance_for_chr(spec, c("2", "1", 2)), c(9000L, 1000L, 9000L))
+})
+
+test_that("distance_for_chr uses the map's maximum for an absent chromosome, with a warning", {
+    spec <- c("1" = 1000L, "2" = 9000L)
+    d <- expect_message(distance_for_chr(spec, c("7", "1", "7")),
+                        "chr '7' not in per-chr distance map")
+    expect_identical(d, c(9000L, 1000L, 9000L))
+})
+
 # --- cluster_snps_to_regions: boundaries -----------------------------------
 
 test_that("a single SNP yields one region spanning [pos - dist, pos + dist]", {

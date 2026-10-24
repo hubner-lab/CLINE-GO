@@ -159,6 +159,33 @@ WRAPPERS <- list(
                                              "selected_snps_per_trait.tsv"))
     ),
     list(
+        # The rule's 9-argument shape: an auto_* agreement distance resolved from
+        # the LD-decay table, the way create_regions.R resolves it.
+        label   = "combine_selected_snps.R (auto_genome_wide agreement distance)",
+        script  = "combine_selected_snps.R",
+        build   = function(d) {
+            a <- file.path(d, "EMMAX", "sig.tsv"); b <- file.path(d, "LFMM", "sig.tsv")
+            fx_sig_snps(a, "EMMAX"); fx_sig_snps(b, "LFMM")
+            c(paste(a, b), fx_ld_decay(file.path(d, "ld_decay.tsv")))
+        },
+        args    = function(d, f) c(f[1], "Cross-method", "auto_genome_wide", "bio_1,bio_2",
+                                   file.path(d, "selected_snps.tsv"),
+                                   file.path(d, "selected_snps_per_trait.tsv"),
+                                   f[2], "0.2", "All"),
+        outputs = function(d) file.path(d, c("selected_snps.tsv",
+                                             "selected_snps_per_trait.tsv"))
+    ),
+    list(
+        # The rule's 10-argument shape: the regime flag, then the LD-decay arguments.
+        label   = "find_sig_snps.R (--snp regime and LD-decay arguments)",
+        script  = "find_sig_snps.R",
+        build   = function(d) fx_pvalues(d),
+        args    = function(d, pv) c(pv, "bonf_0.05", "10000", "EMMAX", "1",
+                                    file.path(d, "sig_snps.tsv"), "--snp", "NULL", "0.2", "All"),
+        outputs = function(d) file.path(d, "sig_snps.tsv"),
+        fails_without_input = TRUE
+    ),
+    list(
         # The real pipeline shape: the WIDE selected_snps.tsv plus its per-trait
         # companion (the row above exercises the "no min_pvalue column" branch
         # with a long table; this one exercises the trait-scoped min_pvalue path).
@@ -1057,3 +1084,37 @@ test_that("an unquoted file list is refused instead of overwriting an input", {
     expect_match(res$output, "must be ONE quoted argument")
     expect_identical(tools::md5sum(c(s1, s2, s3)), before)
 })
+
+test_that("combine_selected_snps.R: an auto_* agreement distance equals its resolved number", {
+    # The finding of 2026-10-13: an auto_* spec reached this script as a string and
+    # became NA. Pairs 2 kb and 5 kb apart: the LD-decay fixture resolves to about
+    # 3 kb, so the auto run must pair the first only, exactly like its number, and
+    # unlike the 10 kb default that pairs both.
+    d  <- withr::local_tempdir()
+    sig <- function(path, method, pos) {
+        dir.create(dirname(path), recursive = TRUE, showWarnings = FALSE)
+        write_tsv(data.table::data.table(
+            SNPID = paste0("1:", pos), chr = "1", pos = as.integer(pos), pvalue = 1e-9,
+            pval_threshold = 0.0025, method = method, trait = "bio_1"), path)
+    }
+    a <- file.path(d, "EMMAX", "sig.tsv"); b <- file.path(d, "RDA", "sig.tsv")
+    sig(a, "EMMAX", c(100000, 300000)); sig(b, "RDA", c(102000, 305000))
+    ld <- fx_ld_decay(file.path(d, "ld_decay.tsv"))
+    n  <- suppressMessages(resolve_clumping_distance("auto_genome_wide", ld))
+    expect_true(n > 2000L && n < 5000L)
+
+    run <- function(spec, out, extra = character(0))
+        run_wrapper("combine_selected_snps.R",
+                    c(paste(a, b), "Cross-method", spec, "bio_1", out, "NULL", extra))
+    r_auto <- run("auto_genome_wide", file.path(d, "auto.tsv"), c(ld, "0.2", "All"))
+    r_num  <- run(as.character(n), file.path(d, "num.tsv"))
+    r_wide <- run("10000", file.path(d, "wide.tsv"))
+    for (r in list(r_auto, r_num, r_wide)) expect_identical(r$status, 0L, info = r$output)
+
+    expect_identical(readLines(file.path(d, "auto.tsv")), readLines(file.path(d, "num.tsv")))
+    picked <- data.table::fread(file.path(d, "auto.tsv"), colClasses = c(chr = "character"))
+    expect_setequal(picked$pos, c(100000L, 102000L))
+    wide <- data.table::fread(file.path(d, "wide.tsv"), colClasses = c(chr = "character"))
+    expect_setequal(wide$pos, c(100000L, 102000L, 300000L, 305000L))
+})
+

@@ -125,9 +125,12 @@ GEA:
     - method: "LFMM"
       adjust: "bonf"
       threshold: '0.05'
-  snp_clumping_distance: 100000    # Region merge distance (bp), fixed default — tune interactively
-                                    # in the GEA tab's filter bar (or "auto_genome_wide"/"auto_per_chromosome"
-                                    # to derive it from the LD decay table instead)
+  snp_clumping_distance: 100000    # ONE distance (bp) for the agreement between methods (Cross-method)
+                                    # and for merging significant SNPs into regions; fixed default — tune
+                                    # interactively in the GEA tab's filter bar (or "auto_genome_wide"/
+                                    # "auto_per_chromosome" to derive it from the LD decay table instead)
+  # region_clumping_distance: 200000 # ADVANCED: a separate distance for the region merge only (bp or
+  #                                # auto_*); unset = snp_clumping_distance for both
   promoter_length: 10000           # Promoter region length for SNP annotation
   # snp_sets:                      # SNP sets for mode=maladaptation, declared instead of saved from the
   #                                # GEA tab; built by mode=gea as _intermediate/snp_sets/gea.<name>/.
@@ -180,8 +183,10 @@ GWAS:
       adjust: "bonf"
       threshold: '0.05'
   missing_strategy: "DROP"         # How to handle samples missing phenotype data
-  snp_clumping_distance: 100000    # Region merge distance (bp), fixed default — tune interactively
-                                    # in the GWAS tab's filter bar
+  snp_clumping_distance: 100000    # ONE distance (bp) for the agreement between methods and the region
+                                    # merge; fixed default — tune interactively in the GWAS tab's filter bar
+  # region_clumping_distance: 200000 # ADVANCED: a separate distance for the region merge only (bp or
+  #                                # auto_*); unset = snp_clumping_distance for both
   promoter_length: 10000           # Promoter region length for SNP annotation
 
 #-----------------------------------------------------------------------------

@@ -11,26 +11,35 @@ suppressPackageStartupMessages({
 
 source("/pipeline/scripts/R/utils/pval_threshold.R")
 source("/pipeline/scripts/R/utils/io_selected_snps.R")
+source("/pipeline/scripts/R/lib/regions.R")          # distance_for_chr()
+source("/pipeline/scripts/R/lib/region_distance.R")  # resolve_clumping_distance_strict()
 source("/pipeline/scripts/R/lib/sig_snps.R")
 
 args = commandArgs(trailingOnly = TRUE)
 ################
 ASSOC_TABLE       = args[1]  # p-values table
 ADJUST            = args[2]  # e.g., "bonf_0.05"
-CLUMPING_DISTANCE = suppressWarnings(as.numeric(args[3]))
-if (is.na(CLUMPING_DISTANCE)) {
-    message(paste0('INFO: snp_clumping_distance="', args[3], '" — using 1e6 bp fallback for overlap annotation'))
-    CLUMPING_DISTANCE = 1e6
-}
+CLUMPING_SPEC     = args[3]  # bp, or auto_genome_wide | auto_per_chromosome
 METHOD = args[4]  # EMMAX or LFMM
 CPU    = as.numeric(args[5])
 OUTPUT = args[6]
-IS_WZA = length(args) >= 7 && args[7] == "--wza"
+REGIME         = if (length(args) >= 7) args[7] else "--snp"   # --snp | --wza
+LD_DECAY_PATH  = if (length(args) >= 8) args[8] else "NULL"    # resolves an auto_* spec
+R2_THRESHOLD   = if (length(args) >= 9) as.numeric(args[9]) else 0.2
+LD_DECAY_GROUP = if (length(args) >= 10) args[10] else "All"
 ################
+if (!REGIME %in% c("--snp", "--wza"))
+    stop("find_sig_snps.R: argument 7 must be --snp or --wza, got '", REGIME, "'")
+IS_WZA = REGIME == "--wza"
+
+# The cross-trait overlap annotation reads the shared clumping distance; an auto_*
+# spec is resolved from the LD-decay table exactly as create_regions.R resolves it.
+CLUMPING_DISTANCE <- resolve_clumping_distance_strict(CLUMPING_SPEC, LD_DECAY_PATH,
+                                                      R2_THRESHOLD, LD_DECAY_GROUP)
 
 message(paste0('INFO: Finding significant SNPs for ', METHOD))
 message(paste0('INFO: Adjustment: ', ADJUST))
-message(paste0('INFO: SNP clumping distance: ', CLUMPING_DISTANCE))
+message(paste0('INFO: SNP clumping distance: ', format_clumping_distance(CLUMPING_DISTANCE)))
 
 adjustment <- str_split(ADJUST, '_')[[1]][1]
 pval_value <- as.numeric(str_split(ADJUST, '_')[[1]][2])
@@ -66,7 +75,7 @@ if (IS_WZA) {
     }
 }
 
-sig <- annotate_cross_trait_overlaps(result$sig_snps, as.integer(CLUMPING_DISTANCE))
+sig <- annotate_cross_trait_overlaps(result$sig_snps, CLUMPING_DISTANCE)
 sig[, method := METHOD]
 
 final <- sig[, .(SNPID, chr, pos, pvalue, pval_threshold, method,

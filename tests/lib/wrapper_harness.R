@@ -70,6 +70,17 @@ fx_pvalues <- function(d, name = "pvalues.tsv") {
     write_tsv(dt, file.path(d, name))
 }
 
+# LD-decay table as mode=structure writes it: one genome-wide Hill-Weir row for the
+# group "All". C = 0.001 with n = 50 resolves r2 = 0.2 to about 3 kb.
+fx_ld_decay <- function(path) {
+    dir.create(dirname(path), recursive = TRUE, showWarnings = FALSE)
+    write_tsv(data.table::data.table(
+        group = "All", scope = "genome_wide", method = "hill_weir",
+        C_hat = 0.001, n_samples = 50, max_dist_bp = 500000,
+        half_decay_bp = NA_real_, r2_02_bp = NA_real_, r2_intercept = NA_real_), path)
+    path
+}
+
 fx_sig_snps <- function(path, method, traits = c("bio_1", "bio_2")) {
     dir.create(dirname(path), recursive = TRUE, showWarnings = FALSE)
     dt <- data.table::data.table(

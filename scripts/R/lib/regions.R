@@ -7,18 +7,31 @@
 # their gap <= 2*distance, matching the GRanges "extend by dist + reduce" approach.
 # Region boundaries: [min(pos)-distance, max(pos)+distance].
 
+# Resolve the distance for each element of a chromosome vector from a scalar or a
+# named per-chromosome integer vector (auto_per_chromosome). A chromosome missing
+# from the map gets the map's maximum, with a warning. One lookup for the three
+# users of the clumping distance: region clumping (below), the agreement between
+# methods (combine_sigsnps.R) and the cross-trait overlap annotation (sig_snps.R).
+distance_for_chr <- function(dist_spec, chr) {
+    chr <- as.character(chr)
+    if (length(dist_spec) == 1 && is.null(names(dist_spec))) {
+        return(rep(as.integer(dist_spec), length(chr)))
+    }
+    d <- unname(dist_spec[chr])
+    absent <- unique(chr[is.na(d)])
+    if (length(absent) > 0) {
+        fallback <- max(dist_spec, na.rm = TRUE)
+        for (chr_name in absent) {
+            message(paste0("WARNING: chr '", chr_name, "' not in per-chr distance map; using max=", fallback, " bp"))
+        }
+        d[is.na(d)] <- fallback
+    }
+    as.integer(d)
+}
+
 # Resolve per-chromosome distance from a scalar or named integer vector.
 .get_dist <- function(dist_spec, chr_name) {
-    if (length(dist_spec) == 1 && is.null(names(dist_spec))) {
-        return(as.integer(dist_spec))
-    }
-    chr_name <- as.character(chr_name)
-    if (chr_name %in% names(dist_spec)) {
-        return(as.integer(dist_spec[[chr_name]]))
-    }
-    fallback <- max(dist_spec, na.rm = TRUE)
-    message(paste0("WARNING: chr '", chr_name, "' not in per-chr distance map; using max=", fallback, " bp"))
-    return(as.integer(fallback))
+    distance_for_chr(dist_spec, chr_name)
 }
 
 # Exact trait membership test for a comma-separated trait cell.

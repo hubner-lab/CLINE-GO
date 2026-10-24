@@ -155,3 +155,23 @@ resolve_clumping_distance <- function(spec, ld_decay_path = "NULL",
 
     dist_map
 }
+
+# Strict variant for the association scripts (find_sig_snps.R, combine_selected_snps.R):
+# a spec that is neither a number of bp nor an auto_* mode is a configuration error,
+# never the silent 1e6 bp fallback resolve_clumping_distance() keeps for old callers.
+resolve_clumping_distance_strict <- function(spec, ld_decay_path = "NULL",
+                                             r2_threshold = 0.2, group = "All") {
+    spec_lower <- tolower(trimws(as.character(spec)))
+    is_auto    <- spec_lower %in% c("auto_per_chromosome", "auto_genome_wide", "auto")
+    if (!is_auto && is.na(suppressWarnings(as.numeric(spec)))) {
+        stop("clumping distance '", spec, "' is neither a number of bp nor an auto_* mode")
+    }
+    resolve_clumping_distance(spec, ld_decay_path, r2_threshold, group)
+}
+
+# One-line description of a resolved distance for the logs.
+format_clumping_distance <- function(dist) {
+    if (length(dist) == 1 && is.null(names(dist))) return(paste0(dist, " bp"))
+    paste0("per chromosome, ", min(dist), "-", max(dist), " bp (",
+           paste0(names(dist), "=", dist, collapse = ", "), ")")
+}

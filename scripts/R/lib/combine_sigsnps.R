@@ -56,11 +56,14 @@ combine_sigsnps_with_traits <- function(sig_snps_list, strategy, clumping_distan
 
 .combine_core <- function(sig_snps_list, strategy, clumping_distance, predictors) {
     strategy        <- .normalise_strategy(strategy)
-    clumping_distance <- as.integer(clumping_distance)
+    # One scalar, or a named per-chromosome vector (auto_per_chromosome); names kept
+    clumping_distance <- stats::setNames(as.integer(clumping_distance), names(clumping_distance))
     methods_vec     <- names(sig_snps_list)
 
     message(paste0("INFO: Combining SNPs. Strategy: ", strategy,
-                   "  Clumping distance: ", clumping_distance))
+                   "  Clumping distance: ",
+                   if (is.null(names(clumping_distance))) clumping_distance
+                   else paste0(names(clumping_distance), "=", clumping_distance, collapse = ",")))
 
     # Filter by predictors (climate traits)
     sig_filtered <- lapply(sig_snps_list, function(dt) {
@@ -198,12 +201,14 @@ combine_sigsnps_with_traits <- function(sig_snps_list, strategy, clumping_distan
 }
 
 # foverlaps-based overlap: find rows in dt2 within clumping_distance of any row in dt1.
-# Returns rbind of matched rows from both tables.
+# Returns rbind of matched rows from both tables. A per-chromosome distance is looked
+# up by chromosome with regions.R's distance_for_chr(); both rows of a match share it.
 .snp_overlap <- function(dt1, dt2, clumping_distance) {
     # Extend dt1 by clumping_distance on both sides
     q1 <- data.table::copy(dt1)
-    q1[, s := pmax(1L, as.integer(pos) - clumping_distance)]
-    q1[, e := as.integer(pos) + clumping_distance]
+    d  <- distance_for_chr(clumping_distance, q1$chr)
+    q1[, s := pmax(1L, as.integer(pos) - d)]
+    q1[, e := as.integer(pos) + d]
 
     s2 <- data.table::copy(dt2)
     s2[, s := as.integer(pos)]

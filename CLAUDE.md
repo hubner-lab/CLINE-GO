@@ -161,7 +161,7 @@ Config uses nested YAML groups. Old flat `UPPER_SNAKE_CASE` keys are auto-migrat
 6. **climate** - `predictors` (was CLIMATE_VARS)
 7. **pop** - `calc_stats`, `window_size`, `custom_trait_file`
 8. **piemap** - `alpha`, `show_labels`, `label_size`, `pie_scale`, `use_points`
-9. **association** - `configs` (list of method/adjust/threshold), `combine_method`, `combine_gap`, `sig_snp_distance`, `region_distance`, `top_regions`, `promoter_length`, `go_field`, `scattermore_threshold`
+9. **association** - `configs` (list of method/adjust/threshold), `combine_method`, `snp_clumping_distance` (ONE distance for the cross-method agreement, the cross-trait overlap annotation and the region merge: bp, or `auto_genome_wide`/`auto_per_chromosome` resolved from the LD-decay table by every consumer since 2026-10-24; the legacy `combine_gap`/`region_distance` names migrate to it), `region_clumping_distance` (advanced, unset by default: a separate distance for the region merge only), `top_regions`, `promoter_length`, `go_field`
 10. **gff** - `feature`, `gene_name`, `biotype`
 11. **enrichment** - `top_terms`, `plot_width`, `plot_height`, `cnet_label`, `top_plot_regions`
 12. **future** - `ssp`, `year`, `models`

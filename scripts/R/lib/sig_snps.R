@@ -101,13 +101,15 @@ find_significant_snps_per_trait <- function(pvalues_dt, adjustment, value, cpu,
 # which traits they belong to.
 #
 # @param sig_snps  data.table (SNPID, chr, pos, pvalue, pval_threshold, trait)
-# @param distance  integer: search radius in bp (= snp_clumping_distance)
+# @param distance  integer: search radius in bp (= snp_clumping_distance), or a named
+#                  per-chromosome vector (auto_per_chromosome), looked up with
+#                  regions.R's distance_for_chr()
 # @return sig_snps with three extra columns:
 #   overlap_traits   comma-sep trait names within distance (NA if none)
 #   overlap_snps     comma-sep "chr:pos" strings (NA if none)
-#   overlap_distance integer: the distance used
+#   overlap_distance integer: the distance used for that row's chromosome
 annotate_cross_trait_overlaps <- function(sig_snps, distance) {
-    distance <- as.integer(distance)
+    distance <- stats::setNames(as.integer(distance), names(distance))
 
     empty_cols <- function(n) {
         list(
@@ -120,7 +122,7 @@ annotate_cross_trait_overlaps <- function(sig_snps, distance) {
     if (is.null(sig_snps) || nrow(sig_snps) == 0) {
         sig_snps[, overlap_traits   := NA_character_]
         sig_snps[, overlap_snps     := NA_character_]
-        sig_snps[, overlap_distance := distance]
+        sig_snps[, overlap_distance := distance_for_chr(distance, sig_snps$chr)]
         return(sig_snps)
     }
 
@@ -135,9 +137,10 @@ annotate_cross_trait_overlaps <- function(sig_snps, distance) {
     # Build a lookup table: extended windows for all SNPs
     # query: each sig SNP extended by distance on both sides
     # subject: all sig SNPs as point ranges
+    row_dist <- distance_for_chr(distance, sig_snps$chr)
     query <- data.table::copy(sig_snps[, .(row_i = .I, SNPID, chr,
-                                            s = pmax(1L, pos - distance),
-                                            e = pos + distance,
+                                            s = pmax(1L, pos - row_dist),
+                                            e = pos + row_dist,
                                             trait)])
     subj  <- data.table::copy(sig_snps[, .(SNPID, chr, s = pos, e = pos, trait)])
 
@@ -174,7 +177,7 @@ annotate_cross_trait_overlaps <- function(sig_snps, distance) {
 
     sig_snps[, overlap_traits   := ot]
     sig_snps[, overlap_snps     := os]
-    sig_snps[, overlap_distance := distance]
+    sig_snps[, overlap_distance := row_dist]
 
     sig_snps
 }

@@ -29,7 +29,8 @@ if ASSOC_SOURCES:
     rule assoc_find_sig_snps:
         """Find significant SNPs for a (source, method, adjust) combination."""
         input:
-            assoc = f"{OUTDIR}{{source}}/tables/methods/{{method}}/{{method}}_pvalues_K{K_BEST}.tsv"
+            assoc    = f"{OUTDIR}{{source}}/tables/methods/{{method}}/{{method}}_pvalues_K{K_BEST}.tsv",
+            ld_decay = lambda wc: ld_decay_input(_src(wc.source, "clumping_distance_mode"))
         output:
             f"{OUTDIR}{{source}}/tables/methods/{{method}}/{{method}}_pvalues_K{K_BEST}_sig_snps_{{adjust}}.tsv"
         wildcard_constraints:
@@ -42,7 +43,12 @@ if ASSOC_SOURCES:
             # exactly two fields since -/e/E/+ are not '_'.
             adjust = r"[A-Za-z]+_[0-9.eE+-]+"
         params:
-            clumping_dist = lambda wc: _src(wc.source, "clumping_distance")
+            # The shared distance (cross-trait overlap annotation); an auto_* spec is
+            # resolved by the script from the LD-decay table, as for the regions.
+            clumping_dist  = lambda wc: _src(wc.source, "clumping_distance"),
+            ld_decay_path  = lambda wc: ld_decay_path_param(_src(wc.source, "clumping_distance_mode")),
+            r2_threshold   = lambda wc: _src(wc.source, "clumping_r2_threshold"),
+            ld_decay_group = lambda wc: _src(wc.source, "ld_decay_group")
         log:
             f"{LOGDIR}{{source}}/find_sig_snps_{{method}}_{{adjust}}.log"
         threads: CPU
@@ -50,7 +56,8 @@ if ASSOC_SOURCES:
             """
             Rscript /pipeline/scripts/find_sig_snps.R \
                 {input.assoc} {wildcards.adjust} {params.clumping_dist} \
-                {wildcards.method} {threads} {output} > {log} 2>&1
+                {wildcards.method} {threads} {output} --snp \
+                {params.ld_decay_path} {params.r2_threshold} "{params.ld_decay_group}" > {log} 2>&1
             """
 
     rule assoc_combine_selected_snps:
@@ -64,7 +71,8 @@ if ASSOC_SOURCES:
             sigsnps = lambda wc: [
                 f"{OUTDIR}{wc.source}/tables/methods/{m}/{m}_pvalues_K{K_BEST}_sig_snps_{a}.tsv"
                 for m, a in _src(wc.source, "configs").items()
-            ]
+            ],
+            ld_decay = lambda wc: ld_decay_input(_src(wc.source, "clumping_distance_mode"))
         output:
             snps      = f"{OUTDIR}{{source}}/tables/selected_snps.tsv",
             # per-(SNP, trait) minimum p — the trait-scoped companion of selected_snps.tsv's
@@ -75,7 +83,12 @@ if ASSOC_SOURCES:
         params:
             sigsnps_str   = lambda wc, input: " ".join(input.sigsnps),
             method        = lambda wc: _src(wc.source, "combine_method"),
+            # The agreement distance between methods: the shared distance, an auto_*
+            # spec resolved by the script from the LD-decay table.
             clumping_dist = lambda wc: _src(wc.source, "clumping_distance"),
+            ld_decay_path  = lambda wc: ld_decay_path_param(_src(wc.source, "clumping_distance_mode")),
+            r2_threshold   = lambda wc: _src(wc.source, "clumping_r2_threshold"),
+            ld_decay_group = lambda wc: _src(wc.source, "ld_decay_group"),
             # combine_predictors (not the plain "predictors" key) so a multivariate
             # method's pseudo-trait (e.g. RDA's climate_multivariate) isn't filtered
             # out of selected_snps.tsv/regions_*/genes_* by combine_sigsnps.R's
@@ -87,26 +100,27 @@ if ASSOC_SOURCES:
             """
             Rscript /pipeline/scripts/combine_selected_snps.R \
                 "{params.sigsnps_str}" "{params.method}" {params.clumping_dist} \
-                "{params.predictors}" {output.snps} {output.per_trait} > {log} 2>&1
+                "{params.predictors}" {output.snps} {output.per_trait} \
+                {params.ld_decay_path} {params.r2_threshold} "{params.ld_decay_group}" > {log} 2>&1
             """
 
     rule assoc_create_regions:
-        """Merge nearby significant SNPs into per-trait and combined regions."""
+        """Merge nearby significant SNPs into per-trait and combined regions.
+
+        Uses the region distance: snp_clumping_distance, or region_clumping_distance
+        when that advanced key is set."""
         input:
             selected_snps = f"{OUTDIR}{{source}}/tables/selected_snps.tsv",
             trait_pvalues = f"{OUTDIR}{{source}}/tables/selected_snps_per_trait.tsv",
-            ld_decay      = lambda wc: ld_decay_input(_src(wc.source, "clumping_distance_mode"))
+            ld_decay      = lambda wc: ld_decay_input(_src(wc.source, "region_distance_mode"))
         output:
             per_trait = f"{OUTDIR}{{source}}/tables/regions_per_trait.tsv",
             combined  = f"{OUTDIR}{{source}}/tables/regions_combined.tsv"
         wildcard_constraints:
             source = SOURCE_REGEX
         params:
-            clumping_dist  = lambda wc: _src(wc.source, "clumping_distance"),
-            ld_decay_path  = lambda wc: (
-                O.get("ld_decay_table", "NULL")
-                if _src(wc.source, "clumping_distance_mode") != "fixed" else "NULL"
-            ),
+            clumping_dist  = lambda wc: _src(wc.source, "region_distance"),
+            ld_decay_path  = lambda wc: ld_decay_path_param(_src(wc.source, "region_distance_mode")),
             r2_threshold   = lambda wc: _src(wc.source, "clumping_r2_threshold"),
             ld_decay_group = lambda wc: _src(wc.source, "ld_decay_group")
         log:
@@ -152,7 +166,8 @@ if ASSOC_SOURCES:
     rule assoc_wza_sig_windows:
         """Find significant WZA windows for a (source, method, adjust) combination."""
         input:
-            wza = f"{OUTDIR}{{source}}/tables/methods/{{method}}/{{method}}_wza_K{K_BEST}.tsv"
+            wza      = f"{OUTDIR}{{source}}/tables/methods/{{method}}/{{method}}_wza_K{K_BEST}.tsv",
+            ld_decay = lambda wc: ld_decay_input(_src(wc.source, "clumping_distance_mode"))
         output:
             f"{OUTDIR}{{source}}/tables/methods/{{method}}/{{method}}_wza_K{K_BEST}_sig_windows_{{adjust}}.tsv"
         wildcard_constraints:
@@ -160,14 +175,18 @@ if ASSOC_SOURCES:
             method = _ALL_ASSOC_METHODS_REGEX,
             adjust = r"[A-Za-z]+_[0-9.eE+-]+"
         params:
-            clumping_dist = lambda wc: _src(wc.source, "clumping_distance")
+            clumping_dist  = lambda wc: _src(wc.source, "clumping_distance"),
+            ld_decay_path  = lambda wc: ld_decay_path_param(_src(wc.source, "clumping_distance_mode")),
+            r2_threshold   = lambda wc: _src(wc.source, "clumping_r2_threshold"),
+            ld_decay_group = lambda wc: _src(wc.source, "ld_decay_group")
         log:
             f"{LOGDIR}{{source}}/wza_sig_windows_{{method}}_{{adjust}}.log"
         shell:
             """
             Rscript /pipeline/scripts/find_sig_snps.R \
                 {input.wza} {wildcards.adjust} {params.clumping_dist} \
-                {wildcards.method} 1 {output} --wza > {log} 2>&1
+                {wildcards.method} 1 {output} --wza \
+                {params.ld_decay_path} {params.r2_threshold} "{params.ld_decay_group}" > {log} 2>&1
             """
 
     rule assoc_wza_manhattan:

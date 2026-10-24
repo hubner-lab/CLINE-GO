@@ -150,6 +150,16 @@ test_that("cross-trait overlap does not reach across chromosomes", {
     expect_true(all(is.na(r$overlap_traits)))
 })
 
+test_that("annotate_cross_trait_overlaps reads a per-chromosome distance map", {
+    # Two traits 500 bp apart on each chromosome; chr 1 allows 1000 bp, chr 2 100 bp.
+    dt <- rbind(sig_table("1", 100, "bio_1"), sig_table("1", 600, "bio_2"),
+                sig_table("2", 100, "bio_1"), sig_table("2", 600, "bio_2"))
+    r  <- annotate_cross_trait_overlaps(dt, c("1" = 1000L, "2" = 100L))
+    expect_identical(r[chr == "1", overlap_traits], c("bio_2", "bio_1"))
+    expect_true(all(is.na(r[chr == "2", overlap_traits])))
+    expect_identical(r$overlap_distance, c(1000L, 1000L, 100L, 100L))
+})
+
 test_that("annotate_cross_trait_overlaps does not mutate the caller's table", {
     dt <- rbind(sig_table("1", 100, "bio_1"), sig_table("1", 110, "bio_2"))
     annotate_cross_trait_overlaps(dt, 1000L)

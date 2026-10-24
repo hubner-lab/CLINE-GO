@@ -365,25 +365,49 @@ def _migrate_assoc_config(group_dict):
         d['ld_decay_group'] = d.pop('region_ld_decay_group')
     return d
 
+def _parse_distance_spec(raw, key):
+    """A distance spec: auto_genome_wide | auto_per_chromosome | 'auto' (deprecated) | bp >= 0.
+
+    Returns (value, mode). An auto value is passed to the R scripts as its string
+    spec and resolved there from the LD-decay table (scripts/R/lib/region_distance.R)."""
+    raw_str = str(raw).lower().strip()
+    if raw_str in _VALID_REGION_MODES:
+        if raw_str == 'auto':
+            import warnings
+            warnings.warn(f"{key}: 'auto' is deprecated; use 'auto_genome_wide' or 'auto_per_chromosome'")
+        return raw_str, ('auto_genome_wide' if raw_str == 'auto' else raw_str)
+    try:
+        val = int(raw)
+    except (TypeError, ValueError):
+        raise ValueError(f"{key} must be a distance in bp or one of "
+                         f"{list(_VALID_REGION_MODES)}, got {raw!r}")
+    if val < 0:
+        raise ValueError(f"{key} must not be negative, got {raw!r}")
+    return val, 'fixed'
+
 def resolve_region_params(group_dict, defaults=None):
-    """Parse snp_clumping_distance, clumping_r2_threshold, ld_decay_group, promoter_length."""
+    """Parse snp_clumping_distance, region_clumping_distance, clumping_r2_threshold,
+    ld_decay_group, promoter_length.
+
+    snp_clumping_distance is ONE distance for the agreement between methods
+    (Cross-method), the cross-trait overlap annotation of significant SNPs and the
+    clumping of significant SNPs into regions. region_clumping_distance (advanced,
+    unset by default) replaces it for the region clumping only."""
     defaults = defaults or {}
     group_dict = _migrate_assoc_config(group_dict)
     defaults   = _migrate_assoc_config(defaults)
     raw_rdist = group_dict.get('snp_clumping_distance', defaults.get('snp_clumping_distance', 100000))
-    raw_str   = str(raw_rdist).lower().strip()
-    if raw_str in _VALID_REGION_MODES:
-        rdist_mode = 'auto_genome_wide' if raw_str == 'auto' else raw_str
-        rdist_val  = raw_str  # pass string spec to R script
-        if raw_str == 'auto':
-            import warnings
-            warnings.warn("snp_clumping_distance: 'auto' is deprecated; use 'auto_genome_wide' or 'auto_per_chromosome'")
+    rdist_val, rdist_mode = _parse_distance_spec(raw_rdist, 'snp_clumping_distance')
+    raw_region = group_dict.get('region_clumping_distance', defaults.get('region_clumping_distance', None))
+    if raw_region is None or str(raw_region).strip().lower() in ('', 'none', 'null'):
+        region_val, region_mode = rdist_val, rdist_mode
     else:
-        rdist_mode = 'fixed'
-        rdist_val  = int(raw_rdist)
+        region_val, region_mode = _parse_distance_spec(raw_region, 'region_clumping_distance')
     return {
         'clumping_distance':      rdist_val,
         'clumping_distance_mode': rdist_mode,
+        'region_distance':        region_val,
+        'region_distance_mode':   region_mode,
         'clumping_r2_threshold':  float(group_dict.get('clumping_r2_threshold', defaults.get('clumping_r2_threshold', 0.2))),
         'ld_decay_group':         str(group_dict.get('ld_decay_group', defaults.get('ld_decay_group', 'All'))),
         'promoter_length':        int(group_dict.get('promoter_length',  defaults.get('promoter_length', 10000))),
@@ -398,8 +422,9 @@ CLUMPING_LD_DECAY_GROUP = _gea_rdp['ld_decay_group']
 # Legacy aliases — keep so existing references in summary.smk etc. don't break
 SIGSNPS_GAP          = CLUMPING_DISTANCE
 SNP_DISTANCE         = CLUMPING_DISTANCE
-REGION_DISTANCE      = CLUMPING_DISTANCE
-REGION_DISTANCE_MODE = CLUMPING_DISTANCE_MODE
+# The region clumping distance: snp_clumping_distance unless region_clumping_distance overrides it
+REGION_DISTANCE      = _gea_rdp['region_distance']
+REGION_DISTANCE_MODE = _gea_rdp['region_distance_mode']
 REGION_R2_THRESHOLD  = CLUMPING_R2_THRESHOLD
 REGION_LD_DECAY_GROUP = CLUMPING_LD_DECAY_GROUP
 GO_FIELD           = _gff.get('go_field', 'NULL')
@@ -882,8 +907,8 @@ PHENO_PROMOTER_LENGTH        = _gwas_rdp['promoter_length']
 # Legacy aliases
 PHENO_COMBINE_GAP           = PHENO_CLUMPING_DISTANCE
 PHENO_SNP_DISTANCE          = PHENO_CLUMPING_DISTANCE
-PHENO_REGION_DISTANCE       = PHENO_CLUMPING_DISTANCE
-PHENO_REGION_DISTANCE_MODE  = PHENO_CLUMPING_DISTANCE_MODE
+PHENO_REGION_DISTANCE       = _gwas_rdp['region_distance']
+PHENO_REGION_DISTANCE_MODE  = _gwas_rdp['region_distance_mode']
 PHENO_REGION_R2_THRESHOLD   = PHENO_CLUMPING_R2_THRESHOLD
 PHENO_REGION_LD_DECAY_GROUP = PHENO_CLUMPING_LD_DECAY_GROUP
 
@@ -1964,6 +1989,8 @@ if K_BEST is not None and GEA_CONFIGS:
         "params":          GEA_PARAMS,
         "clumping_distance":      CLUMPING_DISTANCE,
         "clumping_distance_mode": CLUMPING_DISTANCE_MODE,
+        "region_distance":        REGION_DISTANCE,
+        "region_distance_mode":   REGION_DISTANCE_MODE,
         "clumping_r2_threshold":  CLUMPING_R2_THRESHOLD,
         "ld_decay_group":         CLUMPING_LD_DECAY_GROUP,
         "promoter_length":        PROMOTER_LENGTH,
@@ -1987,6 +2014,8 @@ if K_BEST is not None and GWAS_CONFIGS:
         "params":          GWAS_PARAMS,
         "clumping_distance":      PHENO_CLUMPING_DISTANCE,
         "clumping_distance_mode": PHENO_CLUMPING_DISTANCE_MODE,
+        "region_distance":        PHENO_REGION_DISTANCE,
+        "region_distance_mode":   PHENO_REGION_DISTANCE_MODE,
         "clumping_r2_threshold":  PHENO_CLUMPING_R2_THRESHOLD,
         "ld_decay_group":         PHENO_CLUMPING_LD_DECAY_GROUP,
         "promoter_length":        PHENO_PROMOTER_LENGTH,
@@ -2777,6 +2806,10 @@ def ld_decay_input(mode):
     """Return LD decay table path as input dependency when mode is auto_* or auto."""
     needs_table = isinstance(mode, str) and mode.lower() in _VALID_REGION_MODES
     return O.get('ld_decay_table', []) if needs_table else []
+
+def ld_decay_path_param(mode):
+    """The LD-decay table an R script resolves an auto_* distance from; "NULL" when fixed."""
+    return O.get('ld_decay_table', 'NULL') if mode != 'fixed' else 'NULL'
 
 def wza_ld_decay_input(wza_cfg):
     """Return LD decay table as input for WZA when window_size is auto_*."""

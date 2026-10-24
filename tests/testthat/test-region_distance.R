@@ -188,3 +188,25 @@ test_that("auto_per_chromosome errors when a chromosome fails and there is no fa
     expect_error(suppressMessages(resolve_clumping_distance("auto_per_chromosome", path)),
                  "no genome-wide fallback")
 })
+
+# --- resolve_clumping_distance_strict / format_clumping_distance -----------
+# The association scripts (find_sig_snps.R, combine_selected_snps.R) resolve the
+# shared distance with the strict variant: no silent 1e6 bp fallback.
+
+test_that("the strict resolver passes numbers and auto specs through unchanged", {
+    expect_identical(suppressMessages(resolve_clumping_distance_strict("50000")), 50000L)
+    path <- write_ld(ld_row())
+    expect_identical(suppressMessages(resolve_clumping_distance_strict("auto_genome_wide", path)),
+                     suppressMessages(resolve_clumping_distance("auto_genome_wide", path)))
+})
+
+test_that("the strict resolver refuses a spec that is neither a number nor auto_*", {
+    expect_error(resolve_clumping_distance_strict("wide"), "neither a number")
+})
+
+test_that("format_clumping_distance describes a scalar and a per-chromosome map", {
+    expect_identical(format_clumping_distance(500L), "500 bp")
+    expect_match(format_clumping_distance(c("1" = 100L, "2" = 300L)),
+                 "per chromosome, 100-300 bp", fixed = TRUE)
+})
+
