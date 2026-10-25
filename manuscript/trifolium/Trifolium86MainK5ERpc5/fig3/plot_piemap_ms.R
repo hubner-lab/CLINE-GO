@@ -1,0 +1,467 @@
+#!/usr/bin/env Rscript
+# DERIVED COPY of scripts/plot_piemap.R (pipeline, 2026-10-16 state) for the Trifolium paper figures (plan
+# ~/.claude/plans/scalable-doodling-allen.md). ONE change: the pie colours `my_colors` are the five minou hues of
+# FIG3_CLUSTERS (fig3_style.R) instead of the Wong/Tol list. The climate raster keeps the pipeline's plasma gradient
+# (user 2026-10-16: gradient maps unchanged). Check with `diff scripts/plot_piemap.R <this file>`.
+# Since fancy-scribbling-garden.md Phase 1 the entries are numbered as in manuscript_fig3/pipeline_deviations.md:
+#   D1 pie colours (above); D6 site labels: boxed labels in v2, since 2026-10-17 plain full-ink text with a thin white
+#   halo and no box (user picked variant c-light of fig3/piemap_label_variants.R, and wants it as the pipeline style);
+#   D4 saved by ms_save() at 100 x 112 mm, label size argument in pt; D11 raster in "Beige Blue Red" (color-hex
+#   111971, the offset-map palette) instead of viridis plasma. Labels show the short site names because the
+#   inputs are fig3/inputs/{metadata_climate,clusters_K5}.short.tsv (no code change for the names).
+
+# Unified PieMap plotting script
+# Handles both climate-based piemaps and genetic offset piemaps
+library(qs)
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(ggrepel)
+library(terra)
+library(ggspatial)
+library(scatterpie)
+library(ggnewscale)
+library(svglite)
+library(viridis)
+
+args = commandArgs(trailingOnly=TRUE)
+#################################
+RASTER_PATH = args[1]       # path to .tif file
+RASTER_LAYER = args[2]      # layer name (e.g., "bio_1") or "1" for single-layer rasters
+RASTER_LEGEND = args[3]     # legend title for raster (e.g., "bio_1" or "Genetic Offset")
+SAMPLES = args[4]           # metadata file
+CLUSTERS = args[5]          # clusters file
+SIZE_TRAIT = args[6]        # trait file for pie sizing, or "NULL" for uniform
+SIZE_TRAIT_NAME = args[7]   # name for size legend, or "NULL"
+PIE_ALPHA = args[8] %>% as.numeric
+POP_LABEL = args[9]
+POP_LABEL_SIZE = args[10] %>% as.numeric
+PLOT_DIR = args[11]
+INTER_DIR = args[12]
+OUTPUT_PREFIX = args[13]
+REGIONMAP_EXTENT = if (length(args) >= 14) args[14] else "NULL"  # Optional: "xmin,xmax,ymin,ymax" or "NULL"
+PIE_SCALE = if (length(args) >= 15) as.numeric(args[15]) else 1.0  # Pie size scale factor (1.0 = 100%)
+PIE_FILL_LABEL = if (length(args) >= 16) args[16] else "Clusters"  # Legend label for pie slices
+USE_POINTS = if (length(args) >= 17) toupper(substr(args[17], 1, 1)) == 'T' else FALSE  # Use points instead of pie charts
+#################################
+
+set.seed(42)
+
+message(paste0('INFO: Creating PieMap: ', OUTPUT_PREFIX))
+
+# Color palette for pie charts
+# Colorblind-safe (Wong 2011 + Paul Tol), optimized for visibility on yellow/orange climate rasters
+source("/pipeline/ANALYSIS/Trifolium86MainK5ERpc5/fig3/fig3_style.R")  # DERIVED
+my_colors <- FIG3_CLUSTERS  # DERIVED: minou, K = 5
+
+############################# Functions
+
+#' Calculate autoscaled pie size range based on map extent
+#' @param raster_layer SpatRaster layer to get extent from
+#' @return List with min_radius, max_radius, mid_radius (in map units)
+calculate_pie_size_range <- function(raster_layer) {
+  map_extent <- ext(raster_layer)
+  x_range <- xmax(map_extent) - xmin(map_extent)
+  y_range <- ymax(map_extent) - ymin(map_extent)
+
+  # Use the smaller dimension to ensure pies fit well
+  map_size <- min(c(x_range, y_range))
+
+  # Define min/max as proportion of map size
+  min_radius <- map_size * 0.02   # 2% of map size
+  max_radius <- map_size * 0.06   # 6% of map size
+  mid_radius <- (min_radius + max_radius) / 2
+
+  message(paste0('INFO: Map extent - X: ', round(x_range, 2), ', Y: ', round(y_range, 2)))
+  message(paste0('INFO: Autoscaled pie sizes - min: ', round(min_radius, 4),
+                 ', mid: ', round(mid_radius, 4), ', max: ', round(max_radius, 4)))
+
+  return(list(
+    min_radius = min_radius,
+    max_radius = max_radius,
+    mid_radius = mid_radius
+  ))
+}
+
+#' Scale trait values to pie radius using min-max normalization
+#' @param trait_values Numeric vector of trait values
+#' @param min_radius Minimum pie radius
+#' @param max_radius Maximum pie radius
+#' @return Numeric vector of scaled radii
+scale_trait_to_radius <- function(trait_values, min_radius, max_radius) {
+  trait_min <- min(trait_values, na.rm = TRUE)
+  trait_max <- max(trait_values, na.rm = TRUE)
+
+  # Handle case where all values are the same
+  if (trait_max == trait_min) {
+    return(rep((min_radius + max_radius) / 2, length(trait_values)))
+  }
+
+  # Min-max scaling to [min_radius, max_radius]
+  scaled <- min_radius +
+    (trait_values - trait_min) / (trait_max - trait_min) *
+    (max_radius - min_radius)
+
+  return(scaled)
+}
+
+#' Create a PieMap plot
+#' @param samples Sample metadata with site, sample, latitude, longitude
+#' @param clusters Cluster assignments per sample
+#' @param raster_layer SpatRaster layer for background
+#' @param trait Optional data.frame with site and trait value columns for pie sizing
+#' @param trait_name Name for size legend (e.g., "Tajima's D")
+#' @param pie_size_range List with min_radius, max_radius, mid_radius
+#' @param pie_alpha Alpha for pie charts
+#' @param pop_labels Show population labels
+#' @param pop_label_size Size of population labels
+#' @param legend_map_title Title for raster legend
+#' @return ggplot object
+create_piemap <- function(samples,
+                          clusters,
+                          raster_layer,
+                          trait = NULL,
+                          trait_name = NULL,
+                          pie_size_range = NULL,
+                          pie_alpha = 0.6,
+                          pop_labels = FALSE,
+                          pop_label_size = 5,
+                          legend_map_title = 'Value',
+                          pie_fill_label = 'Clusters',
+                          use_points = FALSE) {
+
+  # Calculate pie size range if not provided
+  if (is.null(pie_size_range)) {
+    pie_size_range <- calculate_pie_size_range(raster_layer)
+  }
+
+  # Get cluster/haplotype columns (everything except sample and site)
+  cluster_cols <- setdiff(colnames(clusters), c('sample', 'site'))
+  n_clust <- length(cluster_cols)
+
+  # Process cluster info by population
+  clusters_by_pop <- clusters %>%
+    dplyr::select(-sample) %>%
+    dplyr::group_by(site) %>%
+    dplyr::summarise_all(mean) %>%
+    dplyr::left_join(samples[, c('site', 'latitude', 'longitude')] %>% unique, by = 'site')
+
+  # Apply pie sizing based on trait or use midpoint for uniform size
+  if (is.null(trait) || trait_name == 'NULL' || is.null(trait_name)) {
+    # No trait: use midpoint size for all pies
+    clusters_by_pop$pie_radius <- pie_size_range$mid_radius
+    message('INFO: Using uniform midpoint pie size (no trait provided)')
+    trait_name <- NULL
+  } else {
+    # Trait provided: min-max scale trait values to pie radius
+    clusters_by_pop <- clusters_by_pop %>%
+      dplyr::left_join(trait, by = 'site') %>%
+      dplyr::rename(trait_value = colnames(trait)[2])
+
+    clusters_by_pop$pie_radius <- scale_trait_to_radius(
+      clusters_by_pop$trait_value,
+      pie_size_range$min_radius,
+      pie_size_range$max_radius
+    )
+    message(paste0('INFO: Scaled ', trait_name, ' values to pie radius [',
+                   round(pie_size_range$min_radius, 4), ', ',
+                   round(pie_size_range$max_radius, 4), ']'))
+  }
+
+  # Build plot with viridis plasma palette (colorblind-friendly)
+  # DERIVED (D11, 2026-10-17): raster in "Beige Blue Red" (color-hex 111971), the offset-map palette of the paper
+  # (offset pack build_paper_pack.R:25), blue = low to red = high, instead of viridis plasma (user picked variant b of
+  # fig3/piemap_palette_variants.R)
+  gPlot <- ggplot() +
+    layer_spatial(raster_layer, aes(fill = after_stat(band1))) +
+    scale_fill_gradientn(colours = c("#095786", "#0090ab", "#e6cea0", "#db4646", "#ae0000"), na.value = NA) +  # DERIVED (D11)
+    labs(fill = legend_map_title)
+
+  if (use_points) {
+    # Point mode ("clear map"): tiny, barely-visible dots marking sample
+    # locations only, so the raster and geography read clearly under dense
+    # sampling where pies would overlap. NOTE: this is ~30-400 sample sites,
+    # not per-SNP data, so the WGS-density plotting rule (no geom_point at
+    # SNP scale) does not apply here.
+    # Size = PIE_SCALE * base (1.2pt), floor at 0.5pt to stay clickable.
+    point_size <- max(0.5, 1.2 * PIE_SCALE)
+
+    gPlot <- gPlot +
+      geom_point(data = clusters_by_pop,
+                 aes(x = longitude, y = latitude),
+                 shape = 21, fill = 'grey15', color = 'white',
+                 size = point_size, stroke = 0.15, alpha = 0.85) +
+      theme_bw()
+
+    message(paste0('INFO: Using point mode (size=', round(point_size, 2), ', PIE_SCALE=', PIE_SCALE, ')'))
+  } else {
+    gPlot <- gPlot +
+      ggnewscale::new_scale_fill() +
+      geom_scatterpie(data = clusters_by_pop,
+                      aes(x = longitude, y = latitude, group = site, r = pie_radius),
+                      cols = cluster_cols,
+                      color = 'black',
+                      alpha = pie_alpha) +
+      scale_fill_manual(values = my_colors[1:n_clust]) +
+      theme_bw() +
+      labs(fill = pie_fill_label)
+  }
+
+  # Add population labels
+  if (pop_labels) {
+    label_data <- clusters_by_pop %>%
+      dplyr::distinct(site, .keep_all = TRUE)
+    gPlot <- gPlot +
+      geom_text_repel(data = label_data,  # DERIVED (D6, 2026-10-17): plain text with a thin white halo, no box
+                      aes(x = longitude, y = latitude, label = site),
+                      bg.colour = 'white', bg.r = 0.15,  # DERIVED (D6)
+                      color = MS_INK,  # DERIVED (D6): full ink, no alpha
+                      size = pop_label_size / .pt,  # DERIVED (D4): size argument in pt
+                      box.padding = 0.4,  # DERIVED (D6)
+                      point.padding = 0,  # DERIVED (D6)
+                      min.segment.length = 0.3,  # DERIVED (D6)
+                      segment.color = MS_INK,  # DERIVED (D6)
+                      segment.size = 0.2,  # DERIVED (D6)
+                      seed = 1,  # DERIVED (D6): reproducible placement
+                      max.overlaps = Inf)
+  }
+
+  # Add size legend showing actual trait values
+  if (!is.null(trait_name)) {
+    trait_vals <- clusters_by_pop$trait_value
+    trait_min <- min(trait_vals, na.rm = TRUE)
+    trait_max <- max(trait_vals, na.rm = TRUE)
+    trait_mid <- (trait_min + trait_max) / 2
+
+    # Create break values and corresponding point sizes (in mm for geom_point)
+    size_min <- 2
+    size_max <- 6
+    size_mid <- (size_min + size_max) / 2
+
+    legend_data <- data.frame(
+      x = rep(mean(clusters_by_pop$longitude), 3),
+      y = rep(mean(clusters_by_pop$latitude), 3),
+      trait_value = c(trait_min, trait_mid, trait_max),
+      point_size = c(size_min, size_mid, size_max)
+    )
+
+    # Format legend values based on trait type
+    # Deduplicate when min == max (all values identical)
+    break_vals <- unique(c(trait_min, trait_mid, trait_max))
+    if (grepl("Pi|pi|diversity", trait_name, ignore.case = TRUE)) {
+      break_labels <- formatC(break_vals, format = "e", digits = 2)
+    } else {
+      break_labels <- formatC(break_vals, format = "f", digits = 2)
+    }
+
+    gPlot <- gPlot +
+      geom_point(data = legend_data,
+                 aes(x = x, y = y, size = trait_value),
+                 alpha = 0) +
+      scale_size_continuous(
+        name = trait_name,
+        range = c(size_min, size_max),
+        breaks = break_vals,
+        labels = break_labels
+      ) +
+      guides(size = guide_legend(override.aes = list(alpha = 1, color = 'grey30')))
+
+    message(paste0('INFO: Added size legend for ', trait_name,
+                   ' [', round(trait_min, 3), ', ', round(trait_max, 3), ']'))
+  }
+
+  return(gPlot)
+}
+
+################################# MAIN
+
+# Load raster
+raster_data <- rast(RASTER_PATH)
+
+# Extract layer
+if (nlyr(raster_data) > 1) {
+  # Multi-layer raster (e.g., climate stack)
+  if (!RASTER_LAYER %in% names(raster_data)) {
+    stop(paste0("ERROR: Layer '", RASTER_LAYER, "' not found in raster. Available: ",
+                paste(names(raster_data), collapse = ", ")))
+  }
+  rlayer <- raster_data[[RASTER_LAYER]]
+  message(paste0('INFO: Using layer "', RASTER_LAYER, '" from multi-layer raster'))
+} else {
+  # Single-layer raster (e.g., genetic offset)
+  rlayer <- raster_data
+  message('INFO: Using single-layer raster')
+}
+
+# Load data
+samples <- fread(SAMPLES,
+                 colClasses = c("site" = "character",
+                                'sample' = 'character',
+                                'latitude' = 'numeric',
+                                'longitude' = 'numeric'))
+
+clusters <- fread(CLUSTERS, colClasses = c("site" = "character"))
+
+# Load size trait if provided
+if (SIZE_TRAIT != "NULL" && file.exists(SIZE_TRAIT)) {
+  size_trait <- fread(SIZE_TRAIT, colClasses = c("site" = "character"))
+  message(paste0('INFO: Loaded size trait from ', SIZE_TRAIT))
+} else {
+  size_trait <- NULL
+  message('INFO: No size trait provided, using uniform pie size')
+}
+
+# Parse population label setting
+pop_labels <- toupper(substr(POP_LABEL, 1, 1)) == 'T'
+
+# Detect near-zero spatial variance of the climate variable at sampling sites
+site_coords <- unique(samples[, .(site, longitude, latitude)])
+site_extracted <- terra::extract(rlayer, cbind(site_coords$longitude, site_coords$latitude))
+site_climate_vals <- site_extracted[, 1]
+site_climate_vals <- site_climate_vals[!is.na(site_climate_vals)]
+climate_range <- if (length(site_climate_vals) >= 2) diff(range(site_climate_vals)) else 0
+climate_mean  <- if (length(site_climate_vals) >= 1) mean(site_climate_vals) else 0
+has_spatial_variance <- climate_range > max(0.01, abs(climate_mean) * 0.01)
+
+if (!has_spatial_variance) {
+  flag_file <- paste0(PLOT_DIR, OUTPUT_PREFIX, "_no_spatial_variance.flag")
+  writeLines(c(
+    paste0("variable=", RASTER_LEGEND),
+    paste0("range=",    round(climate_range, 6)),
+    paste0("mean=",     round(climate_mean,  6))
+  ), flag_file)
+  message(paste0("WARNING: Climate variable '", RASTER_LEGEND,
+                 "' shows near-zero spatial variance across sampling sites ",
+                 "(range=", round(climate_range, 6), "). ",
+                 "Piemap generated but may not be informative. ",
+                 "Flag written: ", flag_file))
+}
+
+# Calculate pie size range based on map extent
+pie_size_range <- calculate_pie_size_range(rlayer)
+
+# Apply user-defined scale factor to pie sizes
+if (PIE_SCALE != 1.0) {
+    message(paste0('INFO: Applying pie scale factor: ', PIE_SCALE, ' (', PIE_SCALE * 100, '%)'))
+    pie_size_range$min_radius <- pie_size_range$min_radius * PIE_SCALE
+    pie_size_range$max_radius <- pie_size_range$max_radius * PIE_SCALE
+    pie_size_range$mid_radius <- pie_size_range$mid_radius * PIE_SCALE
+    message(paste0('INFO: Scaled pie sizes - min: ', round(pie_size_range$min_radius, 4),
+                   ', mid: ', round(pie_size_range$mid_radius, 4),
+                   ', max: ', round(pie_size_range$max_radius, 4)))
+}
+
+# Create plot
+gPlot <- create_piemap(
+  samples = samples,
+  clusters = clusters,
+  raster_layer = rlayer,
+  trait = size_trait,
+  trait_name = if (SIZE_TRAIT_NAME != "NULL") SIZE_TRAIT_NAME else NULL,
+  pie_size_range = pie_size_range,
+  pie_alpha = PIE_ALPHA,
+  pop_labels = pop_labels,
+  pop_label_size = POP_LABEL_SIZE,
+  legend_map_title = RASTER_LEGEND,
+  pie_fill_label = PIE_FILL_LABEL,
+  use_points = USE_POINTS
+)
+
+# Save outputs (full extent)
+# DERIVED (D4, 2026-10-17): journal size via ms_save() at 100 x 112 mm with 7/6 pt text, instead of ggsave()'s
+# default device size. Degree labels as plain text: coord_sf's default plotmath labels need the Symbol font, which
+# ms_save()'s font check rejects.
+gPlot <- gPlot +  # DERIVED (D4)
+    scale_x_continuous(labels = function(x) paste0(x, "°E")) +  # DERIVED (D4)
+    scale_y_continuous(labels = function(y) paste0(y, "°N")) +  # DERIVED (D4)
+    labs(x = "longitude", y = "latitude") +  # DERIVED (D4)
+    theme(text = element_text(size = MS_BASE, colour = MS_INK), axis.text = element_text(size = MS_TICK),  # DERIVED (D4)
+          legend.text = element_text(size = MS_TICK), legend.title = element_text(size = MS_BASE),  # DERIVED (D4)
+          legend.key.size = unit(3, "mm"), panel.grid = element_line(linewidth = 0.2))  # DERIVED (D4)
+ms_save(paste0(PLOT_DIR, OUTPUT_PREFIX), gPlot, 100, 112)  # DERIVED (D4)
+qsave(gPlot, paste0(INTER_DIR, OUTPUT_PREFIX, '.qs'))
+
+message(paste0('INFO: PieMap complete: ', OUTPUT_PREFIX))
+
+# Generate zoomed plot if REGIONMAP_EXTENT is provided
+if (REGIONMAP_EXTENT != "NULL" && REGIONMAP_EXTENT != "") {
+    message("INFO: Generating zoomed regionmap plot...")
+
+    # Parse extent coordinates: "xmin,xmax,ymin,ymax"
+    coords <- as.numeric(strsplit(REGIONMAP_EXTENT, ",")[[1]])
+    if (length(coords) != 4) {
+        stop("ERROR: REGIONMAP_EXTENT must be 'xmin,xmax,ymin,ymax', got: ", REGIONMAP_EXTENT)
+    }
+
+    xmin_val <- coords[1]
+    xmax_val <- coords[2]
+    ymin_val <- coords[3]
+    ymax_val <- coords[4]
+
+    # Create extent object for cropping
+    zoom_extent <- ext(xmin_val, xmax_val, ymin_val, ymax_val)
+
+    # Crop raster to zoom extent
+    rlayer_zoom <- crop(rlayer, zoom_extent)
+
+    # Filter samples to those within zoom extent
+    samples_zoom <- samples %>%
+        filter(longitude >= xmin_val & longitude <= xmax_val) %>%
+        filter(latitude >= ymin_val & latitude <= ymax_val)
+
+    if (nrow(samples_zoom) == 0) {
+        message("WARNING: No samples within zoom extent, skipping zoomed plot")
+    } else {
+        message(paste0("INFO: ", nrow(samples_zoom), " samples within zoom extent"))
+
+        # Filter clusters to match zoomed samples
+        clusters_zoom <- clusters %>% filter(sample %in% samples_zoom$sample)
+
+        # Filter size trait if provided
+        size_trait_zoom <- NULL
+        if (!is.null(size_trait)) {
+            size_trait_zoom <- size_trait %>% filter(site %in% samples_zoom$site)
+        }
+
+        # Recalculate pie size range for zoomed extent (maintains visual proportions)
+        pie_size_range_zoom <- calculate_pie_size_range(rlayer_zoom)
+
+        # Apply user-defined scale factor to zoomed pie sizes
+        if (PIE_SCALE != 1.0) {
+            pie_size_range_zoom$min_radius <- pie_size_range_zoom$min_radius * PIE_SCALE
+            pie_size_range_zoom$max_radius <- pie_size_range_zoom$max_radius * PIE_SCALE
+            pie_size_range_zoom$mid_radius <- pie_size_range_zoom$mid_radius * PIE_SCALE
+            message(paste0('INFO: Applied pie scale factor to zoomed plot: ', PIE_SCALE, ' (', PIE_SCALE * 100, '%)'))
+        }
+
+        # Create zoomed plot
+        gPlot_zoom <- create_piemap(
+            samples = samples_zoom,
+            clusters = clusters_zoom,
+            raster_layer = rlayer_zoom,
+            trait = size_trait_zoom,
+            trait_name = if (SIZE_TRAIT_NAME != "NULL") SIZE_TRAIT_NAME else NULL,
+            pie_size_range = pie_size_range_zoom,
+            pie_alpha = PIE_ALPHA,
+            pop_labels = pop_labels,  # Keep same label setting
+            pop_label_size = POP_LABEL_SIZE,
+            legend_map_title = paste0(RASTER_LEGEND, " (Zoomed)"),
+            pie_fill_label = PIE_FILL_LABEL,
+            use_points = USE_POINTS
+        )
+
+        # Create coordinate subdirectory for zoomed plots
+        coords_str <- gsub("\\.", "p", REGIONMAP_EXTENT)  # Replace . with p
+        coords_str <- gsub(",", "_", coords_str)          # Replace , with _
+
+        # Save zoomed outputs in coordinate subdirectory
+        zoom_dir <- paste0(PLOT_DIR, "zoom/", coords_str, "/")
+        dir.create(zoom_dir, recursive = TRUE, showWarnings = FALSE)
+        ggsave(paste0(zoom_dir, OUTPUT_PREFIX, '.png'), gPlot_zoom)
+        ggsave(paste0(zoom_dir, OUTPUT_PREFIX, '.svg'), gPlot_zoom,
+               device = svglite::svglite, bg = 'transparent', fix_text_size = FALSE)
+        qsave(gPlot_zoom, paste0(INTER_DIR, OUTPUT_PREFIX, '_zoom_', coords_str, '.qs'))
+
+        message(paste0('INFO: Zoomed PieMap complete: ', zoom_dir, OUTPUT_PREFIX))
+    }
+}

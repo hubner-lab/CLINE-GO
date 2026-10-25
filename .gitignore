@@ -192,3 +192,13 @@ work/*
 !work/*.sh
 # Archived failure logs follow the logs_*.log convention with a suffix, which logs_*.log misses.
 logs_*.log.*
+
+# Manuscript (2026-10-25): only the scripts the manuscript cites are tracked. manuscript/INDEX.tsv
+# lists them; its tables, logs and copied outputs stay on disk. The supplement deliverable lives in
+# the ignored work/ and ANALYSIS/ trees. Must come after `!work/*.sh` above: the last match wins.
+manuscript/**
+!manuscript/**/
+!manuscript/**/*.R
+!manuscript/**/*.py
+!manuscript/**/*.sh
+work/offset_bytecheck_*_2026-10-25.sh
