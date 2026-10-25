@@ -102,13 +102,13 @@ md <- c("# t_sites", "",
         paste0("One row per sampling site, south to north. Coordinates as written in the run's `Processing/tables/metadata.tsv`. ",
                "Plants genotyped: input metadata (86 plants, by its site column); plants retained: the 57 that passed ",
                "quality control. Most frequent cluster: each retained plant assigned to its largest sNMF proportion at ",
-               "K = 5; plants per cluster in brackets. Mean proportions over the site's retained plants, 3 decimals. ",
+               "K = 5. Mean proportions over the site's retained plants, 3 decimals. ",
                "Values: `t_sites.tsv`; sources: `Processing/tables/metadata.tsv`, `PreStructure/tables/K5/clusters_K5.tsv`, ",
                "`fig3/site_names.tsv`, the input metadata; built by `fig3/table_sites.R`."), "",
         "| Site | Sampling identifier | Latitude | Longitude | Plants genotyped | Plants retained | Most frequent cluster | Mean C1 | Mean C2 | Mean C3 | Mean C4 | Mean C5 |",
         "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
-        out[, sprintf("| %d | %s | %s | %s | %d | %d | %s (%s) | %s | %s | %s | %s | %s |", site, site_id, latitude, longitude,
-                      plants_genotyped, plants_retained, most_frequent_cluster, plants_per_cluster,
+        out[, sprintf("| %d | %s | %s | %s | %d | %d | %s | %s | %s | %s | %s | %s |", site, site_id, latitude, longitude,
+                      plants_genotyped, plants_retained, most_frequent_cluster,
                       f3(mean_C1), f3(mean_C2), f3(mean_C3), f3(mean_C4), f3(mean_C5))])
 stopifnot(!any(grepl("-[0-9]", md[-(1:3)])))   # no negative numbers expected; never an ASCII minus before a digit
 writeLines(md, file.path(OUT, "t_sites.md"))
