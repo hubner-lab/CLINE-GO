@@ -178,19 +178,37 @@ Population:
 ```yaml
 LDdecay:
   group_by: site
-  min_samples: 5
+  min_samples: 10
   max_distance: 500
   scope: both
+  max_pairs: 20000000
+  background_markers_per_chr: 50
+  background_quantile: 0.95
+  r2_threshold: 0.2
+  loess_span: 0.3
+  seed: 1
 ```
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `LDdecay.group_by` | Group samples by: `"site"` or `"cluster"` (sNMF K) | `"site"` |
-| `LDdecay.min_samples` | Minimum samples per group to include | `5` |
+| `LDdecay.min_samples` | Minimum samples per group to include | `10` |
 | `LDdecay.max_distance` | Maximum pairwise SNP distance (kb) to compute | `500` |
-| `LDdecay.scope` | Compute: `"genome_wide"`, `"per_chr"`, `"per_pop"`, or `"both"` (genome + pop) | `"both"` |
+| `LDdecay.scope` | `"genome_wide"`, `"per_chromosome"`, or `"both"` | `"both"` |
+| `LDdecay.max_pairs` | SNP pairs PLINK computes per group; above it, a seeded sample of anchor SNPs is paired with every SNP of their window (all distances thinned evenly) | `2e7` |
+| `LDdecay.background_markers_per_chr` | Markers sampled per chromosome for the unlinked (between-chromosome) pairs | `50` |
+| `LDdecay.background_quantile` | Quantile of sqrt(r²) of unlinked pairs whose square is the critical r² | `0.95` |
+| `LDdecay.r2_threshold` | r² level of the `r2_threshold` decay rule | `0.2` |
+| `LDdecay.loess_span` | Span of the LOESS curve through the binned mean r² | `0.3` |
+| `LDdecay.seed` | Seed for the anchor SNPs and the unlinked markers | `1` |
 
-LD decay is used to determine `GEA.region_distance`: set `region_distance: auto` to use the r²<0.2 distance from LD decay results.
+r² is PLINK 1.9's `--r2` (squared allele-count correlation, missing calls excluded pairwise) on the filtered, unimputed VCF, for pairs on one chromosome (the decay curve) and on different chromosomes (its background). The mean r² is binned by distance (10 bp below 100 bp, log-spaced beyond) and smoothed by LOESS, and three distances are read off the curve per group and scope (`Structure/tables/ld_decay_half_distances.tsv`):
+
+- `decay_critical_bp` — where the curve meets the critical r² of unlinked markers (Breseghello & Sorrells 2006; Laidò et al. 2014);
+- `decay_half_bp` — where r² falls to half its short-range value (Zhao et al. 2011; Vos et al. 2017);
+- `decay_r2thr_bp` — where r² falls to `LDdecay.r2_threshold`.
+
+An `auto_genome_wide` / `auto_per_chromosome` clumping or region distance is read from one of these columns, chosen by `GEA.clumping_ld_rule` (below). PLINK runs with `--chr-set 95 no-x no-y no-xy no-mt`, so numeric chromosomes 23–26 stay autosomes.
 
 ---
 
@@ -272,9 +290,8 @@ GEA:
       params:
         condition_pcs: 3
         axes: auto
-  combine_gap: 200000
-  region_distance: 2000000
-  sig_snp_distance: 10000
+  snp_clumping_distance: auto_genome_wide
+  clumping_ld_rule: critical
   top_regions: 10
   promoter_length: 3000
   scattermore_threshold: 30000
@@ -283,10 +300,10 @@ GEA:
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `GEA.configs` | List of `{method, adjust, threshold, params}` entries (see below) | — |
-| `GEA.combine_gap` | Gap (bp) for merging per-method SNP sets before region clustering | `200000` |
-| `GEA.region_distance` | Region merging distance: `auto_per_chromosome` (default, per-chr LD decay), `auto_genome_wide`, or fixed bp integer | `"auto_per_chromosome"` |
-| `GEA.region_r2_threshold` | r² level at which LD is considered background; Hill-Weir curve inverted at this value | `0.2` |
-| `GEA.region_ld_decay_group` | Sample group from LD decay table for distance computation | `"All"` |
+| `GEA.snp_clumping_distance` | ONE distance for the agreement between methods, the cross-trait overlap annotation and the region merge: fixed bp, or `auto_genome_wide` / `auto_per_chromosome` read from the LD-decay table (legacy names `region_distance` / `combine_gap` migrate to it) | `100000` |
+| `GEA.region_clumping_distance` | Advanced: a separate distance for the region merge and flank only (bp or `auto_*`); unset = `snp_clumping_distance` | unset |
+| `GEA.clumping_ld_rule` | Which LD-decay distance an `auto_*` distance takes: `critical`, `half_decay` or `r2_threshold` (see LDdecay). `auto_per_chromosome` needs `LDdecay.scope` per_chromosome or both, `auto_genome_wide` (and a declared SNP set's auto gap) genome_wide or both. A leftover `clumping_r2_threshold` no longer picks the rule (a warning says so) | `"critical"` |
+| `GEA.ld_decay_group` | Sample group from the LD-decay table for the distance (legacy `region_ld_decay_group`) | `"All"` |
 | `GEA.promoter_length` | Promoter length (bp) upstream of gene start for SNP counting | `3000` |
 | `GEA.combine_method` | How per-method sig-SNP tables merge into the **static** `selected_snps.tsv` (and what the pipeline derives from it): `All` (union over every configured method), `Overlap` (only SNPs called by ≥2 methods within `snp_clumping_distance`), `MethodOverlap` (as `Overlap`, same predictor required), or a single configured method name. Does not affect the Shiny filter bar's strategy — see **Combine strategy** below | `"All"` |
 | `GEA.scattermore_threshold` | SNP count above which scattermore is used for Manhattan background rendering | `30000` |
@@ -475,7 +492,7 @@ GWAS:
       threshold: '0.05'
   missing_strategy: DROP
   traits: height,flowering_time
-  region_distance: 2000000
+  snp_clumping_distance: auto_genome_wide
 ```
 
 | Parameter | Description | Default |
@@ -483,10 +500,10 @@ GWAS:
 | `GWAS.configs` | Same format as `GEA.configs` | — |
 | `GWAS.missing_strategy` | How to handle missing values: `DROP`, `MEAN`, or `MEDIAN` | `"DROP"` |
 | `GWAS.traits` | Comma-separated trait column names to include (omit to use all cols 5+) | all |
-| `GWAS.region_distance` | Region merging distance (defaults to `GEA.region_distance`) | inherited |
-| `GWAS.region_r2_threshold` | r² background threshold (defaults to `GEA.region_r2_threshold`) | inherited |
-| `GWAS.region_ld_decay_group` | LD decay group (defaults to `GEA.region_ld_decay_group`) | inherited |
-| `GWAS.combine_gap` | Gap for merging SNP sets (defaults to `GEA.combine_gap`) | inherited |
+| `GWAS.snp_clumping_distance` | As `GEA.snp_clumping_distance` (defaults to it) | inherited |
+| `GWAS.region_clumping_distance` | As `GEA.region_clumping_distance` (defaults to it) | inherited |
+| `GWAS.clumping_ld_rule` | As `GEA.clumping_ld_rule` (defaults to it) | inherited |
+| `GWAS.ld_decay_group` | LD decay group (defaults to `GEA.ld_decay_group`) | inherited |
 | `GWAS.combine_method` | Same as `GEA.combine_method`, for the static GWAS tables. **Not** inherited from GEA — the two sources have different method sets, so a single-method name valid for one is invalid for the other | `"All"` |
 | `GWAS.snp_sets` | Same grammar as `GEA.snp_sets`, over `GWAS.configs` and the trait columns; sets are named `gwas.<name>` and built by `mode=gwas`. Thresholds, methods and clumping distance come from the GWAS group, never from GEA | none |
 | `GWAS.promoter_length` | Promoter length (defaults to `GEA.promoter_length`) | inherited |
