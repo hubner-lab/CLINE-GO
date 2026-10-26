@@ -201,6 +201,7 @@ LDdecay:
 | `LDdecay.r2_threshold` | r² level of the `r2_threshold` decay rule | `0.2` |
 | `LDdecay.loess_span` | Span of the LOESS curve through the binned mean r² | `0.3` |
 | `LDdecay.seed` | Seed for the anchor SNPs and the unlinked markers | `1` |
+| `LDdecay.exclude_chromosomes` | Optional: contigs left out of the decay curve and its unlinked background, such as organellar or sex contigs, which do not recombine like autosomes. One comma-separated string (`"X,Y,MT,Pt"`, what the app writes) or a list; case, a leading `chr` and M/MT are ignored, and a name with no contig is reported in the log. A YAML boolean is refused: in a list, write `Y` in quotes | none |
 
 r² is PLINK 1.9's `--r2` (squared allele-count correlation, missing calls excluded pairwise) on the filtered, unimputed VCF, for pairs on one chromosome (the decay curve) and on different chromosomes (its background). The mean r² is binned by distance (10 bp below 100 bp, log-spaced beyond) and smoothed by LOESS, and three distances are read off the curve per group and scope (`Structure/tables/ld_decay_half_distances.tsv`):
 
@@ -208,7 +209,7 @@ r² is PLINK 1.9's `--r2` (squared allele-count correlation, missing calls exclu
 - `decay_half_bp` — where r² falls to half its short-range value (Zhao et al. 2011; Vos et al. 2017);
 - `decay_r2thr_bp` — where r² falls to `LDdecay.r2_threshold`.
 
-An `auto_genome_wide` / `auto_per_chromosome` clumping or region distance is read from one of these columns, chosen by `GEA.clumping_ld_rule` (below). PLINK runs with `--chr-set 95 no-x no-y no-xy no-mt`, so numeric chromosomes 23–26 stay autosomes.
+An `auto_genome_wide` / `auto_per_chromosome` clumping or region distance is read from one of these columns, chosen by `GEA.clumping_ld_rule` (below). PLINK runs with `--chr-set 95 --allow-extra-chr`: numeric chromosomes up to 95 stay autosomes, and `X`, `MT` and other names (`Pt`, scaffolds) enter the curve and the background with an autosome's r². `Y` gives no pairs, because a VCF carries no sex and PLINK treats non-males' Y calls as missing. To leave such contigs out, list them in `LDdecay.exclude_chromosomes`.
 
 ---
 
@@ -300,7 +301,7 @@ GEA:
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `GEA.configs` | List of `{method, adjust, threshold, params}` entries (see below) | — |
-| `GEA.snp_clumping_distance` | ONE distance for the agreement between methods, the cross-trait overlap annotation and the region merge: fixed bp, or `auto_genome_wide` / `auto_per_chromosome` read from the LD-decay table (legacy names `region_distance` / `combine_gap` migrate to it) | `100000` |
+| `GEA.snp_clumping_distance` | ONE distance for the agreement between methods, the cross-trait overlap annotation and the region merge: fixed bp, or `auto_genome_wide` / `auto_per_chromosome` read from the LD-decay table (legacy names `region_distance` / `combine_gap` migrate to it). Unset or null, it is `auto_genome_wide` and the parse says so on stderr; until 2026-10-26 the default was a fixed `100000`. Under `LDdecay.scope: per_chromosome` the default is refused: set bp or `auto_per_chromosome` | `auto_genome_wide` |
 | `GEA.region_clumping_distance` | Advanced: a separate distance for the region merge and flank only (bp or `auto_*`); unset = `snp_clumping_distance` | unset |
 | `GEA.clumping_ld_rule` | Which LD-decay distance an `auto_*` distance takes: `critical`, `half_decay` or `r2_threshold` (see LDdecay). `auto_per_chromosome` needs `LDdecay.scope` per_chromosome or both, `auto_genome_wide` (and a declared SNP set's auto gap) genome_wide or both. A leftover `clumping_r2_threshold` no longer picks the rule (a warning says so) | `"critical"` |
 | `GEA.ld_decay_group` | Sample group from the LD-decay table for the distance (legacy `region_ld_decay_group`) | `"All"` |
@@ -359,7 +360,7 @@ GEA:
 | `methods`, `traits` | Select the `traits × methods` rectangle | all `configs` methods × every column they emit |
 | `pairs` | An explicit `trait::method` list instead of a rectangle. Exclusive with `methods`/`traits` | — |
 | `strategy` | `Union` (`All`, `Sum`), `Cross-method` (`Overlap`), `Cross-method per-trait` (`MethodOverlap`, `PairOverlap`), or one method name from the set's own pairs | `Union` |
-| `clumping_distance` | Window (bp) within which two methods' calls count as agreeing. Used only by the Cross-method strategies. A positive integer — `auto_*` is refused | `snp_clumping_distance` of the group when it is a fixed integer, else `100000` (the app's default) |
+| `clumping_distance` | Window within which two methods' calls count as agreeing. Used only by the Cross-method strategies. A positive integer of bp, or `auto_genome_wide`, read from the genome-wide LD-decay row under the group's `clumping_ld_rule` and `ld_decay_group` (`auto_per_chromosome` is read genome-wide: the gap is one number) | the group's `snp_clumping_distance` (bp or auto) |
 | `regime` | Only `snp`. `wza` is refused (not declarable yet) | `snp` |
 
 The rules a set resolves to, and how they differ from the app's sidebar:
