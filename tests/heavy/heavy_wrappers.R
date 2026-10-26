@@ -96,6 +96,66 @@ heavy_build_emmax_inputs <- function(d) {
          inter = paste0(inter, "/"), prefix = prefix, kinship = kinship)
 }
 
+# A VCF for the LD-decay scripts that PLINK's default human chromosome mode would
+# break: 26 numeric chromosomes (23-26 read as X/Y/XY/MT), heterozygous calls and ~15%
+# missing calls. Returns the paths and the dosage matrix (samples x SNPs), so a test
+# can recompute every r^2 in R. Seeded; written into d.
+heavy_ld_fixture <- function(d, n = 30L, n_chr = 26L, per_chr = 15L, seed = 11L) {
+    set.seed(seed)
+    info <- data.table::rbindlist(lapply(seq_len(n_chr), function(ch) data.table::data.table(
+        chr = as.character(ch), pos = sort(sample.int(20000L, per_chr)))))
+    info[, id := paste0("s", .I)]
+    X <- matrix(NA_real_, n, nrow(info))
+    for (ch in unique(info$chr)) {
+        base <- stats::rbinom(n, 2, 0.4)
+        for (k in which(info$chr == ch)) {
+            g <- ifelse(stats::runif(n) < 0.7, base, stats::rbinom(n, 2, stats::runif(1, 0.1, 0.5)))
+            g[stats::runif(n) < 0.15] <- NA
+            X[, k] <- g
+        }
+    }
+    gt <- ifelse(is.na(X), "./.", c("0/0", "0/1", "1/1")[X + 1])
+    smp <- sprintf("p%02d", seq_len(n))
+    vcf <- file.path(d, "ld.vcf")
+    con <- file(vcf, "w")
+    writeLines(c("##fileformat=VCFv4.2",
+                 paste0("##contig=<ID=", unique(info$chr), ">"),
+                 '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">',
+                 paste(c("#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO",
+                         "FORMAT", smp), collapse = "\t")), con)
+    for (i in seq_len(nrow(info))) {
+        writeLines(paste(c(info$chr[i], info$pos[i], ".", "A", "G", ".", "PASS", ".", "GT",
+                           gt[, i]), collapse = "\t"), con)
+    }
+    close(con)
+    sl <- file.path(d, "sample_lists")
+    dir.create(sl, showWarnings = FALSE)
+    writeLines(smp, file.path(sl, "All.txt"))
+    writeLines(smp[1:15], file.path(sl, "G_1.txt"))
+    data.table::fwrite(data.table::data.table(group = c("All", "G 1"), n_samples = c(n, 15L),
+                                              list_file = c("All", "G_1")),
+                       file.path(sl, "manifest.tsv"), sep = "\t")
+    list(vcf = vcf, sl = sl, info = info, X = X, samples = smp)
+}
+
+# r^2 of every within-chromosome pair at 0 < distance <= max_dist, recomputed in R as
+# the squared correlation with missing calls excluded pairwise, summed per distance
+# (genome-wide). What ld_decay_pairs.R must reproduce from PLINK.
+heavy_ld_expected <- function(fx, max_dist, rows = seq_len(nrow(fx$X))) {
+    out <- list()
+    for (ch in unique(fx$info$chr)) {
+        k <- which(fx$info$chr == ch)
+        for (a in seq_along(k)) for (b in seq_along(k)) if (a < b) {
+            dd <- abs(fx$info$pos[k[b]] - fx$info$pos[k[a]])
+            if (dd == 0 || dd > max_dist) next
+            r <- suppressWarnings(stats::cor(fx$X[rows, k[a]], fx$X[rows, k[b]],
+                                             use = "pairwise.complete.obs"))
+            if (is.finite(r)) out[[length(out) + 1]] <- data.table::data.table(dist_bp = dd, r2 = r^2)
+        }
+    }
+    data.table::rbindlist(out)[, .(sum_r2 = sum(r2), n_pairs = .N), keyby = dist_bp]
+}
+
 HEAVY_WRAPPERS <- list(
     list(
         label   = "vcf_to_gapit_numeric.R (vcfR)",
@@ -153,5 +213,44 @@ HEAVY_WRAPPERS <- list(
                                    file.path(d, "EMMAX_pvalues.tsv"),
                                    f$prefix, f$kinship),
         outputs = function(d) file.path(d, "EMMAX_pvalues.tsv")
+    ),
+    list(
+        # Background LD of unlinked markers: plink --r2 inter-chr on a seeded sample
+        # of markers per chromosome, for All and one sub-group. testdata.vcf has five
+        # chromosomes, so both rows get unlinked pairs and a finite critical r2.
+        label   = "ld_decay_background.R (plink inter-chr r2)",
+        script  = "ld_decay_background.R",
+        tools   = c("plink", "bcftools"),
+        build   = function(d) {
+            vcf <- heavy_copy_vcf(d)
+            sl  <- file.path(d, "sample_lists")
+            dir.create(sl, showWarnings = FALSE)
+            hdr <- system2("grep", c("-m1", shQuote("^#CHROM"), shQuote(vcf)), stdout = TRUE)
+            smp <- strsplit(hdr, "\t")[[1]][-(1:9)]
+            writeLines(smp, file.path(sl, "All.txt"))
+            writeLines(smp[seq(1, length(smp), 2)], file.path(sl, "G1.txt"))
+            data.table::fwrite(data.table::data.table(
+                group = c("All", "G1"),
+                n_samples = c(length(smp), length(seq(1, length(smp), 2)))),
+                file.path(sl, "manifest.tsv"), sep = "\t")
+            list(vcf = vcf, sl = sl)
+        },
+        args    = function(d, f) c(f$vcf, f$sl, "20", "0.95", "1",
+                                   file.path(d, "ld_decay_background.tsv")),
+        outputs = function(d) file.path(d, "ld_decay_background.tsv")
+    ),
+    list(
+        # LD-decay pairs: PLINK --r2 within 20 kb on a 26-chromosome fixture with
+        # heterozygous and missing calls, summed per distance for All and one group
+        # whose name is not file-safe. Content is asserted in test-heavy-ld-decay.R.
+        label   = "ld_decay_pairs.R (plink r2 per distance, 26 chromosomes)",
+        script  = "ld_decay_pairs.R",
+        tools   = c("plink", "bcftools"),
+        build   = function(d) heavy_ld_fixture(d),
+        args    = function(d, f) c(f$vcf, f$sl, "20", "1e6", "1", "both",
+                                   file.path(d, "stat_gw"), file.path(d, "stat_chr"),
+                                   file.path(d, "pairs_summary.tsv")),
+        outputs = function(d) file.path(d, c("pairs_summary.tsv", "stat_gw/All.stat.gz",
+                                             "stat_gw/G_1.stat.gz", "stat_chr/All_26.stat.gz"))
     )
 )

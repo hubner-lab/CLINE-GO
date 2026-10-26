@@ -275,7 +275,32 @@ LD_DECAY_MIN_SAMPLES = int(_ld_decay.get('min_samples', 10))
 LD_DECAY_MAX_DISTANCE = int(_ld_decay.get('max_distance', 500))
 LD_DECAY_SCOPE = _ld_decay.get('scope', 'both')
 check_in_list(LD_DECAY_SCOPE, ['genome_wide', 'per_chromosome', 'both'], 'LDdecay.scope')
-LD_DECAY_TAG = f"grp{LD_DECAY_GROUP_BY}_min{LD_DECAY_MIN_SAMPLES}_dist{LD_DECAY_MAX_DISTANCE}"
+# LD is PLINK --r2 (ld_decay_pairs) for the decay curve and between chromosomes for its
+# background (ld_decay_background). max_pairs caps the pairs PLINK reports per group:
+# above it, a seeded sample of anchor SNPs is paired with every SNP of their window.
+# background_markers_per_chr markers per chromosome give the unlinked pairs whose
+# background_quantile of sqrt(r2), squared, is the critical r2. r2_threshold is the
+# level of the r2_threshold decay rule. loess_span smooths the binned curve.
+LD_DECAY_MAX_PAIRS = float(_ld_decay.get('max_pairs', 2e7))
+LD_DECAY_SEED = int(_ld_decay.get('seed', _ld_decay.get('background_seed', 1)))
+LD_DECAY_BG_MARKERS_PER_CHR = int(_ld_decay.get('background_markers_per_chr', 50))
+LD_DECAY_BG_QUANTILE = float(_ld_decay.get('background_quantile', 0.95))
+LD_DECAY_R2_THRESHOLD = float(_ld_decay.get('r2_threshold', 0.2))
+LD_DECAY_LOESS_SPAN = float(_ld_decay.get('loess_span', 0.3))
+if LD_DECAY_MAX_DISTANCE <= 0:
+    raise ValueError("LDdecay.max_distance must be > 0 (kb)")
+if LD_DECAY_MAX_PAIRS < 1e4:
+    raise ValueError("LDdecay.max_pairs must be >= 10000")
+if LD_DECAY_BG_MARKERS_PER_CHR < 2:
+    raise ValueError("LDdecay.background_markers_per_chr must be >= 2")
+if not 0 < LD_DECAY_BG_QUANTILE < 1:
+    raise ValueError("LDdecay.background_quantile must lie strictly between 0 and 1")
+if not 0 < LD_DECAY_R2_THRESHOLD < 1:
+    raise ValueError("LDdecay.r2_threshold must lie strictly between 0 and 1")
+if not 0 < LD_DECAY_LOESS_SPAN <= 1:
+    raise ValueError("LDdecay.loess_span must lie in (0, 1]")
+# 'plink_' keeps these intermediates apart from the PopLDdecay ones of older runs.
+LD_DECAY_TAG = f"plink_grp{LD_DECAY_GROUP_BY}_min{LD_DECAY_MIN_SAMPLES}_dist{LD_DECAY_MAX_DISTANCE}"
 
 # GFF parameters
 GFF = _cfg('Input', 'gff', '')
@@ -385,14 +410,44 @@ def _parse_distance_spec(raw, key):
         raise ValueError(f"{key} must not be negative, got {raw!r}")
     return val, 'fixed'
 
+# LD-decay rules an auto_* distance is read under (columns of the LD-decay table,
+# scripts/R/lib/region_distance.R): the critical r2 of unlinked markers, half of the
+# short-range r2, or the fixed LDdecay.r2_threshold.
+_LD_RULES = ('critical', 'half_decay', 'r2_threshold')
+
+def _parse_ld_rule(group_dict, defaults):
+    """clumping_ld_rule (default critical), the group's own or inherited. A
+    clumping_r2_threshold left in a config set the level of the old r2 = 0.2 distance:
+    accepted only when it equals LDdecay.r2_threshold, where that level now lives, and
+    it no longer picks the rule. Say so on stderr, since a config that relied on it gets
+    the default rule (a DeprecationWarning would not be shown)."""
+    # (never name a variable `rule`: Snakemake's parser takes it as the keyword)
+    ld_rule = str(group_dict.get('clumping_ld_rule', defaults.get('clumping_ld_rule', 'critical'))).strip().lower()
+    check_in_list(ld_rule, list(_LD_RULES), 'clumping_ld_rule')
+    for src in (group_dict, defaults):
+        if 'clumping_r2_threshold' in src:
+            thr = float(src['clumping_r2_threshold'])
+            if abs(thr - LD_DECAY_R2_THRESHOLD) > 1e-12:
+                raise ValueError(
+                    f"clumping_r2_threshold={thr} conflicts with LDdecay.r2_threshold="
+                    f"{LD_DECAY_R2_THRESHOLD}: the r2_threshold rule's level is now set once, "
+                    "in LDdecay.r2_threshold; remove clumping_r2_threshold")
+            print(f"WARNING: config key 'clumping_r2_threshold' is deprecated and no longer "
+                  f"picks the LD-decay rule: auto distances use clumping_ld_rule "
+                  f"('{ld_rule}' here). For the old r2 = {LD_DECAY_R2_THRESHOLD} distance set "
+                  f"clumping_ld_rule: r2_threshold.", file=sys.stderr)
+            break
+    return ld_rule
+
 def resolve_region_params(group_dict, defaults=None):
-    """Parse snp_clumping_distance, region_clumping_distance, clumping_r2_threshold,
+    """Parse snp_clumping_distance, region_clumping_distance, clumping_ld_rule,
     ld_decay_group, promoter_length.
 
     snp_clumping_distance is ONE distance for the agreement between methods
     (Cross-method), the cross-trait overlap annotation of significant SNPs and the
     clumping of significant SNPs into regions. region_clumping_distance (advanced,
-    unset by default) replaces it for the region clumping only."""
+    unset by default) replaces it for the region clumping only. An auto_* distance
+    is read from the LD-decay table under clumping_ld_rule."""
     defaults = defaults or {}
     group_dict = _migrate_assoc_config(group_dict)
     defaults   = _migrate_assoc_config(defaults)
@@ -408,7 +463,7 @@ def resolve_region_params(group_dict, defaults=None):
         'clumping_distance_mode': rdist_mode,
         'region_distance':        region_val,
         'region_distance_mode':   region_mode,
-        'clumping_r2_threshold':  float(group_dict.get('clumping_r2_threshold', defaults.get('clumping_r2_threshold', 0.2))),
+        'clumping_ld_rule':       _parse_ld_rule(group_dict, defaults),
         'ld_decay_group':         str(group_dict.get('ld_decay_group', defaults.get('ld_decay_group', 'All'))),
         'promoter_length':        int(group_dict.get('promoter_length',  defaults.get('promoter_length', 10000))),
     }
@@ -417,7 +472,7 @@ _gea_rdp = resolve_region_params(_assoc)
 PROMOTER_LENGTH       = _gea_rdp['promoter_length']
 CLUMPING_DISTANCE     = _gea_rdp['clumping_distance']
 CLUMPING_DISTANCE_MODE = _gea_rdp['clumping_distance_mode']
-CLUMPING_R2_THRESHOLD = _gea_rdp['clumping_r2_threshold']
+CLUMPING_LD_RULE      = _gea_rdp['clumping_ld_rule']
 CLUMPING_LD_DECAY_GROUP = _gea_rdp['ld_decay_group']
 # Legacy aliases — keep so existing references in summary.smk etc. don't break
 SIGSNPS_GAP          = CLUMPING_DISTANCE
@@ -425,7 +480,7 @@ SNP_DISTANCE         = CLUMPING_DISTANCE
 # The region clumping distance: snp_clumping_distance unless region_clumping_distance overrides it
 REGION_DISTANCE      = _gea_rdp['region_distance']
 REGION_DISTANCE_MODE = _gea_rdp['region_distance_mode']
-REGION_R2_THRESHOLD  = CLUMPING_R2_THRESHOLD
+REGION_LD_RULE       = CLUMPING_LD_RULE
 REGION_LD_DECAY_GROUP = CLUMPING_LD_DECAY_GROUP
 GO_FIELD           = _gff.get('go_field', 'NULL')
 
@@ -901,7 +956,7 @@ PHENO_COMBINE_METHOD = _parse_combine_method(_pheno, set(GWAS_CONFIGS), 'GWAS')
 _gwas_rdp = resolve_region_params(_pheno, defaults=_assoc)
 PHENO_CLUMPING_DISTANCE      = _gwas_rdp['clumping_distance']
 PHENO_CLUMPING_DISTANCE_MODE = _gwas_rdp['clumping_distance_mode']
-PHENO_CLUMPING_R2_THRESHOLD  = _gwas_rdp['clumping_r2_threshold']
+PHENO_CLUMPING_LD_RULE       = _gwas_rdp['clumping_ld_rule']
 PHENO_CLUMPING_LD_DECAY_GROUP = _gwas_rdp['ld_decay_group']
 PHENO_PROMOTER_LENGTH        = _gwas_rdp['promoter_length']
 # Legacy aliases
@@ -909,8 +964,28 @@ PHENO_COMBINE_GAP           = PHENO_CLUMPING_DISTANCE
 PHENO_SNP_DISTANCE          = PHENO_CLUMPING_DISTANCE
 PHENO_REGION_DISTANCE       = _gwas_rdp['region_distance']
 PHENO_REGION_DISTANCE_MODE  = _gwas_rdp['region_distance_mode']
-PHENO_REGION_R2_THRESHOLD   = PHENO_CLUMPING_R2_THRESHOLD
+PHENO_REGION_LD_RULE        = PHENO_CLUMPING_LD_RULE
 PHENO_REGION_LD_DECAY_GROUP = PHENO_CLUMPING_LD_DECAY_GROUP
+
+# auto_per_chromosome reads the per-chromosome rows of the LD-decay table, which exist
+# only when LDdecay.scope includes per_chromosome; without them every distance came
+# out NA (regions.R took max(integer(0))). auto_genome_wide likewise needs the
+# genome-wide rows, or every consumer stops after the association jobs have run.
+# Refuse both combinations before any rule runs (declared SNP sets: SNP_SET_DECL).
+_auto_keys = (('GEA.snp_clumping_distance', CLUMPING_DISTANCE_MODE),
+              ('GEA.region_clumping_distance', REGION_DISTANCE_MODE),
+              ('GWAS.snp_clumping_distance', PHENO_CLUMPING_DISTANCE_MODE),
+              ('GWAS.region_clumping_distance', PHENO_REGION_DISTANCE_MODE))
+_per_chr_keys = [k for k, m in _auto_keys if m == 'auto_per_chromosome']
+if _per_chr_keys and LD_DECAY_SCOPE == 'genome_wide':
+    raise ValueError(f"{', '.join(_per_chr_keys)} = auto_per_chromosome needs per-chromosome "
+                     f"LD-decay rows: set LDdecay.scope to per_chromosome or both, or use "
+                     f"auto_genome_wide")
+_gw_keys = [k for k, m in _auto_keys if m == 'auto_genome_wide']
+if _gw_keys and LD_DECAY_SCOPE == 'per_chromosome':
+    raise ValueError(f"{', '.join(_gw_keys)} = auto_genome_wide needs genome-wide "
+                     f"LD-decay rows: set LDdecay.scope to genome_wide or both, or use "
+                     f"auto_per_chromosome")
 
 # OVERLAP parameters (GEA + GWAS combined analysis)
 _overlap = config.get('GEAxGWAS', {})
@@ -935,12 +1010,12 @@ else:
     else:
         OVERLAP_CLUMPING_DISTANCE_MODE = 'fixed'
         OVERLAP_CLUMPING_DISTANCE = int(_overlap_rdist_raw)
-OVERLAP_CLUMPING_R2_THRESHOLD   = float(_overlap_raw.get('clumping_r2_threshold', CLUMPING_R2_THRESHOLD))
+OVERLAP_CLUMPING_LD_RULE        = str(_overlap_raw.get('clumping_ld_rule', CLUMPING_LD_RULE))
 OVERLAP_CLUMPING_LD_DECAY_GROUP = str(_overlap_raw.get('ld_decay_group', CLUMPING_LD_DECAY_GROUP))
 # Legacy aliases
 OVERLAP_REGION_DISTANCE      = OVERLAP_CLUMPING_DISTANCE
 OVERLAP_REGION_DISTANCE_MODE = OVERLAP_CLUMPING_DISTANCE_MODE
-OVERLAP_REGION_R2_THRESHOLD  = OVERLAP_CLUMPING_R2_THRESHOLD
+OVERLAP_REGION_LD_RULE       = OVERLAP_CLUMPING_LD_RULE
 OVERLAP_REGION_LD_DECAY_GROUP = OVERLAP_CLUMPING_LD_DECAY_GROUP
 # PAIRWISE OVERLAP parameters (trait-vs-trait comparison across all sources)
 _pairwise = _overlap.get('pairwise', {})
@@ -1232,8 +1307,7 @@ W['ld_decay_chr_vcfs']    = _ph('ld_decay_chr_vcfs')
 W['ld_decay_stat_gw']     = _ph('ld_decay_stat_gw')
 W['ld_decay_stat_chr']    = _ph('ld_decay_stat_chr')
 W['ld_decay_prep_done']   = _ph('ld_decay_prep_done')
-W['ld_decay_gw_done']     = _ph('ld_decay_gw_done')
-W['ld_decay_chr_done']    = _ph('ld_decay_chr_done')
+W['ld_decay_pairs_summary'] = _ph('ld_decay_pairs_summary')
 O['climate_site']         = _ph('climate_site')
 O['climate_site_scaled']  = _ph('climate_site_scaled')
 O['climate_all']          = _ph('climate_all')
@@ -1248,6 +1322,8 @@ O['mantel']               = _ph('mantel')
 O['mantel_stats']         = _ph('mantel_stats')
 O['amova_plot']           = _ph('amova_plot')
 O['ld_decay_table']       = _ph('ld_decay_table')
+O['ld_decay_background']  = _ph('ld_decay_background')
+O['ld_decay_curve']       = _ph('ld_decay_curve')
 O['ld_decay_plot_gw']     = _ph('ld_decay_plot_gw')
 O['ld_decay_plot_gw_svg'] = _ph('ld_decay_plot_gw_svg')
 O['ld_decay_plot_chr']    = _ph('ld_decay_plot_chr')
@@ -1395,9 +1471,10 @@ def add_kbest_paths():
     W['ld_decay_stat_gw']      = f"{_ld_base}stat_gw/"
     W['ld_decay_stat_chr']     = f"{_ld_base}stat_chr/"
     W['ld_decay_prep_done']    = f"{_ld_base}prep_done.flag"
-    W['ld_decay_gw_done']      = f"{_ld_base}gw_done.flag"
-    W['ld_decay_chr_done']     = f"{_ld_base}chr_done.flag"
+    W['ld_decay_pairs_summary'] = f"{_ld_base}pairs_summary.tsv"
     O['ld_decay_table'] = f"{MOD_STRUCT}tables/ld_decay_half_distances.tsv"
+    O['ld_decay_background'] = f"{MOD_STRUCT}tables/ld_decay_background.tsv"
+    O['ld_decay_curve'] = f"{MOD_STRUCT}tables/ld_decay_curve.tsv"
     O['ld_decay_plot_gw'] = f"{MOD_STRUCT}plots/ld_decay/ld_decay_genome_wide.png"
     O['ld_decay_plot_gw_svg'] = f"{MOD_STRUCT}plots/ld_decay/ld_decay_genome_wide.svg"
     O['ld_decay_plot_chr'] = f"{MOD_STRUCT}plots/ld_decay/ld_decay_per_chromosome.png"
@@ -1991,7 +2068,7 @@ if K_BEST is not None and GEA_CONFIGS:
         "clumping_distance_mode": CLUMPING_DISTANCE_MODE,
         "region_distance":        REGION_DISTANCE,
         "region_distance_mode":   REGION_DISTANCE_MODE,
-        "clumping_r2_threshold":  CLUMPING_R2_THRESHOLD,
+        "clumping_ld_rule":       CLUMPING_LD_RULE,
         "ld_decay_group":         CLUMPING_LD_DECAY_GROUP,
         "promoter_length":        PROMOTER_LENGTH,
         "combine_method":  SIGSNPS_METHOD,
@@ -2016,7 +2093,7 @@ if K_BEST is not None and GWAS_CONFIGS:
         "clumping_distance_mode": PHENO_CLUMPING_DISTANCE_MODE,
         "region_distance":        PHENO_REGION_DISTANCE,
         "region_distance_mode":   PHENO_REGION_DISTANCE_MODE,
-        "clumping_r2_threshold":  PHENO_CLUMPING_R2_THRESHOLD,
+        "clumping_ld_rule":       PHENO_CLUMPING_LD_RULE,
         "ld_decay_group":         PHENO_CLUMPING_LD_DECAY_GROUP,
         "promoter_length":        PHENO_PROMOTER_LENGTH,
         "combine_method":  PHENO_COMBINE_METHOD,
@@ -2100,13 +2177,17 @@ def _snp_set_list(value):
 
 
 def resolve_snp_set_declarations(source, sets_cfg, configs_list, configs, registry,
-                                 traits_fn, default_clumping):
+                                 traits_fn, default_clumping, ld_rule='critical',
+                                 ld_group='All', ld_table='NULL'):
     """Resolve <source>.snp_sets into {"<prefix>.<name>": declaration dict}.
 
     Pure: everything it reads is an argument, so tests drive it without a config.
     `configs_list` is the raw <group>.configs list (adjust/threshold per method,
     in order); `configs` the parsed method -> "adjust_threshold" dict; `traits_fn`
     maps a method to the p-value columns it emits (method_traits()).
+    `default_clumping` is the source's snp_clumping_distance (bp, or an auto_* spec);
+    an auto distance is resolved by build_snp_set.R from `ld_table` under the
+    source's `ld_rule` and `ld_group` (genome-wide: the agreement gap is one number).
     """
     group = source
     if sets_cfg is None:
@@ -2226,22 +2307,29 @@ def resolve_snp_set_declarations(source, sets_cfg, configs_list, configs, regist
             raise ValueError(f"{where}: strategy must be one of {sorted(_SNP_SET_STRATEGIES)} "
                              f"or one of the set's methods {sorted(pair_methods)}, got {strategy!r}")
         raw_cd = entry.get("clumping_distance", default_clumping)
-        if isinstance(raw_cd, bool) or not isinstance(raw_cd, (int, float)) or raw_cd != int(raw_cd) \
-                or int(raw_cd) <= 0:
+        cd_auto = isinstance(raw_cd, str) and raw_cd.strip().lower() in _VALID_REGION_MODES
+        if cd_auto:
+            if raw_cd.strip().lower() == 'auto_per_chromosome':
+                import warnings
+                warnings.warn(f"{where}: the agreement gap of a SNP set is one number; "
+                              f"auto_per_chromosome is read genome-wide")
+            clumping = "auto_genome_wide"
+        elif isinstance(raw_cd, bool) or not isinstance(raw_cd, (int, float)) \
+                or raw_cd != int(raw_cd) or int(raw_cd) <= 0:
             raise ValueError(f"{where}: clumping_distance must be a positive integer of bp "
-                             f"(no auto_* modes), got {raw_cd!r}")
+                             f"or auto_genome_wide, got {raw_cd!r}")
+        else:
+            clumping = int(raw_cd)
 
         out[full] = {
             "name": full, "origin": "config", "source_module": source, "regime": "snp",
-            "strategy": strategy, "clumping_distance": int(raw_cd),
+            "strategy": strategy, "clumping_distance": clumping,
             "pairs": pairs, "cells": cells,
         }
+        if cd_auto:
+            out[full].update({"clumping_ld_rule": ld_rule, "ld_decay_group": ld_group,
+                              "ld_decay_table": ld_table})
     return out
-
-
-def _snp_set_default_clumping(distance, mode):
-    """The source's clumping distance when it is a fixed integer, else the app's 100 kb."""
-    return int(distance) if mode == 'fixed' else 100000
 
 
 
@@ -2452,16 +2540,24 @@ if GEA_CONFIGS:
     SNP_SET_DECL.update(resolve_snp_set_declarations(
         "GEA", _assoc.get('snp_sets'), _assoc.get('configs', []), GEA_CONFIGS, GEA_METHODS,
         lambda m: method_traits("GEA", m),
-        _snp_set_default_clumping(CLUMPING_DISTANCE, CLUMPING_DISTANCE_MODE)))
+        CLUMPING_DISTANCE if CLUMPING_DISTANCE_MODE == 'fixed' else CLUMPING_DISTANCE_MODE,
+        CLUMPING_LD_RULE, CLUMPING_LD_DECAY_GROUP, O.get('ld_decay_table', 'NULL')))
 elif _assoc.get('snp_sets'):
     raise ValueError("GEA.snp_sets is declared but GEA.configs is empty")
 if GWAS_CONFIGS:
     SNP_SET_DECL.update(resolve_snp_set_declarations(
         "GWAS", _pheno.get('snp_sets'), _pheno.get('configs', []), GWAS_CONFIGS, GWAS_METHODS,
         lambda m: method_traits("GWAS", m),
-        _snp_set_default_clumping(PHENO_CLUMPING_DISTANCE, PHENO_CLUMPING_DISTANCE_MODE)))
+        PHENO_CLUMPING_DISTANCE if PHENO_CLUMPING_DISTANCE_MODE == 'fixed' else PHENO_CLUMPING_DISTANCE_MODE,
+        PHENO_CLUMPING_LD_RULE, PHENO_CLUMPING_LD_DECAY_GROUP, O.get('ld_decay_table', 'NULL')))
 elif _pheno.get('snp_sets'):
     raise ValueError("GWAS.snp_sets is declared but GWAS.configs is empty")
+# A set's auto agreement gap is read from the genome-wide LD-decay rows.
+_gw_sets = sorted(n for n, d in SNP_SET_DECL.items() if d['clumping_distance'] == 'auto_genome_wide')
+if _gw_sets and LD_DECAY_SCOPE == 'per_chromosome':
+    raise ValueError(f"SNP sets {', '.join(_gw_sets)}: an auto clumping_distance is read from "
+                     f"the genome-wide LD-decay rows: set LDdecay.scope to genome_wide or both, "
+                     f"or give the set's clumping_distance in bp")
 
 def _targets_for_assoc_source(source):
     """Build the shared downstream target list for a GEA or GWAS source."""
@@ -2635,8 +2731,8 @@ def get_targets(mode):
                 targets += [piemap_tajima(bio) for bio in ALL_BIO]
                 targets += [piemap_diversity(bio) for bio in ALL_BIO]
 
-        # LD decay — table always produced
-        targets.append(O['ld_decay_table'])
+        # LD decay — table always produced, with its background and curve tables
+        targets += [O['ld_decay_table'], O['ld_decay_background'], O['ld_decay_curve']]
         if LD_DECAY_SCOPE in ('genome_wide', 'both'):
             targets += [O['ld_decay_plot_gw'], O['ld_decay_plot_gw_svg']]
         if LD_DECAY_SCOPE in ('per_chromosome', 'both'):

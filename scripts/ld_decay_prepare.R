@@ -1,11 +1,12 @@
 #!/usr/bin/env Rscript
-# Prepare sample lists and per-chromosome VCFs for PopLDdecay LD decay analysis
+# Prepare the sample lists of the LD-decay groups (ld_decay_pairs.R, ld_decay_background.R)
 #
 # Creates:
-#   - One sample list file per group (group_name.txt, one sample per line)
-#   - manifest.tsv with group names and sample counts
-#   - Per-chromosome VCFs (if scope includes per_chromosome)
-#   - chromosomes.txt listing all chromosome names
+#   - One sample list file per group (<list_file>.txt, one sample per line)
+#   - manifest.tsv: group (raw name), n_samples, list_file (the file-safe stem every
+#     LD-decay script uses for the group's sample list and .stat.gz files)
+#   - chromosomes.txt listing the chromosome names in VCF order (empty unless the
+#     scope includes per_chromosome)
 
 library(data.table)
 
@@ -76,6 +77,15 @@ if (n_ungrouped > 0) {
                    "per-group LD-decay curves ('All' still covers every sample)"))
 }
 groups <- groups[!is.na(group)]
+# 'All' is the reserved name of the whole dataset (LD-decay tables, ld_decay_group).
+# Compared without case: on a case-insensitive file system (macOS) a site 'all' would
+# write its sample list and curve over All.txt and All.stat.gz.
+reserved <- unique(groups[tolower(group) == "all", group])
+for (g in reserved) {
+    message("WARNING: a group is named '", g, "', the name reserved for the whole ",
+            "dataset; it is reported as '", g, "_site'")
+}
+groups[tolower(group) == "all", group := paste0(group, "_site")]
 group_sizes <- groups[, .N, by = group]
 valid_groups <- group_sizes[N >= MIN_SAMPLES, group]
 skipped_groups <- group_sizes[N < MIN_SAMPLES]
@@ -93,8 +103,7 @@ if (length(valid_groups) == 0) {
 
 # Single-group datasets (the common case for GWAS-only projects sampled at one
 # site): the lone group holds every sample, so it is 'All' under another name.
-# Keeping it would run PopLDdecay twice over the same set and draw two identical
-# curves. Drop it and let 'All' stand for the dataset. Downstream is already fine
+# Keeping it would compute the same pairs twice and draw two identical curves. Drop it and let 'All' stand for the dataset. Downstream is already fine
 # with an All-only manifest -- ld_decay_analyze.R branches on n_groups > 1.
 if (length(valid_groups) == 1 && nrow(group_sizes) == 1) {
     message(paste0("WARNING: Single group '", valid_groups[1],
@@ -110,54 +119,41 @@ if (length(valid_groups) == 1 && nrow(group_sizes) == 1) {
 writeLines(all_samples, file.path(SAMPLE_LISTS_DIR, "All.txt"))
 message(paste0("INFO: Written All.txt (", length(all_samples), " samples)"))
 
-# Write per-group sample lists
-for (grp in valid_groups) {
-    grp_samples <- groups[group == grp, sample]
-    # Clean group name for filename (replace spaces/special chars)
-    safe_name <- gsub("[^A-Za-z0-9_-]", "_", grp)
-    writeLines(grp_samples, file.path(SAMPLE_LISTS_DIR, paste0(safe_name, ".txt")))
-    message(paste0("INFO: Written ", safe_name, ".txt (", length(grp_samples), " samples)"))
+# Write per-group sample lists. File names are the group names made file-safe and
+# unique, ignoring case too (two sites differing only in a space or slash must not
+# share a file, no site may overwrite All.txt, and macOS file systems do not tell
+# All_site.txt from all_site.txt); the manifest maps each raw name to its stem.
+safe  <- c("All", gsub("[^A-Za-z0-9_-]", "_", valid_groups))
+low   <- make.unique(tolower(safe), sep = "_")
+stems <- paste0(safe, substring(low, nchar(safe) + 1))[-1]
+for (j in seq_along(valid_groups)) {
+    grp_samples <- groups[group == valid_groups[j], sample]
+    writeLines(grp_samples, file.path(SAMPLE_LISTS_DIR, paste0(stems[j], ".txt")))
+    message(paste0("INFO: Written ", stems[j], ".txt (", length(grp_samples), " samples)"))
 }
 
 # Write manifest
 manifest <- data.table(
     group = c("All", valid_groups),
-    n_samples = c(length(all_samples), group_sizes[group %in% valid_groups, N])
+    n_samples = c(length(all_samples), group_sizes[match(valid_groups, group), N]),
+    list_file = c("All", stems)
 )
 fwrite(manifest, file.path(SAMPLE_LISTS_DIR, "manifest.tsv"), sep = "\t")
 message(paste0("INFO: Written manifest.tsv (", nrow(manifest), " groups)"))
 
 #=============================================================================
-# SPLIT VCF BY CHROMOSOME (if needed)
+# CHROMOSOME LIST (per-chromosome scope)
 #=============================================================================
 if (SCOPE %in% c("per_chromosome", "both")) {
-    message("INFO: Splitting VCF by chromosome")
-
-    # Get chromosome list from VCF (using grep/awk — works without index)
-    chr_cmd <- paste0("grep -v '^#' ", VCF_PATH, " | awk -F'\\t' '{print $1}' | sort -u")
+    # ld_decay_pairs.R writes the per-chromosome sums from one PLINK pass, so only
+    # the names are needed here, in VCF order (no index needed).
+    chr_cmd <- paste0("grep -v '^#' ", VCF_PATH, " | awk -F'\\t' '!seen[$1]++ {print $1}'")
     chr_list <- system(chr_cmd, intern = TRUE)
     chr_list <- chr_list[chr_list != ""]
 
     if (length(chr_list) == 0) stop("No chromosomes found in VCF")
     message(paste0("INFO: Found ", length(chr_list), " chromosomes: ", paste(chr_list, collapse = ", ")))
-
-    # Write chromosomes.txt
     writeLines(chr_list, file.path(CHR_VCFS_DIR, "chromosomes.txt"))
-
-    # Extract VCF header
-    header_cmd <- paste0("grep '^#' ", VCF_PATH)
-    vcf_header <- system(header_cmd, intern = TRUE)
-
-    # Split VCF per chromosome using awk (no index needed)
-    for (chr in chr_list) {
-        out_vcf <- file.path(CHR_VCFS_DIR, paste0(chr, ".vcf"))
-        writeLines(vcf_header, out_vcf)
-        # Append data lines matching this chromosome
-        cmd <- paste0("awk -F'\\t' '$1 == \"", chr, "\"' ", VCF_PATH, " >> ", out_vcf)
-        system(cmd)
-        n_lines <- as.integer(system(paste0("grep -cv '^#' ", out_vcf), intern = TRUE))
-        message(paste0("INFO: Written ", chr, ".vcf (", n_lines, " SNPs)"))
-    }
 } else {
     # Write empty chromosomes.txt so downstream doesn't error
     writeLines(character(0), file.path(CHR_VCFS_DIR, "chromosomes.txt"))

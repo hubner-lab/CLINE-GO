@@ -30,6 +30,7 @@ suppressPackageStartupMessages(library(data.table))
 
 source("/pipeline/scripts/R/utils/pval_threshold.R")
 source("/pipeline/scripts/R/lib/snp_set_select.R")
+source("/pipeline/scripts/R/lib/region_distance.R")   # an auto_genome_wide gap
 
 args <- commandArgs(trailingOnly = TRUE)
 ################
@@ -56,8 +57,16 @@ if (!identical(decl$regime, "snp")) {
 }
 message("INFO: Building SNP set ", decl$name, " (", decl$source_module, ", origin ",
         decl$origin, ")")
+gap_spec <- decl$clumping_distance
+if (is.character(gap_spec)) {
+    decl$clumping_distance <- resolve_clumping_distance(gap_spec, decl$ld_decay_table %||% "NULL",
+                                                        decl$clumping_ld_rule %||% "critical",
+                                                        decl$ld_decay_group %||% "All")
+    decl$clumping_distance_spec <- gap_spec
+}
 message("INFO: Strategy: ", decl$strategy, "; clumping distance: ", decl$clumping_distance,
-        " bp; ", length(decl$pairs), " trait::method pair(s)")
+        " bp", if (is.character(gap_spec)) paste0(" (", gap_spec, ", ", decl$clumping_ld_rule, ")") else "",
+        "; ", length(decl$pairs), " trait::method pair(s)")
 
 methods_of_files <- basename(dirname(PVAL_FILES))
 if (anyDuplicated(methods_of_files)) {

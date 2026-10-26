@@ -1,83 +1,76 @@
 # region_distance.R — LD-decay based snp_clumping_distance resolver
 # Usage: source("/pipeline/scripts/R/lib/region_distance.R")
 # Requires: data.table
+#
+# An auto_* distance is read from the LD-decay table (ld_decay_analyze.R) under one of
+# three rules, each a column of that table:
+#   critical     -- decay_critical_bp: the LD-decay curve meets the critical r^2 of
+#                   unlinked markers (Breseghello & Sorrells 2006; Laido et al. 2014);
+#   half_decay   -- decay_half_bp: r^2 falls to half its short-range value
+#                   (Zhao et al. 2011; Vos et al. 2017);
+#   r2_threshold -- decay_r2thr_bp: r^2 falls to LDdecay.r2_threshold.
 
-# Hill-Weir (1988) expected r^2 at distance d given parameter C and sample size n
-hill_weir <- function(d, C, n) {
-    x <- C * d
-    ((10 + x) / ((2 + x) * (11 + x))) *
-    (1 + ((3 + x) * (12 + 12 * x + x^2)) / (n * (2 + x) * (11 + x)))
-}
+LD_RULE_COLUMNS <- c(critical = "decay_critical_bp", half_decay = "decay_half_bp",
+                     r2_threshold = "decay_r2thr_bp")
 
-# Invert Hill-Weir: find distance d where r^2 = r2_target
-invert_hill_weir <- function(C_hat, n_samples, r2_target, max_dist_bp) {
-    if (length(C_hat) == 0 || length(n_samples) == 0 || length(max_dist_bp) == 0 ||
-        is.na(C_hat) || is.na(n_samples) || is.na(max_dist_bp)) return(NA_real_)
-    tryCatch(
-        uniroot(function(d) hill_weir(d, C_hat, n_samples) - r2_target,
-                c(1, max_dist_bp))$root,
-        error = function(e) {
-            message(paste0("WARNING: Hill-Weir inversion failed (r2=", r2_target,
-                           "): ", e$message))
-            NA_real_
-        }
-    )
-}
-
-# Fall back to nearest precomputed column when Hill-Weir fit is unavailable
-loess_fallback <- function(row, r2_target) {
-    half_val   <- as.numeric(row[["half_decay_bp"]])
-    r2_02_val  <- as.numeric(row[["r2_02_bp"]])
-    r2_intercept <- as.numeric(row[["r2_intercept"]])
-    half_r2    <- if (!is.na(r2_intercept)) r2_intercept / 2 else 0.3
-
-    if (!is.na(half_val) && !is.na(r2_02_val)) {
-        if (abs(r2_target - half_r2) < abs(r2_target - 0.2)) {
-            message(paste0("WARNING: Using half_decay_bp (r2=", round(half_r2, 3),
-                           ") as fallback for r2=", r2_target))
-            return(half_val)
-        } else {
-            message(paste0("WARNING: Using r2_02_bp as fallback for r2=", r2_target))
-            return(r2_02_val)
-        }
-    } else if (!is.na(r2_02_val)) {
-        return(r2_02_val)
-    } else if (!is.na(half_val)) {
-        return(half_val)
+# The rule name for a rule argument. A number (or numeric string) is the r^2 level of
+# the r2_threshold rule from callers that predate the rules; it must match the level
+# the table was computed at (`table_threshold`, NA when unknown).
+.ld_rule <- function(rule, table_threshold = NA_real_) {
+    r <- tolower(trimws(as.character(rule)))
+    if (r %in% names(LD_RULE_COLUMNS)) return(r)
+    num <- suppressWarnings(as.numeric(r))
+    if (is.na(num)) {
+        stop("unknown LD-decay rule '", rule, "': expected one of ",
+             paste(names(LD_RULE_COLUMNS), collapse = ", "))
     }
-    return(NA_real_)
+    if (!is.na(table_threshold) && abs(num - table_threshold) > 1e-9) {
+        stop("r2 threshold ", num, " requested, but the LD-decay table was computed at r2 = ",
+             table_threshold, "; set LDdecay.r2_threshold instead")
+    }
+    "r2_threshold"
 }
 
-# Resolve distance for one LD-decay TSV row (as named list / data.table row)
-resolve_row_distance <- function(row, r2_target) {
-    method <- row[["method"]]
-    if (!is.null(method) && method == "hill_weir") {
-        C_hat     <- as.numeric(row[["C_hat"]])
-        n_samples <- as.numeric(row[["n_samples"]])
-        max_dist  <- as.numeric(row[["max_dist_bp"]])
+# The distance of one LD-decay table row under `rule` (NA when the curve never reaches
+# the rule's level within the measured distance).
+resolve_row_distance <- function(row, rule) {
+    as.numeric(row[[LD_RULE_COLUMNS[[rule]]]])
+}
 
-        if (length(C_hat) == 0 || length(max_dist) == 0 || is.na(C_hat) || is.na(max_dist)) {
-            message("WARNING: C_hat/max_dist_bp missing — using precomputed fallback. Re-run mode=structure.")
-            return(loess_fallback(row, r2_target))
-        }
-        dist <- invert_hill_weir(C_hat, n_samples, r2_target, max_dist)
-        if (!is.na(dist)) return(round(dist))
-        return(loess_fallback(row, r2_target))
+# Stop for a rule that gives NA on `row` (a table row as a list), naming why: too few
+# bins to fit a curve, no level to decay to, a curve that starts at or below the level
+# (a small group whose unlinked background is as high as its short-range LD), or a
+# curve that never falls to it within LDdecay.max_distance.
+.not_reached <- function(rule, group, where, row) {
+    s <- suppressWarnings(as.numeric(row[["short_r2"]]))
+    target <- switch(rule, critical = suppressWarnings(as.numeric(row[["background_r2"]])),
+                     half_decay = s / 2,
+                     r2_threshold = suppressWarnings(as.numeric(row[["r2_threshold"]])))
+    why <- if (identical(row[["decay_method"]], "insufficient_data")) {
+        "too few distance bins to fit a curve"
+    } else if (length(target) == 0 || is.na(target)) {
+        "there is no level to decay to (no critical r2 without unlinked pairs)"
+    } else if (!is.na(s) && s <= target) {
+        paste0("the curve starts at or below that level (short-range r2 ", signif(s, 3),
+               ", level ", signif(target, 3), "), so there is no decay to read")
+    } else {
+        "LD never decays to that level within LDdecay.max_distance; raising it can help"
     }
-    return(loess_fallback(row, r2_target))
+    stop("LD-decay rule '", rule, "' is not reached for group '", group, "' (", where,
+         "): ", why, ". Choose another clumping_ld_rule or set a fixed distance in bp")
 }
 
 # Resolve snp_clumping_distance from config spec + optional LD decay table.
 #
-# @param spec         character: "auto_per_chromosome" | "auto_genome_wide" | "auto" | integer string
+# @param spec           character: "auto_per_chromosome" | "auto_genome_wide" | "auto" | integer string
 # @param ld_decay_path  path to LD decay TSV (or "NULL" if not available)
-# @param r2_threshold numeric: r2 cutoff for inversion (default 0.2)
-# @param group        character: group name in LD decay table (default "All")
+# @param rule           "critical" | "half_decay" | "r2_threshold" (a number = r2_threshold)
+# @param group          character: group name in LD decay table (default "All")
 # @return either:
 #   - scalar integer          (genome-wide or fixed)
 #   - named integer vector    (per-chromosome, names = chr names)
 resolve_clumping_distance <- function(spec, ld_decay_path = "NULL",
-                                      r2_threshold = 0.2, group = "All") {
+                                      rule = "critical", group = "All") {
     # `group` is also a column of the LD-decay table, so a bare `group == group`
     # inside data.table's i is a self-comparison that matches EVERY row rather
     # than the requested one (finding 240d18). Filter against a differently
@@ -100,12 +93,23 @@ resolve_clumping_distance <- function(spec, ld_decay_path = "NULL",
     if (ld_decay_path == "NULL" || !file.exists(ld_decay_path)) {
         stop("snp_clumping_distance='", spec, "' but LD decay table not found: ", ld_decay_path)
     }
-    ld_table <- data.table::fread(ld_decay_path)
-
+    ld_table <- data.table::fread(ld_decay_path, colClasses = c(group = "character",
+                                                               scope = "character"))
     if (nrow(ld_table) == 0) {
-        message(paste0("WARNING: LD decay table is empty (", ld_decay_path,
-                       ") — using 1e6 bp fallback for '", spec, "'"))
-        return(1000000L)
+        stop("snp_clumping_distance='", spec, "' but the LD decay table is empty: ",
+             ld_decay_path, " (no group had LD-decay data)")
+    }
+    missing_cols <- setdiff(LD_RULE_COLUMNS, names(ld_table))
+    if (length(missing_cols)) {
+        stop("LD decay table ", ld_decay_path, " lacks ", paste(missing_cols, collapse = ", "),
+             ": it predates the PLINK LD-decay estimator; re-run mode=structure")
+    }
+    table_thr <- if ("r2_threshold" %in% names(ld_table)) ld_table$r2_threshold[1] else NA_real_
+    rule <- .ld_rule(rule, table_thr)
+    if (!want_group %in% ld_table$group) {
+        stop("LD-decay group '", group, "' is not in ", ld_decay_path, " (groups: ",
+             paste(unique(ld_table$group), collapse = ", "), "): check ld_decay_group, ",
+             "LDdecay.group_by and LDdecay.min_samples")
     }
 
     if (spec_lower %in% c("auto_genome_wide", "auto")) {
@@ -113,11 +117,13 @@ resolve_clumping_distance <- function(spec, ld_decay_path = "NULL",
             message("INFO: 'auto' treated as 'auto_genome_wide' (deprecated alias)")
         }
         row <- ld_table[group == want_group & scope == "genome_wide"]
-        if (nrow(row) == 0) stop("No genome-wide LD decay row for group='", group, "'")
-        dist_val <- resolve_row_distance(as.list(row[1]), r2_threshold)
-        if (is.na(dist_val)) stop("Could not resolve genome-wide distance from LD decay table")
-        message(paste0("INFO: AUTO genome-wide distance (r2<", r2_threshold, "): ",
-                       round(dist_val), " bp"))
+        if (nrow(row) == 0) {
+            stop("No genome-wide LD decay row for group='", group, "': auto_genome_wide ",
+                 "needs LDdecay.scope genome_wide or both")
+        }
+        dist_val <- resolve_row_distance(as.list(row[1]), rule)
+        if (is.na(dist_val)) .not_reached(rule, group, "genome-wide", as.list(row[1]))
+        message(paste0("INFO: AUTO genome-wide distance (", rule, "): ", round(dist_val), " bp"))
         return(as.integer(round(dist_val)))
     }
 
@@ -125,11 +131,14 @@ resolve_clumping_distance <- function(spec, ld_decay_path = "NULL",
     chr_rows <- ld_table[group == want_group & scope != "genome_wide"]
     gw_row   <- ld_table[group == want_group & scope == "genome_wide"]
 
-    if (nrow(gw_row) == 0 && nrow(chr_rows) == 0)
-        stop("No LD decay rows for group='", group, "'")
+    if (nrow(chr_rows) == 0) {
+        stop("snp_clumping_distance='auto_per_chromosome' but the LD decay table has no ",
+             "per-chromosome rows for group '", group, "': set LDdecay.scope to ",
+             "per_chromosome or both, or use auto_genome_wide")
+    }
 
     gw_dist <- if (nrow(gw_row) > 0) {
-        d <- resolve_row_distance(as.list(gw_row[1]), r2_threshold)
+        d <- resolve_row_distance(as.list(gw_row[1]), rule)
         if (!is.na(d)) as.integer(round(d)) else NULL
     } else NULL
 
@@ -137,19 +146,22 @@ resolve_clumping_distance <- function(spec, ld_decay_path = "NULL",
     for (i in seq_len(nrow(chr_rows))) {
         row      <- as.list(chr_rows[i])
         chr_name <- row[["scope"]]
-        d        <- resolve_row_distance(row, r2_threshold)
+        d        <- resolve_row_distance(row, rule)
         if (is.na(d)) {
             if (!is.null(gw_dist)) {
-                message(paste0("WARNING: chr ", chr_name, " inversion failed; using gw fallback: ", gw_dist, " bp"))
+                message(paste0("WARNING: chr ", chr_name, ": rule '", rule,
+                               "' not reached; using the genome-wide distance ", gw_dist, " bp"))
                 d <- gw_dist
             } else {
-                stop("r2 inversion failed for chr ", chr_name, " and no genome-wide fallback available")
+                .not_reached(rule, group, paste0("chromosome ", chr_name,
+                                                 ", with no genome-wide value to fall back to"),
+                             row)
             }
         }
         dist_map[chr_name] <- as.integer(round(d))
     }
 
-    message(paste0("INFO: AUTO per-chromosome distances (r2<", r2_threshold, "):"))
+    message(paste0("INFO: AUTO per-chromosome distances (", rule, "):"))
     for (chr in names(dist_map)) message(paste0("  chr ", chr, ": ", dist_map[chr], " bp"))
     if (!is.null(gw_dist)) message(paste0("  genome-wide fallback: ", gw_dist, " bp"))
 
@@ -160,13 +172,13 @@ resolve_clumping_distance <- function(spec, ld_decay_path = "NULL",
 # a spec that is neither a number of bp nor an auto_* mode is a configuration error,
 # never the silent 1e6 bp fallback resolve_clumping_distance() keeps for old callers.
 resolve_clumping_distance_strict <- function(spec, ld_decay_path = "NULL",
-                                             r2_threshold = 0.2, group = "All") {
+                                             rule = "critical", group = "All") {
     spec_lower <- tolower(trimws(as.character(spec)))
     is_auto    <- spec_lower %in% c("auto_per_chromosome", "auto_genome_wide", "auto")
     if (!is_auto && is.na(suppressWarnings(as.numeric(spec)))) {
         stop("clumping distance '", spec, "' is neither a number of bp nor an auto_* mode")
     }
-    resolve_clumping_distance(spec, ld_decay_path, r2_threshold, group)
+    resolve_clumping_distance(spec, ld_decay_path, rule, group)
 }
 
 # One-line description of a resolved distance for the logs.

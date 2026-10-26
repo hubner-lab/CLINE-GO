@@ -208,6 +208,18 @@ config_schema <- function() {
           "select", TRUE,
           choices = c("both", "genome_wide", "per_chromosome"),
           help = "Compute LD decay genome-wide, per chromosome, or both"),
+        s("LDdecay.max_pairs",   "Max SNP pairs",   "structure", "LD Decay",
+          "numeric", FALSE,
+          min = 10000, step = 1000000,
+          help = "Pairs PLINK computes per group (default 2e7). Above it, a seeded sample of anchor SNPs is paired with every SNP of their window, which thins all distances evenly."),
+        s("LDdecay.background_markers_per_chr", "Unlinked markers per chr", "structure", "LD Decay",
+          "numeric", FALSE,
+          min = 2, step = 10,
+          help = "Markers sampled per chromosome for the background LD of unlinked markers (pairs on different chromosomes); its 95th percentile of sqrt(r²), squared, is the critical r² (default 50)."),
+        s("LDdecay.r2_threshold", "Fixed r² level",  "structure", "LD Decay",
+          "numeric", FALSE,
+          min = 0.01, max = 0.99, step = 0.05,
+          help = "Level of the r2_threshold decay rule (default 0.2)."),
 
         # ── CLIMATE TAB (predictor characterization + spatial/varpart) ────────
         # Split out of PreGEA (module split, see CLAUDE.md "Phase" notes):
@@ -339,8 +351,12 @@ config_schema <- function() {
         # sync with the region table/rectangles. See mod_gea.R / mod_gwas.R.
         s("GEA.wza.window_size", "WZA window size",    "gea", "WZA",
           "text",    FALSE,
-          help = "Window size for Weighted-Z Analysis (shown in the WZA regime view). auto_genome_wide (default) uses genome-wide LD r\u00b2=0.2; auto_per_chromosome uses per-chr; or enter a fixed bp integer. Changing this requires re-running the GEA module.",
+          help = "Window size for Weighted-Z Analysis (shown in the WZA regime view). auto_genome_wide (default) uses the genome-wide LD-decay distance under GEA.clumping_ld_rule; auto_per_chromosome is read genome-wide; or enter a fixed bp integer. Changing this requires re-running the GEA module.",
           placeholder = "auto_genome_wide"),
+        s("GEA.clumping_ld_rule", "LD-decay rule",     "gea", "WZA",
+          "select",  FALSE,
+          choices = c("critical", "half_decay", "r2_threshold"),
+          help = "Which LD-decay distance an auto_* distance takes: where LD meets the critical r\u00b2 of unlinked markers (critical, default; Breseghello & Sorrells 2006), where it falls to half its short-range value (half_decay), or where it falls to LDdecay.r2_threshold. GWAS inherits it."),
         s("GEA.wza.fallback_window_bp", "WZA fallback window (bp)", "gea", "WZA",
           "numeric", FALSE,
           min = 1000, step = 1000,
@@ -390,7 +406,7 @@ config_schema <- function() {
         # NOTE: SNP clumping distance is no longer config-editable \u2014 see GEA note above.
         s("GWAS.wza.window_size", "WZA window size",    "gwas", "WZA",
           "text",    FALSE,
-          help = "Window size for Weighted-Z Analysis (shown in the WZA regime view). auto_genome_wide (default) uses genome-wide LD r\u00b2=0.2; auto_per_chromosome uses per-chr; or enter a fixed bp integer. Changing this requires re-running the GWAS module.",
+          help = "Window size for Weighted-Z Analysis (shown in the WZA regime view). auto_genome_wide (default) uses the genome-wide LD-decay distance under the LD-decay rule; auto_per_chromosome is read genome-wide; or enter a fixed bp integer. Changing this requires re-running the GWAS module.",
           placeholder = "auto_genome_wide"),
         s("GWAS.wza.fallback_window_bp", "WZA fallback window (bp)", "gwas", "WZA",
           "numeric", FALSE,

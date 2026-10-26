@@ -87,19 +87,17 @@ test_that("resolve_clumping_distance honours the requested group", {
 
     path <- withr::local_tempfile(fileext = ".tsv")
     ld <- data.table::data.table(
-        # Very different C_hat, so the two groups imply very different distances.
-        group = c("cluster1", "All"), scope = "genome_wide", method = "hill_weir",
-        C_hat = c(5e-2, 1e-4), n_samples = 50, max_dist_bp = 5e5,
-        half_decay_bp = NA_real_, r2_02_bp = NA_real_, r2_intercept = NA_real_
+        # Very different decay distances, so the two groups cannot be confused.
+        group = c("cluster1", "All"), scope = "genome_wide",
+        decay_critical_bp = c(800, 6400), decay_half_bp = c(100, 900),
+        decay_r2thr_bp = c(300, 2500), r2_threshold = 0.2
     )
     data.table::fwrite(ld, path, sep = "\t")
 
-    expected_all <- as.integer(round(
-        resolve_row_distance(as.list(ld[group == "All"][1]), 0.2)))
     expect_identical(
         suppressMessages(resolve_clumping_distance("auto_genome_wide", path,
-                                                   r2_threshold = 0.2, group = "All")),
-        expected_all
+                                                   rule = "critical", group = "All")),
+        6400L
     )
 })
 
@@ -109,17 +107,15 @@ test_that("auto_per_chromosome does not mix rows from other groups", {
     ld <- data.table::data.table(
         group = c("All", "All", "cluster1"),
         scope = c("genome_wide", "1", "1"),
-        method = "hill_weir",
-        C_hat = c(1e-3, 1e-3, 5e-2),   # cluster1's chr 1 decays much faster
-        n_samples = 50, max_dist_bp = 5e5,
-        half_decay_bp = NA_real_, r2_02_bp = NA_real_, r2_intercept = NA_real_
+        decay_critical_bp = c(5000, 4200, 300),   # cluster1's chr 1 decays much faster
+        decay_half_bp = c(900, 800, 50), decay_r2thr_bp = c(2500, 2200, 100),
+        r2_threshold = 0.2
     )
     data.table::fwrite(ld, path, sep = "\t")
 
     d <- suppressMessages(resolve_clumping_distance("auto_per_chromosome", path,
-                                                    0.2, group = "All"))
-    expect_identical(d[["1"]],
-                     as.integer(round(invert_hill_weir(1e-3, 50, 0.2, 5e5))))
+                                                    "critical", group = "All"))
+    expect_identical(d[["1"]], 4200L)
 })
 
 # ---------------------------------------------------------------------------

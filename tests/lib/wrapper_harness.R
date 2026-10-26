@@ -70,14 +70,16 @@ fx_pvalues <- function(d, name = "pvalues.tsv") {
     write_tsv(dt, file.path(d, name))
 }
 
-# LD-decay table as mode=structure writes it: one genome-wide Hill-Weir row for the
-# group "All". C = 0.001 with n = 50 resolves r2 = 0.2 to about 3 kb.
+# LD-decay table as mode=structure writes it (ld_decay_analyze.R): one genome-wide row
+# for the group "All". The critical-r2 rule resolves to 3,100 bp, half-decay to
+# 1,240 bp and r2 = 0.2 to 2,600 bp.
 fx_ld_decay <- function(path) {
     dir.create(dirname(path), recursive = TRUE, showWarnings = FALSE)
     write_tsv(data.table::data.table(
-        group = "All", scope = "genome_wide", method = "hill_weir",
-        C_hat = 0.001, n_samples = 50, max_dist_bp = 500000,
-        half_decay_bp = NA_real_, r2_02_bp = NA_real_, r2_intercept = NA_real_), path)
+        group = "All", scope = "genome_wide", n_samples = 50L, n_pairs = 120000,
+        max_dist_bp = 500000, short_r2 = 0.45, background_r2 = 0.06,
+        background_mean_r2 = 0.02, decay_critical_bp = 3100, decay_half_bp = 1240,
+        decay_r2thr_bp = 2600, r2_threshold = 0.2, decay_method = "loess_log"), path)
     path
 }
 
@@ -420,26 +422,26 @@ fx_dbmem_diag <- function(d, name = "dbmem_diagnostics.tsv") {
     write_tsv(dt, file.path(d, name))
 }
 
-# The eight columns of ld_decay_analyze.R's EMPTY skeleton (:247-250), which are
-# also what write_summary.R's structure branch reads back (:383-397) — one
-# fixture for both sides, so a column rename cannot pass one and fail the other
-# silently. The group == "All" & scope == "genome_wide" row is what :385 picks.
-#
-# NOTE the populated table has TEN columns: the per-result data.table (:183-193)
-# adds C_hat and max_dist_bp, which the empty skeleton omits. Filed. Every
-# current consumer reads only the four columns above, so it is latent, but a
-# reader that globs columns sees a different schema depending on whether the run
-# found any data.
+# The thirteen columns of ld_decay_analyze.R's table (the populated table and the
+# empty skeleton now share them), which write_summary.R's structure branch reads
+# back: one fixture for both sides, so a column rename cannot pass one and fail the
+# other silently. The group == "All" & scope == "genome_wide" row is what it picks;
+# the chromosome row "1" feeds auto_per_chromosome.
 fx_ld_decay_table <- function(d, name = "ld_decay_half_distances.tsv") {
     write_tsv(data.table::data.table(
         group = c("All", "All", "NEG"),
-        scope = c("genome_wide", "per_chromosome", "genome_wide"),
-        half_decay_bp = c(1240, 1180, 990),
-        r2_02_bp = c(3100, 2980, 2450),
+        scope = c("genome_wide", "1", "genome_wide"),
         n_samples = c(50L, 50L, 17L),
         n_pairs = c(12000L, 4100L, 3900L),
-        r2_intercept = c(0.62, 0.60, 0.66),
-        method = c("hill_weir", "hill_weir", "loess")),
+        max_dist_bp = 500000,
+        short_r2 = c(0.62, 0.60, 0.66),
+        background_r2 = c(0.08, 0.08, 0.30),
+        background_mean_r2 = c(0.03, 0.03, 0.12),
+        decay_critical_bp = c(3100, 2980, 2450),
+        decay_half_bp = c(1240, 1180, 990),
+        decay_r2thr_bp = c(2600, 2500, 2100),
+        r2_threshold = 0.2,
+        decay_method = "loess_log"),
         file.path(d, name))
 }
 

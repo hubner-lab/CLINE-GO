@@ -5,6 +5,7 @@
 library(data.table)
 library(dplyr)
 library(stringr)
+source('/pipeline/scripts/R/lib/region_distance.R')   # resolve_clumping_distance()
 
 args = commandArgs(trailingOnly=TRUE)
 ################
@@ -412,8 +413,10 @@ if (MODE == 'processing') {
         gw_all <- ld_table[group == 'All' & scope == 'genome_wide']
         if (nrow(gw_all) > 0) {
             new_rows <- rbind(new_rows,
-                row('structure', 'ld_decay_half_decay_genome_wide', gw_all$half_decay_bp[1]),
-                row('structure', 'ld_decay_r2_02_genome_wide', gw_all$r2_02_bp[1])
+                row('structure', 'ld_decay_critical_genome_wide', gw_all$decay_critical_bp[1]),
+                row('structure', 'ld_decay_half_decay_genome_wide', gw_all$decay_half_bp[1]),
+                row('structure', 'ld_decay_r2_threshold_genome_wide', gw_all$decay_r2thr_bp[1]),
+                row('structure', 'ld_decay_critical_r2', gw_all$background_r2[1])
             )
         }
         new_rows <- rbind(new_rows,
@@ -425,7 +428,7 @@ if (MODE == 'processing') {
 
 } else if (MODE %in% c('gea', 'gwas')) {
     # args: MODE OUTPUT selected_snps regions_per_trait regions_combined genes_per_region
-    #        [region_dist_spec r2_threshold ld_decay_group ld_decay_path imputed_maf_report]
+    #        [region_dist_spec ld_rule ld_decay_group ld_decay_path imputed_maf_report]
     is_gwas <- MODE == 'gwas'
     arg_offset <- if (is_gwas) 1L else 0L  # gwas has an extra missing_summary arg before selected_snps
     MISSING_SUMMARY   <- if (is_gwas) args[3] else NULL
@@ -434,7 +437,7 @@ if (MODE == 'processing') {
     REGIONS_COMBINED  <- args[5 + arg_offset]
     GENES_PER_REGION  <- args[6 + arg_offset]
     REGION_DIST_SPEC  <- if (length(args) >= 7 + arg_offset) args[7 + arg_offset] else 'unknown'
-    R2_THRESHOLD_VAL  <- if (length(args) >= 8 + arg_offset) as.numeric(args[8 + arg_offset]) else 0.2
+    LD_RULE_VAL       <- if (length(args) >= 8 + arg_offset) args[8 + arg_offset] else 'critical'
     LD_DECAY_GROUP_VAL <- if (length(args) >= 9 + arg_offset) args[9 + arg_offset] else 'All'
     LD_DECAY_PATH_VAL <- if (length(args) >= 10 + arg_offset) args[10 + arg_offset] else 'NULL'
     IMP_MAF_REPORT    <- if (length(args) >= 11 + arg_offset) args[11 + arg_offset] else 'NULL'
@@ -466,33 +469,29 @@ if (MODE == 'processing') {
         row(MODE, 'regions_combined',  nrow(regions_combined)),
         row(MODE, 'genes_found',       n_genes),
         row(MODE, 'region_distance_spec',    REGION_DIST_SPEC),
-        row(MODE, 'region_r2_threshold',     R2_THRESHOLD_VAL),
+        row(MODE, 'region_ld_rule',          LD_RULE_VAL),
         row(MODE, 'region_ld_decay_group',   LD_DECAY_GROUP_VAL),
         imputed_maf_rows(MODE, IMP_MAF_REPORT)
     )
 
-    # Per-chromosome distances from LD decay table (when auto mode)
+    # The region distance actually used (when auto mode): resolved from the LD-decay
+    # table under the same rule and group as create_regions.R resolves it.
     if (LD_DECAY_PATH_VAL != 'NULL' && file.exists(LD_DECAY_PATH_VAL) &&
         REGION_DIST_SPEC %in% c('auto_per_chromosome', 'auto_genome_wide', 'auto')) {
-        ld_table <- fread(LD_DECAY_PATH_VAL)
-        if (REGION_DIST_SPEC == 'auto_per_chromosome') {
-            chr_rows <- ld_table[group == LD_DECAY_GROUP_VAL & !scope %in% c('genome_wide')]
-            if (nrow(chr_rows) > 0) {
-                new_rows <- rbind(new_rows,
-                    row(MODE, 'region_distance_chr_min_bp',
-                        round(min(chr_rows$r2_02_bp, na.rm = TRUE))),
-                    row(MODE, 'region_distance_chr_median_bp',
-                        round(median(chr_rows$r2_02_bp, na.rm = TRUE))),
-                    row(MODE, 'region_distance_chr_max_bp',
-                        round(max(chr_rows$r2_02_bp, na.rm = TRUE)))
-                )
-            }
-        } else {
-            gw_row <- ld_table[group == LD_DECAY_GROUP_VAL & scope == 'genome_wide']
-            if (nrow(gw_row) > 0) {
-                new_rows <- rbind(new_rows,
-                    row(MODE, 'region_distance_genome_wide_bp', round(gw_row$r2_02_bp[1])))
-            }
+        dist <- tryCatch(
+            suppressMessages(resolve_clumping_distance(REGION_DIST_SPEC, LD_DECAY_PATH_VAL,
+                                                       LD_RULE_VAL, LD_DECAY_GROUP_VAL)),
+            error = function(e) {
+                message("WARNING: region distance not resolvable for the summary: ", conditionMessage(e))
+                NULL
+            })
+        if (!is.null(dist) && !is.null(names(dist))) {
+            new_rows <- rbind(new_rows,
+                row(MODE, 'region_distance_chr_min_bp', min(dist)),
+                row(MODE, 'region_distance_chr_median_bp', round(median(dist))),
+                row(MODE, 'region_distance_chr_max_bp', max(dist)))
+        } else if (!is.null(dist)) {
+            new_rows <- rbind(new_rows, row(MODE, 'region_distance_genome_wide_bp', dist))
         }
     }
 

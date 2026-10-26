@@ -22,7 +22,7 @@ PREDICTORS_SELECTED = str_split(args[4], ',')[[1]]
 OUTPUT              = args[5]
 OUTPUT_PER_TRAIT    = if (length(args) >= 6) args[6] else "NULL"  # selected_snps_per_trait.tsv
 LD_DECAY_PATH       = if (length(args) >= 7) args[7] else "NULL"  # resolves an auto_* spec
-R2_THRESHOLD        = if (length(args) >= 8) as.numeric(args[8]) else 0.2
+LD_RULE             = if (length(args) >= 8) args[8] else "critical"  # clumping_ld_rule
 LD_DECAY_GROUP      = if (length(args) >= 9) args[9] else "All"
 ################
 # 5, 6 or 9 arguments, the FIRST being ONE argv slot holding the whole space-separated
@@ -31,7 +31,7 @@ LD_DECAY_GROUP      = if (length(args) >= 9) args[9] else "All"
 # the input-clobber check below. Same failure as combine_pheno_pvalues.R.
 if (!(length(args) %in% c(5L, 6L, 9L)) || any(is.na(args[1:5])))
     stop("Usage: combine_selected_snps.R '<file1 file2 ...>' <method> <clumping_distance> ",
-         "<predictors_csv> <output> [<per_trait_output> [<ld_decay_table> <r2_threshold> ",
+         "<predictors_csv> <output> [<per_trait_output> [<ld_decay_table> <ld_rule> ",
          "<ld_decay_group>]]\n  got ", length(args),
          " argument(s): ", paste(args, collapse = " | "),
          "\n  The file list must be ONE quoted argument.")
@@ -39,7 +39,7 @@ if (!(length(args) %in% c(5L, 6L, 9L)) || any(is.na(args[1:5])))
 # The same distance as the region clumping: an auto_* spec is resolved from the
 # LD-decay table exactly as create_regions.R resolves it.
 CLUMPING_DISTANCE <- resolve_clumping_distance_strict(CLUMPING_SPEC, LD_DECAY_PATH,
-                                                      R2_THRESHOLD, LD_DECAY_GROUP)
+                                                      LD_RULE, LD_DECAY_GROUP)
 
 message('INFO: Combining significant SNPs')
 message(paste0('INFO: Strategy: ', METHOD))

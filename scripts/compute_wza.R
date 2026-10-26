@@ -35,7 +35,9 @@ WINDOW_SIZE    = if (length(args) >= 4) args[4] else "auto_genome_wide"
 FALLBACK_BP    = if (length(args) >= 5) as.integer(args[5]) else 10000L
 LD_DECAY_GROUP = if (length(args) >= 6) args[6] else "All"
 OUTPUT         = args[7]
+LD_RULE        = if (length(args) >= 8) args[8] else "critical"  # clumping_ld_rule
 ################
+source("/pipeline/scripts/R/lib/region_distance.R")   # LD_RULE_COLUMNS, .ld_rule()
 
 # No WZA-specific MAF cut. The SNP set is whatever the method tested -- `Filter.maf` on observed
 # calls, then `sNMF.imputed_maf` (default Filter.maf) on the imputed matrix -- and WZA does not
@@ -58,21 +60,6 @@ message("INFO: WZA — reading inputs")
 
 # ─── Resolve window size ──────────────────────────────────────────────────────
 
-hill_weir <- function(d, C, n) {
-    x <- C * d
-    ((10 + x) / ((2 + x) * (11 + x))) *
-    (1 + ((3 + x) * (12 + 12 * x + x^2)) / (n * (2 + x) * (11 + x)))
-}
-
-invert_hill_weir <- function(C_hat, n_samples, r2_target, max_dist_bp) {
-    if (is.na(C_hat) || is.na(n_samples) || is.na(max_dist_bp)) return(NA_real_)
-    tryCatch(
-        uniroot(function(d) hill_weir(d, C_hat, n_samples) - r2_target,
-                c(1, max_dist_bp))$root,
-        error = function(e) NA_real_
-    )
-}
-
 resolve_window_size <- function(spec, ld_path, group, fallback_bp) {
     spec_lower <- tolower(trimws(spec))
     if (spec_lower %in% c("auto_genome_wide", "auto")) {
@@ -81,26 +68,23 @@ resolve_window_size <- function(spec, ld_path, group, fallback_bp) {
                            "Using fallback: ", fallback_bp, " bp"))
             return(fallback_bp)
         }
-        ld <- fread(ld_path)
+        ld <- fread(ld_path, colClasses = c(group = "character", scope = "character"))
         row <- ld[group == LD_DECAY_GROUP & scope == "genome_wide"]
         if (nrow(row) == 0) {
             message(paste0("WARNING: No genome-wide LD decay row for group='", LD_DECAY_GROUP,
                            "'. Using fallback: ", fallback_bp, " bp"))
             return(fallback_bp)
         }
-        row <- as.list(row[1])
-        if (row$method == "hill_weir") {
-            d <- invert_hill_weir(as.numeric(row$C_hat), as.numeric(row$n_samples),
-                                  0.2, as.numeric(row$max_dist_bp))
-        } else {
-            d <- as.numeric(row$r2_02_bp)
-        }
+        rule <- .ld_rule(LD_RULE, if ("r2_threshold" %in% names(ld)) ld$r2_threshold[1] else NA_real_)
+        col  <- LD_RULE_COLUMNS[[rule]]
+        d <- if (col %in% names(row)) as.numeric(row[[col]][1]) else NA_real_
         if (is.na(d)) {
-            message(paste0("WARNING: LD-decay inversion failed. Using fallback: ", fallback_bp, " bp"))
+            message(paste0("WARNING: LD-decay rule '", rule, "' gives no distance for group '",
+                           LD_DECAY_GROUP, "'. Using fallback: ", fallback_bp, " bp"))
             return(fallback_bp)
         }
         d <- max(round(d), fallback_bp)  # never smaller than fallback
-        message(paste0("INFO: WZA window size from LD decay (r²=0.2, group=", LD_DECAY_GROUP,
+        message(paste0("INFO: WZA window size from LD decay (", rule, ", group=", LD_DECAY_GROUP,
                        "): ", d, " bp"))
         return(as.integer(d))
     } else if (spec_lower == "auto_per_chromosome") {

@@ -103,37 +103,65 @@ test_that("a clusters table with no C* columns fails loudly", {
     expect_match(res$output, "No Q-matrix columns")
 })
 
-# --- 600acb: the Hill-Weir sample-size term ---------------------------------
+# --- 600acb: n_samples no longer enters any fit ---------------------------------
+# The Hill-Weir curve needed the group size and fell back to LOESS when it was 0.
+# The LOESS estimator reads only the binned r^2, so n_samples is reported, not used.
 
 analyze_with_n <- function(d, n_samples) {
     gw <- file.path(d, "stat_gw"); chrd <- file.path(d, "stat_chr")
     dir.create(gw, showWarnings = FALSE); dir.create(chrd, showWarnings = FALSE)
     fx_stat_gz(gw, "All")
-    mf <- write_tsv(data.table::data.table(group = "All", n_samples = n_samples),
+    mf <- write_tsv(data.table::data.table(group = "All", n_samples = n_samples,
+                                           list_file = "All"),
                     file.path(d, "manifest.tsv"))
     tbl <- file.path(d, "ld_decay_half_distances.tsv")
     res <- run_wrapper("ld_decay_analyze.R",
                        c("genome_wide", gw, chrd, mf,
                          file.path(d, "chromosomes.txt"), tbl,
-                         file.path(d, "ld_decay_gw.png"), "NULL"))
+                         file.path(d, "ld_decay_gw.png"), "NULL",
+                         "NULL", "0.2", "NULL", "0.3"))
     list(res = res, table = data.table::fread(tbl))
 }
 
-test_that("n_samples=0 is reported, not silently absorbed into a LOESS fallback", {
-    d <- withr::local_tempdir()
-    r <- analyze_with_n(d, 0L)
+test_that("the decay distances do not depend on the reported n_samples", {
+    d0 <- withr::local_tempdir(); d50 <- withr::local_tempdir()
+    r0 <- analyze_with_n(d0, 0L); r50 <- analyze_with_n(d50, 50L)
 
-    expect_identical(r$res$status, 0L, info = r$res$output)
-    expect_match(r$res$output, "n_samples=0 is not usable")
-    # Still produces a usable curve, and says which model it came from.
-    expect_identical(r$table$method, "loess")
+    expect_identical(r0$res$status, 0L, info = r0$res$output)
+    expect_identical(r0$table$decay_method, "loess_log")
+    expect_identical(r0$table$n_samples, 0L)
+    expect_identical(r50$table$n_samples, 50L)
+    expect_identical(r0$table$decay_half_bp, r50$table$decay_half_bp)
+    expect_identical(r0$table$decay_r2thr_bp, r50$table$decay_r2thr_bp)
 })
 
-test_that("a usable n_samples still fits Hill-Weir", {
+test_that("group names that are not file-safe get unique stems in the manifest", {
     d <- withr::local_tempdir()
-    r <- analyze_with_n(d, 50L)
-
-    expect_identical(r$res$status, 0L, info = r$res$output)
-    expect_false(grepl("is not usable", r$res$output, fixed = TRUE))
-    expect_identical(r$table$method, "hill_weir")
+    samples <- sprintf("ID%03d", 1:12)
+    # "Tel Aviv" and "Tel_Aviv" sanitise to the same name, and a site named "All"
+    # must not overwrite the whole-dataset list.
+    sites <- rep(c("Tel Aviv", "Tel_Aviv", "All"), each = 4)
+    sites[12] <- "all"   # one sample: below min_samples elsewhere, here a group of 1
+    meta <- write_tsv(data.table::data.table(site = sites, sample = samples,
+                                             latitude = 31, longitude = 34.8),
+                      file.path(d, "metadata.tsv"))
+    lists <- file.path(d, "sample_lists")
+    res <- run_wrapper("ld_decay_prepare.R",
+                       c("NULL", meta, "site", "1", "genome_wide", lists,
+                         file.path(d, "chr_vcfs"), "NULL"))
+    expect_identical(res$status, 0L, info = res$output)
+    mf <- data.table::fread(file.path(lists, "manifest.tsv"), colClasses = "character")
+    # the site called "All" is renamed: "All" means the whole dataset everywhere downstream
+    expect_identical(mf$group, c("All", "Tel Aviv", "Tel_Aviv", "All_site", "all_site"))
+    expect_match(res$output, "reported as 'All_site'")
+    expect_match(res$output, "reported as 'all_site'")
+    # stems differ even ignoring case: a case-insensitive file system merges the rest
+    expect_false(anyDuplicated(tolower(mf$list_file)) > 0)
+    expect_identical(mf$list_file[1], "All")
+    # every stem has its own sample list, and All.txt still holds every sample
+    for (i in seq_len(nrow(mf))) {
+        expect_true(file.exists(file.path(lists, paste0(mf$list_file[i], ".txt"))))
+    }
+    expect_identical(sort(readLines(file.path(lists, "All.txt"))), samples)
+    expect_identical(readLines(file.path(lists, paste0(mf$list_file[2], ".txt"))), samples[1:4])
 })

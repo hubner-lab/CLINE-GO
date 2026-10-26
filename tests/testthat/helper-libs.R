@@ -34,6 +34,7 @@ for (.f in c("utils/pval_threshold.R",
              "lib/gff_parsing.R",
              "lib/regions.R",
              "lib/region_distance.R",
+             "lib/ld_decay.R",
              "lib/sig_snps.R",
              "lib/combine_sigsnps.R",
              "lib/snp_set_select.R",      # needs pval_threshold.R (select_snp_set)

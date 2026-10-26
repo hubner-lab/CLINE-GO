@@ -727,7 +727,7 @@ test_that("the app cannot express a per-chromosome clumping distance", {
     # precondition for comparability. region_distance.R itself is covered
     # standalone by test-region_distance.R.
     for (f in c("resolve_clumping_distance", "resolve_row_distance",
-                "hill_weir", "invert_hill_weir", "loess_fallback")) {
+                "resolve_clumping_distance_strict", "LD_RULE_COLUMNS")) {
         expect_false(exists(f, envir = ns, inherits = FALSE),
                      info = paste(f, "unexpectedly present in the app namespace"))
     }

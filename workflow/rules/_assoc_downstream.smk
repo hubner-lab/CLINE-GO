@@ -47,7 +47,7 @@ if ASSOC_SOURCES:
             # resolved by the script from the LD-decay table, as for the regions.
             clumping_dist  = lambda wc: _src(wc.source, "clumping_distance"),
             ld_decay_path  = lambda wc: ld_decay_path_param(_src(wc.source, "clumping_distance_mode")),
-            r2_threshold   = lambda wc: _src(wc.source, "clumping_r2_threshold"),
+            ld_rule        = lambda wc: _src(wc.source, "clumping_ld_rule"),
             ld_decay_group = lambda wc: _src(wc.source, "ld_decay_group")
         log:
             f"{LOGDIR}{{source}}/find_sig_snps_{{method}}_{{adjust}}.log"
@@ -57,7 +57,7 @@ if ASSOC_SOURCES:
             Rscript /pipeline/scripts/find_sig_snps.R \
                 {input.assoc} {wildcards.adjust} {params.clumping_dist} \
                 {wildcards.method} {threads} {output} --snp \
-                {params.ld_decay_path} {params.r2_threshold} "{params.ld_decay_group}" > {log} 2>&1
+                {params.ld_decay_path} {params.ld_rule} "{params.ld_decay_group}" > {log} 2>&1
             """
 
     rule assoc_combine_selected_snps:
@@ -87,7 +87,7 @@ if ASSOC_SOURCES:
             # spec resolved by the script from the LD-decay table.
             clumping_dist = lambda wc: _src(wc.source, "clumping_distance"),
             ld_decay_path  = lambda wc: ld_decay_path_param(_src(wc.source, "clumping_distance_mode")),
-            r2_threshold   = lambda wc: _src(wc.source, "clumping_r2_threshold"),
+            ld_rule        = lambda wc: _src(wc.source, "clumping_ld_rule"),
             ld_decay_group = lambda wc: _src(wc.source, "ld_decay_group"),
             # combine_predictors (not the plain "predictors" key) so a multivariate
             # method's pseudo-trait (e.g. RDA's climate_multivariate) isn't filtered
@@ -101,7 +101,7 @@ if ASSOC_SOURCES:
             Rscript /pipeline/scripts/combine_selected_snps.R \
                 "{params.sigsnps_str}" "{params.method}" {params.clumping_dist} \
                 "{params.predictors}" {output.snps} {output.per_trait} \
-                {params.ld_decay_path} {params.r2_threshold} "{params.ld_decay_group}" > {log} 2>&1
+                {params.ld_decay_path} {params.ld_rule} "{params.ld_decay_group}" > {log} 2>&1
             """
 
     rule assoc_create_regions:
@@ -121,7 +121,7 @@ if ASSOC_SOURCES:
         params:
             clumping_dist  = lambda wc: _src(wc.source, "region_distance"),
             ld_decay_path  = lambda wc: ld_decay_path_param(_src(wc.source, "region_distance_mode")),
-            r2_threshold   = lambda wc: _src(wc.source, "clumping_r2_threshold"),
+            ld_rule        = lambda wc: _src(wc.source, "clumping_ld_rule"),
             ld_decay_group = lambda wc: _src(wc.source, "ld_decay_group")
         log:
             f"{LOGDIR}{{source}}/create_regions.log"
@@ -130,8 +130,8 @@ if ASSOC_SOURCES:
             Rscript /pipeline/scripts/create_regions.R \
                 {input.selected_snps} {params.clumping_dist} \
                 {output.per_trait} {output.combined} \
-                {params.ld_decay_path} {params.r2_threshold} \
-                {params.ld_decay_group} {input.trait_pvalues} > {log} 2>&1
+                {params.ld_decay_path} {params.ld_rule} \
+                "{params.ld_decay_group}" {input.trait_pvalues} > {log} 2>&1
             """
 
     rule assoc_wza:
@@ -152,15 +152,16 @@ if ASSOC_SOURCES:
                 O.get("ld_decay_table", "NULL")
                 if _src(wc.source, "wza")["window_size_mode"] != "fixed" else "NULL"
             ),
-            ld_decay_group   = lambda wc: _src(wc.source, "ld_decay_group")
+            ld_decay_group   = lambda wc: _src(wc.source, "ld_decay_group"),
+            ld_rule          = lambda wc: _src(wc.source, "clumping_ld_rule")
         log:
             f"{LOGDIR}{{source}}/wza_{{method}}.log"
         shell:
             """
             Rscript /pipeline/scripts/compute_wza.R \
                 {input.pvalues} {input.maf} {params.ld_decay_path} \
-                {params.window_size} {params.fallback_bp} {params.ld_decay_group} \
-                {output} > {log} 2>&1
+                {params.window_size} {params.fallback_bp} "{params.ld_decay_group}" \
+                {output} {params.ld_rule} > {log} 2>&1
             """
 
     rule assoc_wza_sig_windows:
@@ -177,7 +178,7 @@ if ASSOC_SOURCES:
         params:
             clumping_dist  = lambda wc: _src(wc.source, "clumping_distance"),
             ld_decay_path  = lambda wc: ld_decay_path_param(_src(wc.source, "clumping_distance_mode")),
-            r2_threshold   = lambda wc: _src(wc.source, "clumping_r2_threshold"),
+            ld_rule        = lambda wc: _src(wc.source, "clumping_ld_rule"),
             ld_decay_group = lambda wc: _src(wc.source, "ld_decay_group")
         log:
             f"{LOGDIR}{{source}}/wza_sig_windows_{{method}}_{{adjust}}.log"
@@ -186,7 +187,7 @@ if ASSOC_SOURCES:
             Rscript /pipeline/scripts/find_sig_snps.R \
                 {input.wza} {wildcards.adjust} {params.clumping_dist} \
                 {wildcards.method} 1 {output} --wza \
-                {params.ld_decay_path} {params.r2_threshold} "{params.ld_decay_group}" > {log} 2>&1
+                {params.ld_decay_path} {params.ld_rule} "{params.ld_decay_group}" > {log} 2>&1
             """
 
     rule assoc_wza_manhattan:
@@ -409,7 +410,9 @@ if ASSOC_SOURCES:
             with its reproducibility record."""
             input:
                 decl  = f"{INTER}snp_sets/{{snp_set}}/declaration.json",
-                pvals = lambda wc: snp_set_pvalue_inputs(wc.snp_set)
+                pvals = lambda wc: snp_set_pvalue_inputs(wc.snp_set),
+                # an auto_genome_wide agreement gap is read from the LD-decay table
+                ld    = lambda wc: ld_decay_input(SNP_SET_DECL[wc.snp_set]["clumping_distance"])
             output:
                 tsv    = f"{INTER}snp_sets/{{snp_set}}/selected_snps.tsv",
                 record = f"{INTER}snp_sets/{{snp_set}}/snp_set.yaml"

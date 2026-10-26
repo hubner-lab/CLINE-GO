@@ -108,11 +108,11 @@ mod_structure_dashboard_outputs <- function(id, project_data) {
                 lab_value_box("Climate predictors",
                               as.character(sv("structure", "n_climate_variables", "—")),
                               "info", "thermometer-half"),
+                lab_value_box("LD decay, critical r²",
+                              bp(sv("structure", "ld_decay_critical_genome_wide")),
+                              "success", "bar-chart-line"),
                 lab_value_box("LD half-decay",
                               bp(sv("structure", "ld_decay_half_decay_genome_wide")),
-                              "success", "bar-chart-line"),
-                lab_value_box("LD r² = 0.2",
-                              bp(sv("structure", "ld_decay_r2_02_genome_wide")),
                               "info", "rulers")
             )
         })

@@ -11,7 +11,14 @@ Pinned:
   * wiring: the agreement, the significant-SNP and WZA-window rules pass the LD-decay
     arguments that resolve an auto_* spec (finding of 2026-10-13: the agreement step
     used to receive the bare string and turn it into NA), and only the region rule
-    reads the region distance.
+    reads the region distance;
+  * clumping_ld_rule (critical | half_decay | r2_threshold, default critical) picks the
+    LD-decay column an auto_* distance is read from; GWAS inherits it; a leftover
+    clumping_r2_threshold is accepted only at LDdecay.r2_threshold, never picks the
+    rule, and says so on stderr;
+  * auto_per_chromosome needs LDdecay.scope per_chromosome or both, auto_genome_wide
+    needs genome_wide or both (parse-time errors);
+  * the LD-decay group reaches every script as one shell word ("Tel Aviv").
 """
 import os
 import re
@@ -20,6 +27,7 @@ import unittest
 import _smk_harness as H
 
 DOWNSTREAM = os.path.join(H.REPO_ROOT, "workflow", "rules", "_assoc_downstream.smk")
+SUMMARY = os.path.join(H.REPO_ROOT, "workflow", "rules", "summary.smk")
 
 
 def load(**overrides):
@@ -77,6 +85,75 @@ class TestResolution(unittest.TestCase):
         self.assertEqual(ns["CLUMPING_DISTANCE"], 5000)
 
 
+class TestLdRule(unittest.TestCase):
+    def test_default_rule_is_critical(self):
+        ns = load()
+        self.assertEqual(source(ns)["clumping_ld_rule"], "critical")
+        self.assertEqual(ns["CLUMPING_LD_RULE"], "critical")
+
+    def test_rule_is_read_and_inherited_by_gwas(self):
+        ns = load(GEA__clumping_ld_rule="half_decay")
+        self.assertEqual(source(ns)["clumping_ld_rule"], "half_decay")
+        self.assertEqual(ns["PHENO_CLUMPING_LD_RULE"], "half_decay")
+
+    def test_gwas_can_set_its_own_rule(self):
+        ns = load(GEA__clumping_ld_rule="half_decay", GWAS__clumping_ld_rule="r2_threshold")
+        self.assertEqual(ns["CLUMPING_LD_RULE"], "half_decay")
+        self.assertEqual(ns["PHENO_CLUMPING_LD_RULE"], "r2_threshold")
+
+    def test_an_unknown_rule_fails_at_parse_time(self):
+        with self.assertRaises(Exception):
+            load(GEA__clumping_ld_rule="extent")
+
+    def test_old_r2_threshold_is_accepted_only_at_the_ld_decay_level(self):
+        ns = load(GEA__clumping_r2_threshold=0.2)
+        self.assertEqual(ns["CLUMPING_LD_RULE"], "critical")
+        with self.assertRaises(ValueError):
+            load(GEA__clumping_r2_threshold=0.3)
+        ns = load(GEA__clumping_r2_threshold=0.3, LDdecay__r2_threshold=0.3)
+        self.assertEqual(ns["LD_DECAY_R2_THRESHOLD"], 0.3)
+
+    def test_old_r2_threshold_never_picks_the_rule_and_says_so(self):
+        # the user's rule is critical unless clumping_ld_rule says otherwise; the old key
+        # used to warn through a hidden DeprecationWarning only
+        import contextlib
+        import io
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            ns = load(GEA__clumping_ld_rule="half_decay", GWAS__clumping_r2_threshold=0.2)
+        self.assertEqual(ns["PHENO_CLUMPING_LD_RULE"], "half_decay")
+        self.assertIn("no longer picks the LD-decay rule", err.getvalue())
+
+    def test_per_chromosome_distance_needs_per_chromosome_ld_rows(self):
+        with self.assertRaises(ValueError):
+            load(GEA__snp_clumping_distance="auto_per_chromosome", LDdecay__scope="genome_wide")
+        ns = load(GEA__snp_clumping_distance="auto_per_chromosome", LDdecay__scope="both")
+        self.assertEqual(source(ns)["clumping_distance_mode"], "auto_per_chromosome")
+
+    def test_genome_wide_distance_needs_genome_wide_ld_rows(self):
+        with self.assertRaisesRegex(ValueError, "auto_genome_wide needs genome-wide"):
+            load(GEA__snp_clumping_distance="auto_genome_wide", LDdecay__scope="per_chromosome")
+        ns = load(GEA__snp_clumping_distance="auto_per_chromosome", LDdecay__scope="per_chromosome")
+        self.assertEqual(source(ns)["clumping_distance_mode"], "auto_per_chromosome")
+
+
+class TestLdDecayKeys(unittest.TestCase):
+    def test_defaults(self):
+        ns = load()
+        self.assertEqual(ns["LD_DECAY_MAX_PAIRS"], 2e7)
+        self.assertEqual(ns["LD_DECAY_R2_THRESHOLD"], 0.2)
+        self.assertEqual(ns["LD_DECAY_SEED"], 1)
+        self.assertTrue(ns["LD_DECAY_TAG"].startswith("plink_"))
+
+    def test_invalid_values_fail_at_parse_time(self):
+        for key, value in (("LDdecay__max_pairs", 10), ("LDdecay__r2_threshold", 1.5),
+                           ("LDdecay__background_markers_per_chr", 1),
+                           ("LDdecay__max_distance", 0)):
+            with self.subTest(key=key):
+                with self.assertRaises(ValueError):
+                    load(**{key: value})
+
+
 class TestWiring(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -92,7 +169,8 @@ class TestWiring(unittest.TestCase):
                 body = self.rules[name]
                 self.assertIn('_src(wc.source, "clumping_distance")', body)
                 self.assertIn('ld_decay_input(_src(wc.source, "clumping_distance_mode"))', body)
-                self.assertIn("{params.ld_decay_path} {params.r2_threshold}", body)
+                self.assertIn("{params.ld_decay_path} {params.ld_rule}", body)
+                self.assertIn('_src(wc.source, "clumping_ld_rule")', body)
                 self.assertNotIn("region_distance", body)
 
     def test_only_the_region_rule_reads_the_region_distance(self):
@@ -100,6 +178,16 @@ class TestWiring(unittest.TestCase):
         self.assertIn('_src(wc.source, "region_distance")', body)
         self.assertIn('ld_decay_input(_src(wc.source, "region_distance_mode"))', body)
         self.assertNotIn('_src(wc.source, "clumping_distance")', body)
+
+    def test_the_ld_decay_group_is_one_shell_word(self):
+        # a group named after a site with a space ("Tel Aviv") used to split in two
+        # and shift every later argument
+        for path in (DOWNSTREAM, SUMMARY):
+            with self.subTest(file=os.path.basename(path)):
+                with open(path) as handle:
+                    text = handle.read()
+                self.assertIn('"{params.ld_decay_group}"', text)
+                self.assertNotRegex(text, r'(?<!")\{params\.ld_decay_group\}')
 
 
 if __name__ == "__main__":

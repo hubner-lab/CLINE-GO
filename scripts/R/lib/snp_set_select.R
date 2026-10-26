@@ -340,7 +340,11 @@ normalize_snp_set_decl <- function(x) {
     out$source_module     <- as.character(x$source_module)
     out$regime            <- as.character(x$regime)
     out$strategy          <- as.character(x$strategy)
-    out$clumping_distance <- as.integer(x$clumping_distance)
+    # A config declaration may carry an auto_genome_wide gap, which build_snp_set.R
+    # resolves from the LD-decay table; a record always holds the bp it was built with.
+    cd <- x$clumping_distance
+    out$clumping_distance <- if (is.character(cd) && tolower(cd) %in% c("auto_genome_wide", "auto"))
+        "auto_genome_wide" else as.integer(cd)
     out$pairs             <- pairs
     out$cells             <- cells
     out

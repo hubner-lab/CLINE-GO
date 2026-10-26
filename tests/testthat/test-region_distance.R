@@ -1,22 +1,23 @@
 # scripts/R/lib/region_distance.R
 #
 # Turns Association.snp_clumping_distance into an actual bp distance, either fixed
-# or inverted out of the LD-decay table written by mode=structure.
+# or read from the LD-decay table written by mode=structure under one of three
+# rules: critical (decay_critical_bp), half_decay (decay_half_bp) or r2_threshold
+# (decay_r2thr_bp).
 
 # --- fixtures --------------------------------------------------------------
 
 # Builder, not a shared object: resolve_clumping_distance() reads the table with
 # fread() every call, but the rows are also handed to resolve_row_distance() as
 # lists and nothing here should be able to leak between tests.
-ld_row <- function(group = "All", scope = "genome_wide", method = "hill_weir",
-                   C_hat = 0.001, n_samples = 50, max_dist_bp = 500000,
-                   half_decay_bp = NA_real_, r2_02_bp = NA_real_,
-                   r2_intercept = NA_real_) {
+ld_row <- function(group = "All", scope = "genome_wide", critical = 3100,
+                   half = 1240, r2thr = 2600, r2_threshold = 0.2) {
     data.table::data.table(
-        group = group, scope = scope, method = method,
-        C_hat = C_hat, n_samples = n_samples, max_dist_bp = max_dist_bp,
-        half_decay_bp = half_decay_bp, r2_02_bp = r2_02_bp,
-        r2_intercept = r2_intercept
+        group = group, scope = scope, n_samples = 50L, n_pairs = 1e5,
+        max_dist_bp = 5e5, short_r2 = 0.45, background_r2 = 0.06,
+        background_mean_r2 = 0.02, decay_critical_bp = critical,
+        decay_half_bp = half, decay_r2thr_bp = r2thr, r2_threshold = r2_threshold,
+        decay_method = "loess_log"
     )
 }
 
@@ -26,80 +27,76 @@ write_ld <- function(dt) {
     path
 }
 
-# --- hill_weir -------------------------------------------------------------
+# --- rules -----------------------------------------------------------------
 
-test_that("hill_weir matches the closed form and decays with distance", {
-    # Hand-evaluated at x = C*d = 0: ((10+0)/((2)(11))) * (1 + (3*12)/(n*2*11))
-    n <- 50
-    expect_equal(hill_weir(0, C = 0.001, n = n),
-                 (10 / 22) * (1 + 36 / (n * 22)))
-
-    d <- c(1, 1e3, 1e4, 1e5)
-    r <- hill_weir(d, C = 1e-3, n = 50)
-    expect_length(r, 4L)                       # vectorised over d
-    expect_true(all(diff(r) < 0))              # monotone decreasing
-    expect_true(all(r > 0 & r < 1))
+test_that("resolve_row_distance reads the column of each rule", {
+    row <- as.list(ld_row())
+    expect_identical(resolve_row_distance(row, "critical"), 3100)
+    expect_identical(resolve_row_distance(row, "half_decay"), 1240)
+    expect_identical(resolve_row_distance(row, "r2_threshold"), 2600)
 })
 
-# --- invert_hill_weir ------------------------------------------------------
-
-test_that("invert_hill_weir round-trips through hill_weir", {
-    d <- invert_hill_weir(C_hat = 1e-3, n_samples = 50, r2_target = 0.2,
-                          max_dist_bp = 5e5)
-    expect_false(is.na(d))
-    expect_equal(hill_weir(d, C = 1e-3, n = 50), 0.2, tolerance = 1e-6)
+test_that("each rule resolves auto_genome_wide to its own column", {
+    path <- write_ld(ld_row())
+    r <- function(rule) suppressMessages(resolve_clumping_distance("auto_genome_wide", path, rule))
+    expect_identical(r("critical"), 3100L)
+    expect_identical(r("half_decay"), 1240L)
+    expect_identical(r("r2_threshold"), 2600L)
+    expect_identical(r("CRITICAL"), 3100L)     # rule names are case-insensitive
 })
 
-test_that("invert_hill_weir returns NA on missing or zero-length input", {
-    expect_true(is.na(invert_hill_weir(NA_real_, 50, 0.2, 5e5)))
-    expect_true(is.na(invert_hill_weir(1e-3, NA_real_, 0.2, 5e5)))
-    expect_true(is.na(invert_hill_weir(1e-3, 50, 0.2, NA_real_)))
-    expect_true(is.na(invert_hill_weir(numeric(0), 50, 0.2, 5e5)))
+test_that("the default rule is critical", {
+    path <- write_ld(ld_row())
+    expect_identical(suppressMessages(resolve_clumping_distance("auto_genome_wide", path)), 3100L)
 })
 
-test_that("invert_hill_weir warns and returns NA when the root is not bracketed", {
-    # r2_target = 0.99 is above hill_weir() everywhere on [1, max_dist], so uniroot
-    # cannot bracket a sign change.
-    d <- expect_message(invert_hill_weir(1e-3, 50, 0.99, 5e5), "inversion failed")
-    expect_true(is.na(d))
+test_that("a numeric rule is the r2_threshold rule, and only at the table's level", {
+    path <- write_ld(ld_row(r2_threshold = 0.2))
+    expect_identical(suppressMessages(resolve_clumping_distance("auto_genome_wide", path, 0.2)),
+                     2600L)
+    expect_identical(suppressMessages(resolve_clumping_distance("auto_genome_wide", path, "0.2")),
+                     2600L)
+    expect_error(suppressMessages(resolve_clumping_distance("auto_genome_wide", path, 0.1)),
+                 "LDdecay.r2_threshold")
 })
 
-# --- loess_fallback --------------------------------------------------------
-
-test_that("loess_fallback picks whichever precomputed column is nearer the target", {
-    # r2_intercept 0.8 -> half_r2 0.4. Target 0.35 is nearer 0.4 than 0.2.
-    row <- as.list(ld_row(half_decay_bp = 1000, r2_02_bp = 9000, r2_intercept = 0.8))
-    expect_equal(suppressMessages(loess_fallback(row, 0.35)), 1000)
-
-    # Target 0.2 is exactly r2_02's own r2, so that column wins.
-    expect_equal(suppressMessages(loess_fallback(row, 0.2)), 9000)
+test_that("an unknown rule name is an error, not a fallback", {
+    path <- write_ld(ld_row())
+    expect_error(resolve_clumping_distance("auto_genome_wide", path, "extent"),
+                 "unknown LD-decay rule")
 })
 
-test_that("loess_fallback defaults half_r2 to 0.3 when r2_intercept is NA", {
-    row <- as.list(ld_row(half_decay_bp = 1000, r2_02_bp = 9000))
-    expect_equal(suppressMessages(loess_fallback(row, 0.29)), 1000)  # nearer 0.3 than 0.2
+test_that("a rule that is never reached stops and names the remedies", {
+    path <- write_ld(ld_row(critical = NA_real_))
+    expect_error(suppressMessages(resolve_clumping_distance("auto_genome_wide", path, "critical")),
+                 "not reached.*LDdecay.max_distance")
+    # the other rules of the same row still resolve
+    expect_identical(suppressMessages(resolve_clumping_distance("auto_genome_wide", path, "half_decay")),
+                     1240L)
 })
 
-test_that("loess_fallback passes a lone non-NA column through, else returns NA", {
-    expect_equal(loess_fallback(as.list(ld_row(r2_02_bp = 4321)), 0.2), 4321)
-    expect_equal(loess_fallback(as.list(ld_row(half_decay_bp = 1234)), 0.2), 1234)
-    expect_true(is.na(loess_fallback(as.list(ld_row()), 0.2)))
+test_that("a curve that starts below the rule's level is named, not blamed on max_distance", {
+    # a small group whose unlinked background is as high as its short-range LD
+    row <- ld_row(critical = NA_real_)
+    row[, background_r2 := 0.6]
+    path <- write_ld(row)
+    expect_error(suppressMessages(resolve_clumping_distance("auto_genome_wide", path, "critical")),
+                 "starts at or below that level")
 })
 
-# --- resolve_row_distance --------------------------------------------------
-
-test_that("resolve_row_distance inverts when method is hill_weir and falls back otherwise", {
-    hw <- as.list(ld_row(C_hat = 1e-3, n_samples = 50, max_dist_bp = 5e5))
-    expect_equal(resolve_row_distance(hw, 0.2),
-                 round(invert_hill_weir(1e-3, 50, 0.2, 5e5)))
-
-    lo <- as.list(ld_row(method = "loess", r2_02_bp = 7777))
-    expect_equal(resolve_row_distance(lo, 0.2), 7777)
+test_that("a group missing from the table is named, with the groups present", {
+    path <- write_ld(ld_row(group = "All"))
+    expect_error(suppressMessages(resolve_clumping_distance("auto_genome_wide", path,
+                                                            "critical", group = "Tel Aviv")),
+                 "group 'Tel Aviv' is not in .*groups: All")
 })
 
-test_that("resolve_row_distance falls back when the hill_weir fit is unusable", {
-    row <- as.list(ld_row(C_hat = NA_real_, r2_02_bp = 8888))
-    expect_equal(suppressMessages(resolve_row_distance(row, 0.2)), 8888)
+test_that("a table from before the PLINK estimator is refused, not misread", {
+    old <- data.table::data.table(group = "All", scope = "genome_wide", method = "hill_weir",
+                                  C_hat = 1e-3, n_samples = 50, max_dist_bp = 5e5,
+                                  half_decay_bp = 1500, r2_02_bp = 3000, r2_intercept = 0.2)
+    path <- write_ld(old)
+    expect_error(resolve_clumping_distance("auto_genome_wide", path), "re-run mode=structure")
 })
 
 # --- resolve_clumping_distance: fixed specs --------------------------------
@@ -137,56 +134,61 @@ test_that("an auto spec with no LD table errors instead of guessing", {
                  "LD decay table not found")
 })
 
-test_that("an empty LD table warns and falls back to 1e6", {
+test_that("an empty LD table is an error, not a silent 1e6 bp", {
     path <- write_ld(ld_row()[0])
-    d <- expect_message(resolve_clumping_distance("auto_genome_wide", path), "is empty")
-    expect_identical(d, 1000000L)
+    expect_error(resolve_clumping_distance("auto_genome_wide", path), "is empty")
 })
 
 test_that("auto_genome_wide errors when there is no genome_wide row", {
     path <- write_ld(ld_row(scope = "1"))
     expect_error(suppressMessages(resolve_clumping_distance("auto_genome_wide", path)),
-                 "No genome-wide LD decay row")
+                 "No genome-wide LD decay row.*LDdecay.scope")
 })
 
-test_that("auto_genome_wide returns the scalar distance implied by the row", {
-    path <- write_ld(ld_row(C_hat = 1e-3, n_samples = 50, max_dist_bp = 5e5))
-    d <- suppressMessages(resolve_clumping_distance("auto_genome_wide", path, 0.2))
-    expect_identical(d, as.integer(round(invert_hill_weir(1e-3, 50, 0.2, 5e5))))
+test_that("auto_genome_wide returns a scalar", {
+    path <- write_ld(ld_row())
+    d <- suppressMessages(resolve_clumping_distance("auto_genome_wide", path))
     expect_length(d, 1L)
     expect_null(names(d))
 })
 
 test_that("auto_per_chromosome returns a NAMED integer vector keyed by chromosome", {
     path <- write_ld(rbind(
-        ld_row(scope = "genome_wide", C_hat = 1e-3),
-        ld_row(scope = "1",  C_hat = 5e-4),
-        ld_row(scope = "2",  C_hat = 2e-3)
+        ld_row(scope = "genome_wide", critical = 3000),
+        ld_row(scope = "1",  critical = 4000),
+        ld_row(scope = "2",  critical = 2000)
     ))
-    d <- suppressMessages(resolve_clumping_distance("auto_per_chromosome", path, 0.2))
+    d <- suppressMessages(resolve_clumping_distance("auto_per_chromosome", path))
     expect_identical(sort(names(d)), c("1", "2"))    # genome_wide is not a chromosome
     expect_true(is.integer(d))
-    # Slower decay (smaller C) means LD extends further.
-    expect_gt(d[["1"]], d[["2"]])
+    expect_identical(d[["1"]], 4000L)
+    expect_identical(d[["2"]], 2000L)
 })
 
 test_that("auto_per_chromosome falls back to the genome-wide distance per chromosome", {
-    # chr 2's row cannot be inverted (C_hat NA, no precomputed columns), so it must
-    # inherit the genome-wide value rather than dropping out of the map.
+    # chr 2 never reaches the critical r2, so it inherits the genome-wide value
+    # rather than dropping out of the map.
     path <- write_ld(rbind(
-        ld_row(scope = "genome_wide", C_hat = 1e-3),
-        ld_row(scope = "1", C_hat = 5e-4),
-        ld_row(scope = "2", C_hat = NA_real_)
+        ld_row(scope = "genome_wide", critical = 3000),
+        ld_row(scope = "1", critical = 4000),
+        ld_row(scope = "2", critical = NA_real_)
     ))
-    d <- suppressMessages(resolve_clumping_distance("auto_per_chromosome", path, 0.2))
-    gw <- as.integer(round(invert_hill_weir(1e-3, 50, 0.2, 5e5)))
-    expect_identical(d[["2"]], gw)
+    d <- suppressMessages(resolve_clumping_distance("auto_per_chromosome", path))
+    expect_identical(d[["2"]], 3000L)
 })
 
 test_that("auto_per_chromosome errors when a chromosome fails and there is no fallback", {
-    path <- write_ld(ld_row(scope = "1", C_hat = NA_real_))
+    path <- write_ld(ld_row(scope = "1", critical = NA_real_))
     expect_error(suppressMessages(resolve_clumping_distance("auto_per_chromosome", path)),
-                 "no genome-wide fallback")
+                 "no genome-wide value to fall back to")
+})
+
+test_that("auto_per_chromosome without per-chromosome rows is an error, not NA distances", {
+    # LDdecay.scope = genome_wide writes no chromosome rows; an empty map used to make
+    # every region distance -Inf/NA downstream (regions.R took max(integer(0))).
+    path <- write_ld(ld_row())
+    expect_error(suppressMessages(resolve_clumping_distance("auto_per_chromosome", path)),
+                 "no per-chromosome rows")
 })
 
 # --- resolve_clumping_distance_strict / format_clumping_distance -----------
@@ -196,8 +198,8 @@ test_that("auto_per_chromosome errors when a chromosome fails and there is no fa
 test_that("the strict resolver passes numbers and auto specs through unchanged", {
     expect_identical(suppressMessages(resolve_clumping_distance_strict("50000")), 50000L)
     path <- write_ld(ld_row())
-    expect_identical(suppressMessages(resolve_clumping_distance_strict("auto_genome_wide", path)),
-                     suppressMessages(resolve_clumping_distance("auto_genome_wide", path)))
+    expect_identical(suppressMessages(resolve_clumping_distance_strict("auto_genome_wide", path, "half_decay")),
+                     suppressMessages(resolve_clumping_distance("auto_genome_wide", path, "half_decay")))
 })
 
 test_that("the strict resolver refuses a spec that is neither a number nor auto_*", {
@@ -209,4 +211,3 @@ test_that("format_clumping_distance describes a scalar and a per-chromosome map"
     expect_match(format_clumping_distance(c("1" = 100L, "2" = 300L)),
                  "per chromosome, 100-300 bp", fixed = TRUE)
 })
-

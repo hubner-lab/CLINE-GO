@@ -171,7 +171,7 @@ WRAPPERS <- list(
         args    = function(d, f) c(f[1], "Cross-method", "auto_genome_wide", "bio_1,bio_2",
                                    file.path(d, "selected_snps.tsv"),
                                    file.path(d, "selected_snps_per_trait.tsv"),
-                                   f[2], "0.2", "All"),
+                                   f[2], "critical", "All"),
         outputs = function(d) file.path(d, c("selected_snps.tsv",
                                              "selected_snps_per_trait.tsv"))
     ),
@@ -181,7 +181,7 @@ WRAPPERS <- list(
         script  = "find_sig_snps.R",
         build   = function(d) fx_pvalues(d),
         args    = function(d, pv) c(pv, "bonf_0.05", "10000", "EMMAX", "1",
-                                    file.path(d, "sig_snps.tsv"), "--snp", "NULL", "0.2", "All"),
+                                    file.path(d, "sig_snps.tsv"), "--snp", "NULL", "critical", "All"),
         outputs = function(d) file.path(d, "sig_snps.tsv"),
         fails_without_input = TRUE
     ),
@@ -204,7 +204,7 @@ WRAPPERS <- list(
         args    = function(d, f) c(f[1], "10000",
                                    file.path(d, "regions_per_trait.tsv"),
                                    file.path(d, "regions_combined.tsv"),
-                                   "NULL", "0.2", "All", f[2]),
+                                   "NULL", "critical", "All", f[2]),
         outputs = function(d) file.path(d, c("regions_per_trait.tsv",
                                              "regions_combined.tsv")),
         fails_without_input = TRUE
@@ -756,9 +756,11 @@ WRAPPERS <- list(
         args    = function(d, f) c("genome_wide", f[1], f[2], f[3],
                                    file.path(d, "chromosomes.txt"),
                                    file.path(d, "ld_decay_half_distances.tsv"),
-                                   file.path(d, "ld_decay_gw.png"), "NULL"),
-        # The .svg sibling is derived inside the script (:262-263), not passed as
-        # an argument, so it has to be declared here explicitly.
+                                   file.path(d, "ld_decay_gw.png"), "NULL",
+                                   "NULL", "0.2", "NULL", "0.3"),
+        # The .svg sibling is derived inside the script (save_plot /
+        # .write_placeholder_plot), not passed as an argument, so it has to be
+        # declared here explicitly.
         outputs = function(d) file.path(d, c("ld_decay_half_distances.tsv",
                                              "ld_decay_gw.png", "ld_decay_gw.svg")),
         # argv[1] is a SCOPE string, not a path: a bogus value matches no branch
@@ -773,7 +775,8 @@ WRAPPERS <- list(
             dir.create(gw, showWarnings = FALSE); dir.create(chrd, showWarnings = FALSE)
             fx_stat_gz(gw, "All")
             fx_stat_gz(chrd, "All", chr = "1")
-            mf <- write_tsv(data.table::data.table(group = "All", n_samples = 50L),
+            mf <- write_tsv(data.table::data.table(group = "All", n_samples = 50L,
+                                                   list_file = "All"),
                             file.path(d, "manifest.tsv"))
             cl <- file.path(d, "chromosomes.txt")
             writeLines("1", cl)
@@ -782,10 +785,38 @@ WRAPPERS <- list(
         args    = function(d, f) c("both", f[1], f[2], f[3], f[4],
                                    file.path(d, "ld_decay_half_distances.tsv"),
                                    file.path(d, "ld_decay_gw.png"),
-                                   file.path(d, "ld_decay_chr.png")),
+                                   file.path(d, "ld_decay_chr.png"),
+                                   "NULL", "0.2", "NULL", "0.3"),
         outputs = function(d) file.path(d, c("ld_decay_half_distances.tsv",
                                              "ld_decay_gw.png", "ld_decay_gw.svg",
                                              "ld_decay_chr.png", "ld_decay_chr.svg")),
+        fails_without_input = FALSE
+    ),
+    list(
+        # The decay distances (scripts/R/lib/ld_decay.R) against a background table,
+        # with the curve output (args 9-12).
+        label   = "ld_decay_analyze.R (background-aware distances and curves)",
+        script  = "ld_decay_analyze.R",
+        build   = function(d) {
+            gw <- file.path(d, "stat_gw"); chrd <- file.path(d, "stat_chr")
+            dir.create(gw, showWarnings = FALSE); dir.create(chrd, showWarnings = FALSE)
+            fx_stat_gz(gw, "All")
+            mf <- write_tsv(data.table::data.table(group = "All", n_samples = 50L,
+                                                   list_file = "All"),
+                            file.path(d, "manifest.tsv"))
+            bg <- write_tsv(data.table::data.table(group = "All", critical_r2 = 0.05,
+                                                   mean_r2 = 0.02),
+                            file.path(d, "ld_decay_background.tsv"))
+            c(gw, chrd, mf, bg)
+        },
+        args    = function(d, f) c("genome_wide", f[1], f[2], f[3],
+                                   file.path(d, "chromosomes.txt"),
+                                   file.path(d, "ld_decay_half_distances.tsv"),
+                                   file.path(d, "ld_decay_gw.png"), "NULL",
+                                   f[4], "0.2", file.path(d, "ld_decay_curve.tsv"), "0.3"),
+        outputs = function(d) file.path(d, c("ld_decay_half_distances.tsv",
+                                             "ld_decay_curve.tsv",
+                                             "ld_decay_gw.png", "ld_decay_gw.svg")),
         fails_without_input = FALSE
     ),
     # check_invariants.R is the one wrapper that is a VALIDATOR rather than a
@@ -1087,9 +1118,9 @@ test_that("an unquoted file list is refused instead of overwriting an input", {
 
 test_that("combine_selected_snps.R: an auto_* agreement distance equals its resolved number", {
     # The finding of 2026-10-13: an auto_* spec reached this script as a string and
-    # became NA. Pairs 2 kb and 5 kb apart: the LD-decay fixture resolves to about
-    # 3 kb, so the auto run must pair the first only, exactly like its number, and
-    # unlike the 10 kb default that pairs both.
+    # became NA. Pairs 2 kb and 5 kb apart: the LD-decay fixture resolves to 3.1 kb
+    # under the critical rule, so the auto run must pair the first only, exactly
+    # like its number, and unlike the 10 kb default that pairs both.
     d  <- withr::local_tempdir()
     sig <- function(path, method, pos) {
         dir.create(dirname(path), recursive = TRUE, showWarnings = FALSE)
@@ -1106,7 +1137,7 @@ test_that("combine_selected_snps.R: an auto_* agreement distance equals its reso
     run <- function(spec, out, extra = character(0))
         run_wrapper("combine_selected_snps.R",
                     c(paste(a, b), "Cross-method", spec, "bio_1", out, "NULL", extra))
-    r_auto <- run("auto_genome_wide", file.path(d, "auto.tsv"), c(ld, "0.2", "All"))
+    r_auto <- run("auto_genome_wide", file.path(d, "auto.tsv"), c(ld, "critical", "All"))
     r_num  <- run(as.character(n), file.path(d, "num.tsv"))
     r_wide <- run("10000", file.path(d, "wide.tsv"))
     for (r in list(r_auto, r_num, r_wide)) expect_identical(r$status, 0L, info = r$output)

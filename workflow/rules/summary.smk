@@ -174,7 +174,7 @@ elif MODE == 'gea':
         params:
             summary_tsv      = O['summary'],
             region_dist_spec = REGION_DISTANCE,
-            r2_threshold     = REGION_R2_THRESHOLD,
+            ld_rule          = REGION_LD_RULE,
             ld_decay_group   = REGION_LD_DECAY_GROUP,
             ld_decay_path    = O.get('ld_decay_table', 'NULL') if REGION_DISTANCE_MODE != 'fixed' else 'NULL'
         log: f"{LOGDIR}gea/write_summary.log"
@@ -183,8 +183,8 @@ elif MODE == 'gea':
             Rscript /pipeline/scripts/write_summary.R \
                 gea {params.summary_tsv} \
                 {input.selected_snps} {input.regions_per_trait} {input.regions_combined} \
-                {input.genes} {params.region_dist_spec} {params.r2_threshold} \
-                {params.ld_decay_group} {params.ld_decay_path} {input.imputed_maf_report} > {log} 2>&1
+                {input.genes} {params.region_dist_spec} {params.ld_rule} \
+                "{params.ld_decay_group}" {params.ld_decay_path} {input.imputed_maf_report} > {log} 2>&1
             touch {output}
             """
 
@@ -255,7 +255,7 @@ elif MODE == 'gwas':
         params:
             summary_tsv      = O['summary'],
             region_dist_spec = PHENO_REGION_DISTANCE,
-            r2_threshold     = PHENO_REGION_R2_THRESHOLD,
+            ld_rule          = PHENO_REGION_LD_RULE,
             ld_decay_group   = PHENO_REGION_LD_DECAY_GROUP,
             ld_decay_path    = O.get('ld_decay_table', 'NULL') if PHENO_REGION_DISTANCE_MODE != 'fixed' else 'NULL'
         log: f"{LOGDIR}gwas/write_summary.log"
@@ -265,7 +265,7 @@ elif MODE == 'gwas':
                 gwas {params.summary_tsv} \
                 {input.missing_summary} {input.selected_snps} {input.regions_per_trait} \
                 {input.regions_combined} {input.genes} {params.region_dist_spec} \
-                {params.r2_threshold} {params.ld_decay_group} {params.ld_decay_path} \
+                {params.ld_rule} "{params.ld_decay_group}" {params.ld_decay_path} \
                 {input.imputed_maf_report} > {log} 2>&1
             touch {output}
             """

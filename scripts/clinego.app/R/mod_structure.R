@@ -189,11 +189,14 @@ mod_structure_server <- function(id, project_data) {
 
             ld_r2_note <- shiny::reactive({
                 filter_note(
-                    "r² = 0.2",
+                    "critical r²",
                     paste0(
-                        "Dashed line marks the r² = 0.2 background-LD reference level. ",
-                        "Half-decay and r²=0.2 distances per group are tabulated below — ",
-                        "use them to pick a clumping distance in the GEA/GWAS filter bar."
+                        "Points are binned mean r² (PLINK), lines the LOESS curves. The dashed ",
+                        "line is the critical r² of unlinked markers for 'All'; the vertical lines ",
+                        "mark where its curve meets that level (critical r²) and where it falls to ",
+                        "half its short-range value (half-decay). The distances per group are ",
+                        "tabulated below; an auto_* clumping distance is read from them under ",
+                        "clumping_ld_rule."
                     )
                 )
             })
@@ -212,17 +215,22 @@ mod_structure_server <- function(id, project_data) {
             )
         })
 
-        # ── LD decay summary table (half-decay + r2=0.2 distance per group/scope) ──
+        # ── LD decay summary table (decay distances per group/scope) ──────────
         output$ld_decay_table <- DT::renderDataTable({
             pd  <- project_data()
             tbl <- as.data.frame(load_ld_decay_table(pd$name))
-            if (nrow(tbl) > 0) {
-                tbl$half_decay_kb <- round(tbl$half_decay_bp / 1000, 1)
-                tbl$r2_02_kb      <- round(tbl$r2_02_bp / 1000, 1)
-                tbl <- tbl[, c("group", "scope", "half_decay_kb", "r2_02_kb",
-                               "n_samples", "n_pairs", "r2_intercept", "method")]
-                names(tbl) <- c("Group", "Scope", "Half-decay (kb)", "r²=0.2 distance (kb)",
-                                 "N samples", "N pairs", "r² intercept", "Method")
+            ld_cols <- c("decay_critical_bp", "decay_half_bp", "decay_r2thr_bp")
+            if (nrow(tbl) > 0 && all(ld_cols %in% names(tbl))) {
+                for (cc in ld_cols) tbl[[cc]] <- round(tbl[[cc]] / 1000, 2)
+                tbl <- tbl[, c("group", "scope", "decay_critical_bp", "decay_half_bp",
+                               "decay_r2thr_bp", "short_r2", "background_r2",
+                               "n_samples", "n_pairs")]
+                names(tbl) <- c("Group", "Scope", "Critical r² distance (kb)",
+                                "Half-decay (kb)", "r² threshold distance (kb)",
+                                "Short-range r²", "Critical r²", "N samples", "N pairs")
+            } else if (nrow(tbl) > 0) {
+                # a table from before the PLINK LD-decay estimator
+                tbl <- data.frame(Note = "LD-decay table predates the current estimator: re-run mode=structure")
             }
             safe_datatable(
                 tbl,

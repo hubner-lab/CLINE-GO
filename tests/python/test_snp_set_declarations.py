@@ -69,9 +69,30 @@ class TestBaseRule(unittest.TestCase):
                          ("Union", "snp", "config", "GEA"))
         self.assertEqual(d["clumping_distance"], 1000000)   # GEA.snp_clumping_distance
 
-    def test_auto_clumping_falls_back_to_the_apps_100kb(self):
-        d = decl([{"name": "default"}], "gea.default", GEA__snp_clumping_distance="auto_genome_wide")
-        self.assertEqual(d["clumping_distance"], 100000)
+    def test_auto_clumping_is_kept_for_build_snp_set_to_resolve(self):
+        # It used to fall back silently to the app's 100 kb.
+        d = decl([{"name": "default"}], "gea.default", GEA__snp_clumping_distance="auto_genome_wide",
+                 GEA__clumping_ld_rule="half_decay")
+        self.assertEqual(d["clumping_distance"], "auto_genome_wide")
+        self.assertEqual(d["clumping_ld_rule"], "half_decay")
+        self.assertEqual(d["ld_decay_group"], "All")
+        self.assertTrue(d["ld_decay_table"].endswith("ld_decay_half_distances.tsv"))
+
+    def test_a_fixed_clumping_carries_no_ld_fields(self):
+        d = decl([{"name": "default"}], "gea.default")
+        self.assertNotIn("clumping_ld_rule", d)
+        self.assertNotIn("ld_decay_table", d)
+
+    def test_a_declaration_may_ask_for_an_auto_gap_itself(self):
+        d = decl([{"name": "x", "clumping_distance": "auto_genome_wide"}], "gea.x")
+        self.assertEqual(d["clumping_distance"], "auto_genome_wide")
+        self.assertEqual(d["clumping_ld_rule"], "critical")
+
+    def test_an_auto_gap_needs_genome_wide_ld_rows(self):
+        # it would stop at snp_set_build, after every association job had run
+        with self.assertRaisesRegex(ValueError, "SNP sets gea.x"):
+            decl([{"name": "x", "clumping_distance": "auto_genome_wide"}], "gea.x",
+                 LDdecay__scope="per_chromosome")
 
     def test_type_only_takes_the_types_default_value(self):
         r = rules(decl([{"name": "s", "threshold_type": "top"}], "gea.s"))
@@ -223,7 +244,7 @@ class TestRejects(unittest.TestCase):
                            "strategy must be")
 
     def test_clumping_distance(self):
-        self.assertRefused([{"name": "x", "clumping_distance": "auto_genome_wide"}],
+        self.assertRefused([{"name": "x", "clumping_distance": "wide"}],
                            "clumping_distance must be a positive integer")
         self.assertRefused([{"name": "x", "clumping_distance": 0}],
                            "clumping_distance must be a positive integer")

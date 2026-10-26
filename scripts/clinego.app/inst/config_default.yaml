@@ -113,6 +113,10 @@ LDdecay:
   min_samples: 10                  # Groups below this are skipped
   max_distance: 500                # Max pairwise distance in kb
   scope: "both"                    # "genome_wide", "per_chromosome", or "both"
+  max_pairs: 20000000              # PLINK --r2 pairs per group; above it, seeded anchor SNPs
+  background_markers_per_chr: 50   # unlinked markers per chromosome for the critical r2
+  r2_threshold: 0.2                # level of the r2_threshold decay rule
+  seed: 1                          # anchor and unlinked-marker sampling
 
 #-----------------------------------------------------------------------------
 # GEA: Association analysis settings
@@ -129,6 +133,9 @@ GEA:
                                     # and for merging significant SNPs into regions; fixed default — tune
                                     # interactively in the GEA tab's filter bar (or "auto_genome_wide"/
                                     # "auto_per_chromosome" to derive it from the LD decay table instead)
+  clumping_ld_rule: "critical"     # rule an auto_* distance is read under: "critical" (LD meets the
+                                    # critical r2 of unlinked markers), "half_decay" (r2 falls to half its
+                                    # short-range value) or "r2_threshold" (LDdecay.r2_threshold)
   # region_clumping_distance: 200000 # ADVANCED: a separate distance for the region merge only (bp or
   #                                # auto_*); unset = snp_clumping_distance for both
   promoter_length: 10000           # Promoter region length for SNP annotation

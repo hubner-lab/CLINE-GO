@@ -126,3 +126,32 @@ test_that("too few arguments print the usage and exit non-zero", {
     expect_gt(res$status, 0L)
     expect_match(res$output, "Usage: build_snp_set.R")
 })
+
+test_that("an auto_genome_wide gap is read from the LD-decay table and recorded in bp", {
+    # A config declaration inherits snp_clumping_distance: auto_genome_wide; it used
+    # to fall back silently to 100 kb. The fixture table resolves to 3,100 bp under
+    # the critical rule and 1,240 bp under half_decay.
+    skip_if_not(dir.exists(SCRIPTS), "scripts/ not mounted")
+    d <- withr::local_tempdir()
+    f <- fx_snp_set_inputs(d, strategy = "Cross-method")
+    ld <- fx_ld_decay(file.path(d, "ld_decay.tsv"))
+    decl <- jsonlite::read_json(f$decl, simplifyVector = TRUE)
+    decl$clumping_distance <- "auto_genome_wide"
+    decl$clumping_ld_rule  <- "half_decay"
+    decl$ld_decay_group    <- "All"
+    decl$ld_decay_table    <- ld
+    jsonlite::write_json(decl, f$decl, auto_unbox = TRUE, digits = NA)
+
+    res <- build_set(f)
+    expect_identical(res$status, 0L, info = res$output)
+    expect_match(res$output, "clumping distance: 1240 bp (auto_genome_wide, half_decay)", fixed = TRUE)
+    rec <- read_snp_set_decl(f$record)
+    expect_identical(rec$clumping_distance, 1240L)   # the record holds the bp, for the app
+    # the same set as a declaration that gives the gap in bp
+    g <- fx_snp_set_inputs(file.path(d, "fixed"), strategy = "Cross-method")
+    fixed <- jsonlite::read_json(g$decl, simplifyVector = TRUE)
+    fixed$clumping_distance <- 1240L
+    jsonlite::write_json(fixed, g$decl, auto_unbox = TRUE, digits = NA)
+    expect_identical(build_set(g)$status, 0L)
+    expect_identical(readLines(f$tsv), readLines(g$tsv))
+})

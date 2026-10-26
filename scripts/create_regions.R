@@ -20,7 +20,7 @@ CLUMPING_DISTANCE_SPEC = args[2]
 OUTPUT_PER_TRAIT       = args[3]
 OUTPUT_COMBINED        = args[4]
 LD_DECAY_PATH          = if (length(args) >= 5) args[5] else "NULL"
-R2_THRESHOLD           = if (length(args) >= 6) as.numeric(args[6]) else 0.2
+LD_RULE                = if (length(args) >= 6) args[6] else "critical"  # clumping_ld_rule
 LD_DECAY_GROUP         = if (length(args) >= 7) args[7] else "All"
 TRAIT_PVALUES          = if (length(args) >= 8) args[8] else "NULL"   # selected_snps_per_trait.tsv
 ################
@@ -28,7 +28,7 @@ TRAIT_PVALUES          = if (length(args) >= 8) args[8] else "NULL"   # selected
 message('INFO: Creating regions from selected SNPs using single-linkage clustering')
 
 dist_spec <- resolve_clumping_distance(CLUMPING_DISTANCE_SPEC, LD_DECAY_PATH,
-                                        R2_THRESHOLD, LD_DECAY_GROUP)
+                                        LD_RULE, LD_DECAY_GROUP)
 
 snps <- fread(SELECTED_SNPS, colClasses = c(chr = "character"))
 

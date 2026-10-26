@@ -25,7 +25,7 @@ CPU    = as.numeric(args[5])
 OUTPUT = args[6]
 REGIME         = if (length(args) >= 7) args[7] else "--snp"   # --snp | --wza
 LD_DECAY_PATH  = if (length(args) >= 8) args[8] else "NULL"    # resolves an auto_* spec
-R2_THRESHOLD   = if (length(args) >= 9) as.numeric(args[9]) else 0.2
+LD_RULE        = if (length(args) >= 9) args[9] else "critical"  # clumping_ld_rule
 LD_DECAY_GROUP = if (length(args) >= 10) args[10] else "All"
 ################
 if (!REGIME %in% c("--snp", "--wza"))
@@ -35,7 +35,7 @@ IS_WZA = REGIME == "--wza"
 # The cross-trait overlap annotation reads the shared clumping distance; an auto_*
 # spec is resolved from the LD-decay table exactly as create_regions.R resolves it.
 CLUMPING_DISTANCE <- resolve_clumping_distance_strict(CLUMPING_SPEC, LD_DECAY_PATH,
-                                                      R2_THRESHOLD, LD_DECAY_GROUP)
+                                                      LD_RULE, LD_DECAY_GROUP)
 
 message(paste0('INFO: Finding significant SNPs for ', METHOD))
 message(paste0('INFO: Adjustment: ', ADJUST))
