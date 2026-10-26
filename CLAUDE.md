@@ -454,6 +454,10 @@ GAPIT models are auto-detected from config method names and routed through `gapi
 ### association.configs Format
 `association.configs` in config YAML is a list of `{method, adjust, threshold}` entries. Parsed into a dict mapping method name to `"adjust_threshold"` string. Controls which association methods run, their p-value adjustment, and significance thresholds.
 
+The rules are `bonf | qval | top | toppct | custom`, all in `compute_pval_threshold()` (`scripts/R/utils/pval_threshold.R`), validated at parse time (`PVAL_ADJUSTMENTS`, `_THRESHOLD_VALID` in `common.smk`, mirrored by the app's `threshold_value_valid_for_type()`). `toppct` (since 2026-10-27) is `top` with N = ceiling(share/100 × the table's rows, NA rows included), the MVP benchmark's operating point (0.25 % per predictor, RDA 0.5 %). A rule name never contains `_`: every consumer splits `adjust_threshold` at the first underscore.
+
+Declared SNP sets (`GEA/GWAS.snp_sets`) also take the strategy `Cross-method >=K` (k-of-n agreement, since 2026-10-27): at least K of the set's methods call within `clumping_distance`, its own call included, methods counted rather than cells, no chaining. It lives only in `snp_set_select.R` and `_SNP_SET_STRATEGIES`, never in `combine_method` (`combine_sigsnps.R` has no such branch). `Cross-method >=2` equals `Cross-method`; `>=3` of LFMM/EMMAX/RDA is the benchmark's 3/3 set. `Maladaptation.snp_sets: all` skips a set under 3 SNPs (`MIN_OFFSET_SNPS`, the RDA offset's floor) and an explicit list refuses one; the app's set picker uses the same floor.
+
 ### Imputation Strategy
 - Uses sNMF Q-matrix (ancestry-informed); LEA `impute(method="mode")` writes hard 0/1/2 calls and never changes an observed call
 - Happens twice: LD-pruned (for PCA/structure/climate and the preGEA EMMAX ladder) and full (for association)

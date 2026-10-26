@@ -280,7 +280,7 @@ GEA:
       adjust: bonf
       threshold: '0.05'
     - method: LFMM
-      adjust: qvalue
+      adjust: qval
       threshold: '0.05'
     - method: BLINK
       adjust: bonf
@@ -311,8 +311,8 @@ GEA:
 
 **configs format**: Each entry specifies:
 - `method`: `EMMAX`, `LFMM`, `RDA`, or any GAPIT3 model (`GLM`, `MLM`, `CMLM`, `ECMLM`, `SUPER`, `MLMM`, `FarmCPU`, `BLINK`)
-- `adjust`: p-value correction — `bonf` (Bonferroni), `qvalue` (FDR), or a numeric threshold (top-N selection)
-- `threshold`: significance threshold after correction
+- `adjust`: the significance rule — `bonf` (Bonferroni α), `qval` (FDR q target), `top` (the N smallest p-values per predictor), `toppct` (the top share of SNPs per predictor, in percent: `top` with N = ceiling(share × the table's rows), NA rows included, so methods tested on the same SNPs get the same N), or `custom` (a raw p cutoff)
+- `threshold`: the rule's value — α or q in (0, 1], a SNP count ≥ 1 for `top`, a percentage in (0, 100] for `toppct`, a p > 0 for `custom`
 - `params` (optional): per-method hyperparameters. Source of truth is the method registry (`workflow/methods/gea.py`), also surfaced in the Shiny GEA sidebar's method editor. Omit to use registry defaults (existing configs need no changes). Per-method keys:
   - `EMMAX`: `n_pcs` (int, default = sNMF `k_best`), `kinship` (`BN`|`IBS`, default `BN`)
   - `LFMM`: `K` (int, default = sNMF `k_best`), `genomic_control` (bool, default `TRUE` — `lfmm2.test(genomic.control=...)` for the production run; PreGEA's own K-ladder always fits with this OFF so λ_GC stays informative)
@@ -346,7 +346,7 @@ GEA:
         LFMM: {value: 0.01}        # no type: keeps the type of the rule it overrides
         bio_12: {type: custom, value: 1.0e-5}
         "bio_1::EMMAX": {type: qval, value: 0.1}
-      strategy: Cross-method       # Union (default) | Cross-method | Cross-method per-trait | one method
+      strategy: Cross-method       # Union (default) | Cross-method | Cross-method per-trait | Cross-method >=K | one method
       clumping_distance: 100000    # Cross-method window (bp); default GEA.snp_clumping_distance
     - name: picked
       pairs: ["bio_1::LFMM", "bio_12::EMMAX", "climate_multivariate::RDA"]
@@ -355,11 +355,11 @@ GEA:
 | Key | Meaning | Default |
 |-----|---------|---------|
 | `name` | `^[A-Za-z0-9_]+$`, unique within the group. The `gea.` / `gwas.` prefix is added for you, and the app refuses to save a set under either prefix | required |
-| `threshold_type` / `threshold_value` | One rule for every cell (a cell is one `trait::method` p-value column). Types: `bonf`, `qval`, `top`, `custom`. Type alone takes that type's default value (`0.05` / `0.05` / `100` / `1e-5`); value alone takes the type of the **first** `configs` entry, as the app's master rule does | neither: each method's own `configs` rule |
+| `threshold_type` / `threshold_value` | One rule for every cell (a cell is one `trait::method` p-value column). Types: `bonf`, `qval`, `top`, `toppct`, `custom` (see `adjust` above). Type alone takes that type's default value (`0.05` / `0.05` / `100` / `1` / `1e-5`); value alone takes the type of the **first** `configs` entry, as the app's master rule does | neither: each method's own `configs` rule |
 | `overrides` | Per-cell exceptions keyed by a method, a trait, or a quoted `"trait::method"`. Applied in that order, so the most specific wins. A rule gives `type`, `value` or both: a missing `value` takes the type's default, a missing `type` keeps the type it overrides. A bare key that is both a trait and a method name is refused | none |
 | `methods`, `traits` | Select the `traits × methods` rectangle | all `configs` methods × every column they emit |
 | `pairs` | An explicit `trait::method` list instead of a rectangle. Exclusive with `methods`/`traits` | — |
-| `strategy` | `Union` (`All`, `Sum`), `Cross-method` (`Overlap`), `Cross-method per-trait` (`MethodOverlap`, `PairOverlap`), or one method name from the set's own pairs | `Union` |
+| `strategy` | `Union` (`All`, `Sum`), `Cross-method` (`Overlap`), `Cross-method per-trait` (`MethodOverlap`, `PairOverlap`), `Cross-method >=K`, or one method name from the set's own pairs. `Cross-method >=K` (k-of-n agreement, declared sets only, written exactly so) keeps a SNP when at least K of the set's methods call within `clumping_distance` of it, its own call included; methods are counted, not cells, and calls do not chain. `2 <= K <=` the set's method count; `Cross-method >=2` selects what `Cross-method` does | `Union` |
 | `clumping_distance` | Window within which two methods' calls count as agreeing. Used only by the Cross-method strategies. A positive integer of bp, or `auto_genome_wide`, read from the genome-wide LD-decay row under the group's `clumping_ld_rule` and `ld_decay_group` (`auto_per_chromosome` is read genome-wide: the gap is one number) | the group's `snp_clumping_distance` (bp or auto) |
 | `regime` | Only `snp`. `wza` is refused (not declarable yet) | `snp` |
 
@@ -369,7 +369,7 @@ The rules a set resolves to, and how they differ from the app's sidebar:
 - **Any threshold declared** — a multivariate method (RDA) keeps its registry rule (`bonf 0.01`, `workflow/methods/gea.py`), as in the app. An `RDA:` override lifts that pin.
 - **RDA emits one column, `climate_multivariate`**. With RDA configured, `traits: [bio_1]` and no `methods:` is refused, because RDA has no `bio_1` column. List `methods` without RDA, or add `climate_multivariate` to `traits`.
 - **Everything is checked at parse time**: an unknown key, method, trait or override key; a duplicate name or pair; `pairs` together with `traits`/`methods`; a value outside its type's range. A typo fails `snakemake -n`, not the build after every GEA job has run.
-- **A set that selects zero SNPs is not an error.** It is written as a header-only TSV with `n_snps: 0` in its record, and `mode=maladaptation` skips it under `snp_sets: all`.
+- **A set that selects fewer than 3 SNPs is not an error.** It is written as is (zero SNPs: a header-only TSV with `n_snps: 0` in its record), and `mode=maladaptation` skips it under `snp_sets: all`, because the RDA offset stops below 3 SNPs (`MIN_OFFSET_SNPS`).
 - **A one-item list may be a bare string** (`traits: bio_1`). The app's YAML writer collapses `[bio_1]` that way when it re-saves a config.
 
 Each set directory holds `selected_snps.tsv` (`SNPID chr pos min_pvalue`), `declaration.json` (the resolved inputs above, rule input of the build) and `snp_set.yaml`, the reproducibility record (declaration + `k_best`, `n_snps`, `created`). A set saved from the app writes the same record, plus `config_snippet`.
@@ -478,7 +478,7 @@ How the names resolve at parse time:
 
 - `all` = every set in the store plus every declared name.
 - A declared set that has not been built yet raises, telling you to run `mode=gea` (or `mode=gwas`) first.
-- A set with zero SNPs is skipped under `all` with an `INFO` line, and raises when named explicitly.
+- A set with fewer than 3 SNPs (`MIN_OFFSET_SNPS`, the RDA offset's floor; zero included) is skipped under `all` with an `INFO` line that lists the counts, and raises when named explicitly. The floor is the same whatever offset methods run, and the app's set picker offers only sets above it.
 - A directory left behind by a declaration you have since removed stays in `all` until you delete it (from the app's set list or by hand). Deleting a declared set's directory blocks `all` until `mode=gea` rebuilds it.
 
 ---
