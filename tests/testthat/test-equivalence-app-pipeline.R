@@ -2,14 +2,14 @@
 #
 # ── What this file is for ─────────────────────────────────────────────────────
 # CLINE-GO computes the same science twice: the pipeline (scripts/*.R wrappers
-# over scripts/R/lib/) and the Shiny app (scripts/clinego.app/R/). zzz.R:39-42
-# shares only TWO libs — regions.R and pval_threshold.R. Gene finding and
-# combining are REIMPLEMENTED in the app, and region_distance.R is never loaded
-# by it. Tiers 1 and 2 pinned each side's own behaviour; nothing until now
-# asserted the two AGREE.
+# over scripts/R/lib/) and the Shiny app (scripts/clinego.app/R/). zzz.R's
+# CLINEGO_SHARED_LIBS first shared only TWO libs — regions.R and pval_threshold.R.
+# Gene finding and combining were REIMPLEMENTED in the app, and region_distance.R
+# was not loaded by it until 2026-10-26. Tiers 1 and 2 pinned each side's own
+# behaviour; nothing until now asserted the two AGREE.
 #
 # There are FIVE divergence surfaces (the dossier's count of four is stale —
-# region_distance-by-omission is the fifth, see the last block).
+# region_distance is the fifth, see block 5).
 #
 # ── This file MEASURES divergence; it does not fix it ─────────────────────────
 # Where the two sides genuinely differ, the divergence is filed in
@@ -18,11 +18,12 @@
 # established. Never weaken an assertion here to make the output green.
 #
 # ── The two environments, and why they do not collide ────────────────────────
-# zzz.R:57-60 sources CLINEGO_SHARED_LIBS into asNamespace("clinego.app");
+# zzz.R's .onLoad() sources CLINEGO_SHARED_LIBS into asNamespace("clinego.app");
 # helper-libs.R:28-41 sources the pipeline libs into the test environment. They
 # are distinct environments, so `library(clinego.app)` cannot clobber the
 # functions the helper loaded (verified: cluster_snps_to_regions is identical()
-# across the two, resolve_clumping_distance exists in only one).
+# across the two). resolve_clumping_distance is on both sides since 2026-10-26: a
+# bare call here is the pipeline's, so reach the app's through clinego.app:::.
 #
 # NAME COLLISION: combine_sigsnps exists on BOTH sides with DIFFERENT arity —
 # pipeline (sig_snps_list, strategy, clumping_distance, predictors), app
@@ -714,26 +715,57 @@ test_that("the app's per-cell rule layer has no pipeline analogue", {
     expect_false(isTRUE(all.equal(got, pipe_threshold(pv, "bonf", 0.05))))
 })
 
-# --- 5. region_distance: divergence by omission -----------------------------
+# --- 5. region_distance: one resolver since 2026-10-26 -----------------------
+#
+# Until 2026-10-26 region_distance.R was not in CLINEGO_SHARED_LIBS and every app path
+# passed a scalar, so the app could not express an auto_* distance at all. It now
+# starts the filter bar at the project's LD-decay distance (default_clumping_distance(),
+# utils_helpers.R) read by the pipeline's own resolve_clumping_distance(). Still one
+# number in the app: auto_per_chromosome reads the genome-wide value, as declared SNP
+# sets do, which is why every fixture above pins the pipeline to a scalar distance.
+# region_distance.R itself is covered standalone by test-region_distance.R.
 
-test_that("the app cannot express a per-chromosome clumping distance", {
+ld_table_both_scopes <- function(env = parent.frame()) {
+    row <- function(scope, critical, half, r2thr) data.table::data.table(
+        group = "All", scope = scope, n_samples = 50L, n_pairs = 1e5, max_dist_bp = 5e5,
+        short_r2 = 0.45, background_r2 = 0.06, background_mean_r2 = 0.02,
+        decay_critical_bp = critical, decay_half_bp = half, decay_r2thr_bp = r2thr,
+        r2_threshold = 0.2, decay_method = "loess_log")
+    dt <- rbind(row("genome_wide", 3100, 1240, 2600), row("1", 5200, 800, 4100),
+                row("2", 2300, 1500, 1900))
+    path <- withr::local_tempfile(fileext = ".tsv", .local_envir = env)
+    data.table::fwrite(dt, path, sep = "\t")
+    path
+}
+
+test_that("the app holds the pipeline's LD-decay resolver", {
     skip_without_app()
     ns <- asNamespace("clinego.app")
-    # region_distance.R is NOT in CLINEGO_SHARED_LIBS (zzz.R:39-42) and the app
-    # never calls into it, so `auto_per_chromosome` / `auto_genome_wide` are
-    # inexpressible there: every app path passes a scalar
-    # (utils_helpers.R:132, mod_gea.R:177-184). This is why every fixture above
-    # pins the pipeline to a scalar distance — not a convenience, a
-    # precondition for comparability. region_distance.R itself is covered
-    # standalone by test-region_distance.R.
-    for (f in c("resolve_clumping_distance", "resolve_row_distance",
-                "resolve_clumping_distance_strict", "LD_RULE_COLUMNS")) {
-        expect_false(exists(f, envir = ns, inherits = FALSE),
-                     info = paste(f, "unexpectedly present in the app namespace"))
+    for (f in c("resolve_clumping_distance", "resolve_row_distance", "LD_RULE_COLUMNS")) {
+        expect_true(exists(f, envir = ns, inherits = FALSE),
+                    info = paste(f, "is not in the app namespace: zzz.R's CLINEGO_SHARED_LIBS"))
     }
-    # And the pipeline does have them, so the assertion above is about sharing,
-    # not about the functions having been renamed away.
-    expect_true(exists("resolve_clumping_distance", mode = "function"))
+    # same source file, so the bodies match; the pipeline's is the test env's copy
+    expect_identical(body(get("resolve_clumping_distance", envir = ns)),
+                     body(resolve_clumping_distance))
+})
+
+test_that("the app's default for an auto spec is the pipeline's genome-wide distance", {
+    skip_without_app()
+    tbl <- ld_table_both_scopes()
+    for (rule in c("critical", "half_decay", "r2_threshold")) {
+        pipe <- suppressMessages(resolve_clumping_distance("auto_genome_wide", tbl, rule, "All"))
+        for (spec in c("auto_genome_wide", "auto_per_chromosome")) {
+            cfg <- list(GEA = list(snp_clumping_distance = spec, clumping_ld_rule = rule))
+            expect_identical(clinego.app:::default_clumping_distance(cfg, "GEA", tbl), pipe,
+                             info = paste(rule, spec))
+        }
+    }
+    # the pipeline's per-chromosome map holds several numbers; the app keeps one
+    per_chr <- suppressMessages(resolve_clumping_distance("auto_per_chromosome", tbl, "critical", "All"))
+    expect_identical(unname(per_chr), c(5200L, 2300L))
+    expect_identical(clinego.app:::default_clumping_distance(
+        list(GEA = list(snp_clumping_distance = "auto_per_chromosome")), "GEA", tbl), 3100L)
 })
 
 test_that("a scalar distance reaches the shared clusterer identically", {

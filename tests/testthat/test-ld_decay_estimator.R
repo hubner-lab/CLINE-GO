@@ -206,3 +206,17 @@ test_that("ld_decay_analyze.R writes background-aware distances and curves", {
     expect_true(all(diff(cv$r2_mono) <= 0))
     expect_false(dir.exists(file.path(d, "analyze_tmp")))   # scratch removed, never in tempdir()
 })
+
+test_that("ld_excluded_contigs matches LDdecay.exclude_chromosomes to the VCF's contigs", {
+    chrs <- c("1", "2", "X", "MT", "Pt", "Y")
+    expect_identical(ld_excluded_contigs(chrs, "NULL"), character(0))
+    expect_identical(ld_excluded_contigs(chrs, ""), character(0))
+    expect_identical(ld_excluded_contigs(chrs, "X,MT"), c("X", "MT"))
+    # case, a chr prefix and M for MT are ignored, as PLINK reads them; VCF order is kept
+    expect_identical(ld_excluded_contigs(chrs, "chrM, pt,x"), c("X", "MT", "Pt"))
+    expect_identical(ld_excluded_contigs(c("chr1", "chrM", "chr1"), "M"), "chrM")
+    # a listed name with no contig is reported, never an error
+    expect_message(out <- ld_excluded_contigs(chrs, "X,ChrC"),
+                   "names no contig of the VCF: ChrC")
+    expect_identical(out, "X")
+})

@@ -121,15 +121,121 @@ dt_format_pvals <- function(tbl, cols = c("pvalue", "p_adjust")) {
     DT::formatSignif(tbl, columns = cols_present, digits = 3)
 }
 
-#' Default interactive SNP clumping distance (bp) for the GEA/GWAS filter bar.
+#' Stand-in clumping distance (bp) for the GEA/GWAS filter bar.
 #'
-#' Clumping distance is a purely interactive/exploratory parameter (not read from
-#' the pipeline config) so the filter-bar control is always the single source of
-#' truth for region merging/padding — no separate config-driven default to diverge
-#' from. User-chosen values persist per-project via region_params.json
-#' (get_global_param()/set_global_param()), independent of this constant.
+#' Used only when default_clumping_distance() cannot read the project's own LD-decay
+#' distance: no LD-decay table yet (mode=structure not run), a table that predates the
+#' PLINK estimator, or a rule the curve never reaches.
 #' @noRd
 DEFAULT_CLUMPING_DISTANCE <- 100000L
+
+#' The filter bar's starting clumping distance (bp): the project's own.
+#'
+#' Reads `snp_clumping_distance` of `source` as the pipeline's resolve_region_params()
+#' does: GWAS falls back to GEA, and the legacy `region_distance` / `combine_gap` names
+#' stand in for an unset key. A bp value is used as given. An auto_* value, or none at
+#' all (the pipeline's default since 2026-10-26), is the genome-wide LD-decay distance
+#' under the project's `clumping_ld_rule` and `ld_decay_group`, read with the pipeline's
+#' own resolve_clumping_distance() (scripts/R/lib/region_distance.R). The bar holds one
+#' number, so auto_per_chromosome is read genome-wide, as in declared SNP sets.
+#' The filter bar stays the source of truth once moved: a saved value
+#' (region_params.json) wins over this one.
+#'
+#' @param cfg      Project config (pd$config).
+#' @param source   MOD_GEA or MOD_GWAS.
+#' @param ld_table Path of the LD-decay table, ld_decay_table_path(project).
+#' @return Integer bp; DEFAULT_CLUMPING_DISTANCE when the LD distance cannot be read
+#'   or the spec is neither bp nor auto_*.
+#' @noRd
+default_clumping_distance <- function(cfg, source = MOD_GEA, ld_table = "NULL") {
+    group_keys <- function(group) {
+        d <- config_get(cfg, group, default = list())
+        if (!is.list(d)) d <- list()
+        d$snp_clumping_distance <- d$snp_clumping_distance %||% d$region_distance %||% d$combine_gap
+        d$ld_decay_group <- d$ld_decay_group %||% d$region_ld_decay_group
+        d
+    }
+    own <- group_keys(if (identical(source, MOD_GWAS)) "GWAS" else "GEA")
+    gea <- group_keys("GEA")
+    pick <- function(key, default) own[[key]] %||% gea[[key]] %||% default
+
+    spec <- pick("snp_clumping_distance", "auto_genome_wide")
+    bp <- suppressWarnings(as.numeric(spec))
+    if (length(bp) == 1 && !is.na(bp)) return(as.integer(bp))
+    if (!tolower(trimws(as.character(spec)))[1] %in%
+            c("auto_genome_wide", "auto_per_chromosome", "auto")) {
+        return(DEFAULT_CLUMPING_DISTANCE)
+    }
+    tryCatch(
+        suppressMessages(resolve_clumping_distance(
+            "auto_genome_wide", ld_table, rule = pick("clumping_ld_rule", "critical"),
+            group = pick("ld_decay_group", "All"))),
+        error = function(e) DEFAULT_CLUMPING_DISTANCE)
+}
+
+#' A filter bar's clumping distance: one value per project, saved only when moved.
+#'
+#' Call from a module server; the box must be rendered from the returned reactive,
+#' never from its own input. The start is the value saved under `module`/`rp_key`,
+#' else default_clumping_distance() for `source`. A move is kept for the session and
+#' saved under the project it was made in; nothing else is saved, so opening a tab
+#' writes nothing.
+#'
+#' Every re-render binds a new box, which reports its own starting value, and on a cold
+#' app that report can arrive after a project switch. Taken as a move, the previous
+#' project's value was saved into the new project's region_params.json and the bar
+#' re-rendered in a loop between the two values (measured 2026-10-26, once per-project
+#' starting values made them differ). So after the app puts a value in the box, every
+#' report is an echo until the box reports that value back.
+#'
+#' @param input        The module's input.
+#' @param project_data Reactive project bundle (make_project_data()).
+#' @param input_id     The box's input id (un-namespaced).
+#' @param module       region_params.json module key (MOD_GEA, MOD_GWAS, MOD_GEAXGWAS).
+#' @param rp_key       Key under `module`.
+#' @param source       MOD_GEA or MOD_GWAS: whose config distance is the start.
+#' @return Reactive integer bp.
+#' @noRd
+clumping_distance_state <- function(input, project_data, input_id, module, rp_key, source) {
+    start <- shiny::reactive({
+        pd <- project_data()
+        if (is.null(pd)) return(DEFAULT_CLUMPING_DISTANCE)
+        saved <- get_global_param(read_region_params(pd$name), module, rp_key)
+        if (!is.null(saved)) as.integer(saved)
+        else default_clumping_distance(pd$config, source, ld_decay_table_path(pd$name))
+    })
+    moved <- shiny::reactiveVal(list())   # this session's moves, by project name
+    value <- shiny::reactive({
+        pd <- project_data()
+        (if (!is.null(pd)) moved()[[pd$name]]) %||% start()
+    })
+    # The value the app last put in the box that the box has not reported back yet;
+    # NULL once it has, or when the box already held it.
+    pending <- NULL
+    shiny::observe({
+        now <- value()
+        cur <- shiny::isolate(input[[input_id]])
+        held <- !is.null(cur) && !is.na(cur) && identical(as.integer(cur), now)
+        pending <<- if (held) NULL else now
+    })
+    shiny::observeEvent(input[[input_id]], {
+        v  <- input[[input_id]]
+        pd <- project_data()
+        if (is.null(v) || is.na(v) || v < 1L || is.null(pd)) return()
+        v <- as.integer(v)
+        if (!is.null(pending)) {
+            if (identical(v, pending)) pending <<- NULL
+            return()
+        }
+        if (identical(v, shiny::isolate(value()))) return()
+        m <- shiny::isolate(moved())
+        m[[pd$name]] <- v
+        moved(m)
+        rp <- read_region_params(pd$name)
+        save_region_params(pd$name, set_global_param(rp, module, rp_key, v))
+    }, ignoreInit = TRUE)
+    value
+}
 
 #' Reactive wrapper that only propagates when the VALUE actually changes.
 #'

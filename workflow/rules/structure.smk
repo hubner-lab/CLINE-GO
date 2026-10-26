@@ -278,7 +278,7 @@ rule piemap_simple:
 
 rule ld_decay_prepare:
     """Sample lists per LD-decay group (manifest.tsv maps each group to its file stem)
-    and, for the per-chromosome scope, the chromosome list."""
+    and, for the per-chromosome scope, the chromosome list, less LDdecay.exclude_chromosomes."""
     input:
         vcf = W['vcf_filt'],
         meta = O['metadata'],
@@ -291,7 +291,8 @@ rule ld_decay_prepare:
         scope = LD_DECAY_SCOPE,
         sample_lists_dir = W['ld_decay_sample_lists'],
         chr_vcfs_dir = W['ld_decay_chr_vcfs'],
-        clusters_path = clusters_table(K_BEST) if LD_DECAY_GROUP_BY == 'cluster' else 'NULL'
+        clusters_path = clusters_table(K_BEST) if LD_DECAY_GROUP_BY == 'cluster' else 'NULL',
+        exclude = LD_DECAY_EXCLUDE_ARG
     log: f"{LOGDIR}structure/ld_decay_prepare.log"
     shell:
         """
@@ -299,14 +300,15 @@ rule ld_decay_prepare:
             {input.vcf} {input.meta} {params.group_by} \
             {params.min_samples} {params.scope} \
             {params.sample_lists_dir} {params.chr_vcfs_dir} \
-            {params.clusters_path} > {log} 2>&1
+            {params.clusters_path} "{params.exclude}" > {log} 2>&1
         """
 
 rule ld_decay_pairs:
     """PLINK 1.9 --r2 between SNPs of one chromosome within LDdecay.max_distance, per
     group, summed per bp distance into .stat.gz files (genome-wide, and per chromosome
     when the scope asks for it). Exhaustive when the pairs fit LDdecay.max_pairs;
-    otherwise a seeded sample of anchor SNPs is paired with every SNP of its window."""
+    otherwise a seeded sample of anchor SNPs is paired with every SNP of its window.
+    Contigs in LDdecay.exclude_chromosomes are left out."""
     input:
         vcf = W['vcf_filt'],
         prep = W['ld_decay_prep_done']
@@ -319,20 +321,22 @@ rule ld_decay_pairs:
         seed = LD_DECAY_SEED,
         scope = LD_DECAY_SCOPE,
         stat_gw_dir = W['ld_decay_stat_gw'],
-        stat_chr_dir = W['ld_decay_stat_chr']
+        stat_chr_dir = W['ld_decay_stat_chr'],
+        exclude = LD_DECAY_EXCLUDE_ARG
     log: f"{LOGDIR}structure/ld_decay_pairs.log"
     shell:
         """
         Rscript /pipeline/scripts/ld_decay_pairs.R \
             {input.vcf} {params.sample_lists_dir} {params.max_dist} {params.max_pairs} \
             {params.seed} {params.scope} {params.stat_gw_dir} {params.stat_chr_dir} \
-            {output.summary} > {log} 2>&1
+            {output.summary} "{params.exclude}" > {log} 2>&1
         """
 
 rule ld_decay_background:
     """Background LD of unlinked markers per group: r2 between markers on different
     chromosomes (a seeded sample per chromosome, PLINK --r2 inter-chr) and its critical
-    value, the 95th percentile of sqrt(r2), squared (Breseghello & Sorrells 2006)."""
+    value, the 95th percentile of sqrt(r2), squared (Breseghello & Sorrells 2006).
+    Contigs in LDdecay.exclude_chromosomes give no markers."""
     input:
         vcf = W['vcf_filt'],
         prep = W['ld_decay_prep_done']
@@ -342,13 +346,14 @@ rule ld_decay_background:
         sample_lists_dir = W['ld_decay_sample_lists'],
         markers_per_chr = LD_DECAY_BG_MARKERS_PER_CHR,
         quantile = LD_DECAY_BG_QUANTILE,
-        seed = LD_DECAY_SEED
+        seed = LD_DECAY_SEED,
+        exclude = LD_DECAY_EXCLUDE_ARG
     log: f"{LOGDIR}structure/ld_decay_background.log"
     shell:
         """
         Rscript /pipeline/scripts/ld_decay_background.R \
             {input.vcf} {params.sample_lists_dir} {params.markers_per_chr} \
-            {params.quantile} {params.seed} {output.table} > {log} 2>&1
+            {params.quantile} {params.seed} {output.table} "{params.exclude}" > {log} 2>&1
         """
 
 rule ld_decay_analyze:

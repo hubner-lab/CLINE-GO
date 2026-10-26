@@ -220,6 +220,10 @@ config_schema <- function() {
           "numeric", FALSE,
           min = 0.01, max = 0.99, step = 0.05,
           help = "Level of the r2_threshold decay rule (default 0.2)."),
+        s("LDdecay.exclude_chromosomes", "Contigs to leave out", "structure", "LD Decay",
+          "text", FALSE,
+          help = "Optional: contigs left out of the LD-decay curve and its unlinked background, such as organellar and sex contigs, which do not recombine like autosomes. Comma-separated; case, a leading chr and M/MT are ignored. Empty: every contig is used.",
+          placeholder = "e.g. X,Y,MT,Pt"),
 
         # ── CLIMATE TAB (predictor characterization + spatial/varpart) ────────
         # Split out of PreGEA (module split, see CLAUDE.md "Phase" notes):
@@ -346,9 +350,10 @@ config_schema <- function() {
         s("GEA.configs", "GEA methods", "gea", "Methods",
           "method_table", TRUE,
           help = "Methods to run, with optional per-method hyperparameters (expand a row's Params to edit). Method list and hyperparameter defaults come from the pipeline's method registry (workflow/methods/gea.py) — read the preGEA ladders before overriding a default."),
-        # NOTE: SNP clumping distance is no longer config-editable \u2014 it is a purely
-        # interactive parameter in the GEA/GWAS filter bar (default 100 kb), kept in
-        # sync with the region table/rectangles. See mod_gea.R / mod_gwas.R.
+        # NOTE: SNP clumping distance is not config-editable here \u2014 it is set in the
+        # GEA/GWAS filter bar, which starts at the project's own distance
+        # (default_clumping_distance(): the LD-decay distance unless the config sets bp)
+        # and is kept in sync with the region table/rectangles. See mod_gea.R / mod_gwas.R.
         s("GEA.wza.window_size", "WZA window size",    "gea", "WZA",
           "text",    FALSE,
           help = "Window size for Weighted-Z Analysis (shown in the WZA regime view). auto_genome_wide (default) uses the genome-wide LD-decay distance under GEA.clumping_ld_rule; auto_per_chromosome is read genome-wide; or enter a fixed bp integer. Changing this requires re-running the GEA module.",

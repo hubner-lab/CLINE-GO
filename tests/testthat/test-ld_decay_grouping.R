@@ -35,7 +35,7 @@ prepare_cluster_run <- function(d, n = 12L, k = 3L, min_samples = 1L) {
     lists <- file.path(d, "sample_lists"); chrv <- file.path(d, "chr_vcfs")
     res <- run_wrapper("ld_decay_prepare.R",
                        c("NULL", meta, "cluster", as.character(min_samples),
-                         "genome_wide", lists, chrv, cl))
+                         "genome_wide", lists, chrv, cl, "NULL"))
     list(res = res, lists = lists, n = n, samples = samples)
 }
 
@@ -82,7 +82,7 @@ test_that("group_by must be 'site' or 'cluster'", {
     res <- run_wrapper("ld_decay_prepare.R",
                        c("NULL", meta, "population", "1", "genome_wide",
                          file.path(d, "sample_lists"), file.path(d, "chr_vcfs"),
-                         "NULL"))
+                         "NULL", "NULL"))
     # Previously `groups` was simply never created and the script died later with
     # "object 'groups' not found".
     expect_gt(res$status, 0L)
@@ -98,7 +98,7 @@ test_that("a clusters table with no C* columns fails loudly", {
                     file.path(d, "clusters_K2.tsv"))
     res <- run_wrapper("ld_decay_prepare.R",
                        c("NULL", meta, "cluster", "1", "genome_wide",
-                         file.path(d, "sample_lists"), file.path(d, "chr_vcfs"), cl))
+                         file.path(d, "sample_lists"), file.path(d, "chr_vcfs"), cl, "NULL"))
     expect_gt(res$status, 0L)
     expect_match(res$output, "No Q-matrix columns")
 })
@@ -148,7 +148,7 @@ test_that("group names that are not file-safe get unique stems in the manifest",
     lists <- file.path(d, "sample_lists")
     res <- run_wrapper("ld_decay_prepare.R",
                        c("NULL", meta, "site", "1", "genome_wide", lists,
-                         file.path(d, "chr_vcfs"), "NULL"))
+                         file.path(d, "chr_vcfs"), "NULL", "NULL"))
     expect_identical(res$status, 0L, info = res$output)
     mf <- data.table::fread(file.path(lists, "manifest.tsv"), colClasses = "character")
     # the site called "All" is renamed: "All" means the whole dataset everywhere downstream
@@ -164,4 +164,22 @@ test_that("group names that are not file-safe get unique stems in the manifest",
     }
     expect_identical(sort(readLines(file.path(lists, "All.txt"))), samples)
     expect_identical(readLines(file.path(lists, paste0(mf$list_file[2], ".txt"))), samples[1:4])
+})
+
+test_that("chromosomes.txt leaves out LDdecay.exclude_chromosomes", {
+    d <- withr::local_tempdir()
+    meta <- fx_metadata(d)
+    vcf <- file.path(d, "tiny.vcf")
+    row <- function(chr) paste(c(chr, "100", ".", "A", "G", ".", "PASS", "."), collapse = "\t")
+    writeLines(c("##fileformat=VCFv4.2",
+                 paste(c("#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO"),
+                       collapse = "\t"),
+                 row("1"), row("2"), row("MT"), row("Pt")), vcf)
+    chrv <- file.path(d, "chr_vcfs")
+    res <- run_wrapper("ld_decay_prepare.R",
+                       c(vcf, meta, "site", "1", "per_chromosome",
+                         file.path(d, "sample_lists"), chrv, "NULL", "chrM,Pt,ChrC"))
+    expect_identical(res$status, 0L, info = res$output)
+    expect_identical(readLines(file.path(chrv, "chromosomes.txt")), c("1", "2"))
+    expect_match(res$output, "names no contig of the VCF: ChrC")
 })

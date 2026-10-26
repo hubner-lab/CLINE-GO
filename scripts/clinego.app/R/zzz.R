@@ -1,8 +1,8 @@
 # Shared pipeline libraries, loaded into the package namespace at LOAD time.
 #
 # ── Why this file exists ──────────────────────────────────────────────────────
-# The app reuses two pipeline libraries so Shiny and Snakemake apply identical
-# logic (same clustering, same p-value thresholds). They live outside the
+# The app reuses pipeline libraries so Shiny and Snakemake apply identical logic
+# (same clustering, same p-value thresholds, same LD-decay distance). They live outside the
 # package, under /pipeline/scripts/R/, and used to be pulled in with a plain
 # top-level source() in fct_regions.R / fct_data_loading.R.
 #
@@ -40,7 +40,8 @@ CLINEGO_SHARED_LIBS <- c(
     "/pipeline/scripts/R/lib/regions.R",         # cluster_snps_to_regions() etc.
     "/pipeline/scripts/R/utils/pval_threshold.R",# compute_pval_threshold() etc.
     "/pipeline/scripts/R/lib/gff_parsing.R",     # extract_gene_id() etc.
-    "/pipeline/scripts/R/lib/snp_set_select.R"   # combine_sigsnps_long(), select_snp_set() etc.
+    "/pipeline/scripts/R/lib/snp_set_select.R",  # combine_sigsnps_long(), select_snp_set() etc.
+    "/pipeline/scripts/R/lib/region_distance.R"  # resolve_clumping_distance() (LD-decay distance)
 )
 
 #' Source the shared libraries into an environment.

@@ -156,32 +156,12 @@ mod_gea_server <- function(id, project_data, run_trigger = NULL, module = MOD_GE
         active_strategy <- shiny::reactive(input$combine_strategy %||% default_strategy())
 
         # ── SNP clumping distance (single param for both merging and overlap) ───
-        shiny::observe({
-            pd      <- project_data()
-            rp      <- read_region_params(pd$name)
-            saved_d <- get_global_param(rp, MOD_GEA, "snp_clumping_distance")
-            d <- if (!is.null(saved_d)) as.integer(saved_d)
-                 else DEFAULT_CLUMPING_DISTANCE
-            shiny::updateNumericInput(session, "snp_clumping_distance", value = d)
-        })
-
-        shiny::observeEvent(input$snp_clumping_distance, {
-            v  <- input$snp_clumping_distance
-            pd <- project_data()
-            if (is.null(v) || is.na(v) || v < 1000L || is.null(pd)) return()
-            rp <- read_region_params(pd$name)
-            rp <- set_global_param(rp, MOD_GEA, "snp_clumping_distance", as.integer(v))
-            save_region_params(pd$name, rp)
-        }, ignoreInit = TRUE)
-
-        snp_clumping_distance <- shiny::reactive({
-            v <- input$snp_clumping_distance
-            if (is.null(v) || is.na(v) || v < 1000L) {
-                DEFAULT_CLUMPING_DISTANCE
-            } else {
-                as.integer(v)
-            }
-        })
+        # Starts at the saved value, else at the project's own distance (its LD-decay
+        # distance unless the config sets bp); saved only when the box is moved. The
+        # filter bar renders from this reactive, not from the input (see
+        # clumping_distance_state()).
+        snp_clumping_distance <- clumping_distance_state(
+            input, project_data, "snp_clumping_distance", MOD_GEA, "snp_clumping_distance", MOD_GEA)
 
         # ── Regime (per-SNP vs WZA) ────────────────────────────────────────────
         shiny::observe({

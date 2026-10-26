@@ -98,12 +98,14 @@ heavy_build_emmax_inputs <- function(d) {
 
 # A VCF for the LD-decay scripts that PLINK's default human chromosome mode would
 # break: 26 numeric chromosomes (23-26 read as X/Y/XY/MT), heterozygous calls and ~15%
-# missing calls. Returns the paths and the dosage matrix (samples x SNPs), so a test
-# can recompute every r^2 in R. Seeded; written into d.
-heavy_ld_fixture <- function(d, n = 30L, n_chr = 26L, per_chr = 15L, seed = 11L) {
+# missing calls. `chr_names` replaces the numeric names (e.g. X, MT and Pt contigs).
+# Returns the paths and the dosage matrix (samples x SNPs), so a test can recompute
+# every r^2 in R. Seeded; written into d.
+heavy_ld_fixture <- function(d, n = 30L, n_chr = 26L, per_chr = 15L, seed = 11L,
+                             chr_names = as.character(seq_len(n_chr))) {
     set.seed(seed)
-    info <- data.table::rbindlist(lapply(seq_len(n_chr), function(ch) data.table::data.table(
-        chr = as.character(ch), pos = sort(sample.int(20000L, per_chr)))))
+    info <- data.table::rbindlist(lapply(chr_names, function(ch) data.table::data.table(
+        chr = ch, pos = sort(sample.int(20000L, per_chr)))))
     info[, id := paste0("s", .I)]
     X <- matrix(NA_real_, n, nrow(info))
     for (ch in unique(info$chr)) {
@@ -190,7 +192,7 @@ HEAVY_WRAPPERS <- list(
         },
         args    = function(d, f) c(f[1], f[2], "site", "3", "genome_wide",
                                    file.path(d, "sample_lists"),
-                                   file.path(d, "chr_vcfs"), "NULL"),
+                                   file.path(d, "chr_vcfs"), "NULL", "NULL"),
         outputs = function(d) character(0),
         out_min = function(d) list(dir = file.path(d, "sample_lists"),
                                    pattern = "\\.", n = 1)
@@ -236,7 +238,7 @@ HEAVY_WRAPPERS <- list(
             list(vcf = vcf, sl = sl)
         },
         args    = function(d, f) c(f$vcf, f$sl, "20", "0.95", "1",
-                                   file.path(d, "ld_decay_background.tsv")),
+                                   file.path(d, "ld_decay_background.tsv"), "NULL"),
         outputs = function(d) file.path(d, "ld_decay_background.tsv")
     ),
     list(
@@ -249,7 +251,7 @@ HEAVY_WRAPPERS <- list(
         build   = function(d) heavy_ld_fixture(d),
         args    = function(d, f) c(f$vcf, f$sl, "20", "1e6", "1", "both",
                                    file.path(d, "stat_gw"), file.path(d, "stat_chr"),
-                                   file.path(d, "pairs_summary.tsv")),
+                                   file.path(d, "pairs_summary.tsv"), "NULL"),
         outputs = function(d) file.path(d, c("pairs_summary.tsv", "stat_gw/All.stat.gz",
                                              "stat_gw/G_1.stat.gz", "stat_chr/All_26.stat.gz"))
     )

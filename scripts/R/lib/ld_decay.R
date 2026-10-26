@@ -18,9 +18,9 @@
 #   r2thr    -- a fixed r^2 level.
 #
 # Pure functions (data.tables and numbers in, numbers out), plus two file helpers,
-# ld_write_stat() and ld_scratch_dir(). Sourced by scripts/ld_decay_pairs.R,
-# scripts/ld_decay_background.R, scripts/ld_decay_analyze.R and
-# tests/testthat/helper-libs.R.
+# ld_write_stat() and ld_scratch_dir(). Sourced by scripts/ld_decay_prepare.R,
+# scripts/ld_decay_pairs.R, scripts/ld_decay_background.R, scripts/ld_decay_analyze.R
+# and tests/testthat/helper-libs.R.
 # =============================================================================
 
 # Bin breaks: fine bins up to `fine_until`, then `per_decade` log-spaced bins up to
@@ -163,6 +163,28 @@ ld_background_markers <- function(chr, pos, per_chr, max_markers, seed) {
     picked <- dt[, .SD[sort(sample.int(.N, min(.N, k)))], by = chr]
     if (nrow(picked) > max_markers) picked <- picked[sort(sample.int(.N, max_markers))]
     list(markers = picked, per_chr = k)
+}
+
+# The contigs among `chrs` (VCF names) that `exclude` names: LDdecay.exclude_chromosomes
+# as one comma-separated word ("X,Y,MT,Pt"; "NULL" or "" for none), for contigs that do
+# not recombine like autosomes. Case and a leading "chr" are ignored and M is MT, as
+# PLINK reads them, so "chrM" names the filtered VCF's MT. A listed name with no contig
+# in `chrs` is reported, so a typo shows in the log.
+ld_excluded_contigs <- function(chrs, exclude) {
+    ex <- trimws(strsplit(as.character(exclude), ",", fixed = TRUE)[[1]])
+    ex <- ex[nzchar(ex) & ex != "NULL"]
+    if (!length(ex)) return(character(0))
+    canon <- function(x) {
+        x <- sub("^chr", "", tolower(x))
+        ifelse(x == "m", "mt", x)
+    }
+    chrs <- unique(as.character(chrs))
+    absent <- ex[!canon(ex) %in% canon(chrs)]
+    if (length(absent)) {
+        message("INFO: LDdecay.exclude_chromosomes names no contig of the VCF: ",
+                paste(absent, collapse = ", "))
+    }
+    chrs[canon(chrs) %in% canon(ex)]
 }
 
 # Write per-distance sums in PopLDdecay's .stat.gz layout (header row, six columns:

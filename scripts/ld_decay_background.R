@@ -4,7 +4,8 @@
 # a seeded sample of markers per chromosome (Vos et al. 2017 sampled 50), its mean and
 # its critical value, the `quantile` of sqrt(r^2), squared. PLINK 1.9 --r2 inter-chr,
 # with the chromosome set and missing-call handling of ld_decay_pairs.R, so the
-# background and the decay curve come from one estimator.
+# background and the decay curve come from one estimator. The contigs in
+# LDdecay.exclude_chromosomes give no markers, as they give the curve no pairs.
 # A dataset with a single chromosome has no unlinked pairs: its rows carry NA.
 library(data.table)
 source("/pipeline/scripts/R/lib/ld_decay.R")
@@ -17,16 +18,22 @@ MARKERS_PER_CHR  <- as.integer(args[3])
 QUANTILE         <- as.numeric(args[4])
 SEED             <- as.integer(args[5])
 OUT_TABLE        <- args[6]
+EXCLUDE          <- args[7]  # LDdecay.exclude_chromosomes, comma-separated, or "NULL"
 ################
-stopifnot(length(args) == 6, MARKERS_PER_CHR >= 2, QUANTILE > 0, QUANTILE < 1)
+stopifnot(length(args) == 7, MARKERS_PER_CHR >= 2, QUANTILE > 0, QUANTILE < 1)
 
 manifest <- fread(file.path(SAMPLE_LISTS_DIR, "manifest.tsv"), colClasses = "character")
 if (!"list_file" %in% names(manifest)) manifest[, list_file := group]
-PLINK_CHR <- c("--chr-set", "95", "no-x", "no-y", "no-xy", "no-mt", "--allow-extra-chr")
+PLINK_CHR <- c("--chr-set", "95", "--allow-extra-chr")   # as in ld_decay_pairs.R
 tmp <- ld_scratch_dir(SAMPLE_LISTS_DIR, "background_tmp")
 pos <- fread(cmd = paste("bcftools query -f '%CHROM\\t%POS\\n'", shQuote(VCF_PATH)),
              header = FALSE, col.names = c("chr", "pos"),
              colClasses = c("character", "integer"), tmpdir = tmp)
+excluded <- ld_excluded_contigs(pos$chr, EXCLUDE)
+if (length(excluded)) {
+    message("INFO: Left out (LDdecay.exclude_chromosomes): ", paste(excluded, collapse = ", "))
+    pos <- pos[!chr %in% excluded]
+}
 n_chr <- uniqueN(pos$chr)
 message("INFO: ", nrow(pos), " SNPs on ", n_chr, " chromosomes")
 

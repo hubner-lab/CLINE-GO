@@ -520,14 +520,15 @@ build_filter_bar_ui <- function(ns, traits, methods, trait_colors,
                     filter_note(
                         "Clumping distance (bp)",
                         paste0(
-                            "Region merge distance. Pick a value informed by your data's LD decay ",
-                            "(Structure tab → LD Decay panel) or set a custom number."
+                            "Region merge distance. Starts at the project's LD-decay distance ",
+                            "(Structure tab → LD Decay panel, under the clumping_ld_rule), or at ",
+                            "the bp its config sets; a value you enter is kept for this project."
                         )
                     )
                 ),
                 shiny::numericInput(
                     pid("snp_clumping_distance"), label = NULL,
-                    value = snp_clumping_distance_value, min = 1000L, step = 100000L,
+                    value = snp_clumping_distance_value, min = 1L, step = 1000L,
                     width = "160px"
                 ),
                 htmltools::span(

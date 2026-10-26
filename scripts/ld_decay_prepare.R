@@ -5,10 +5,11 @@
 #   - One sample list file per group (<list_file>.txt, one sample per line)
 #   - manifest.tsv: group (raw name), n_samples, list_file (the file-safe stem every
 #     LD-decay script uses for the group's sample list and .stat.gz files)
-#   - chromosomes.txt listing the chromosome names in VCF order (empty unless the
-#     scope includes per_chromosome)
+#   - chromosomes.txt listing the chromosome names in VCF order, less the contigs in
+#     LDdecay.exclude_chromosomes (empty unless the scope includes per_chromosome)
 
 library(data.table)
+source("/pipeline/scripts/R/lib/ld_decay.R")
 
 args <- commandArgs(trailingOnly = TRUE)
 ################
@@ -20,7 +21,9 @@ SCOPE           <- args[5]  # "genome_wide", "per_chromosome", or "both"
 SAMPLE_LISTS_DIR <- args[6]
 CHR_VCFS_DIR    <- args[7]
 CLUSTERS_PATH   <- args[8]  # clusters_K{k}.tsv or "NULL"
+EXCLUDE         <- args[9]  # LDdecay.exclude_chromosomes, comma-separated, or "NULL"
 ################
+stopifnot(length(args) == 9)
 
 message("INFO: Preparing LD decay analysis")
 message(paste0("INFO: Group by: ", GROUP_BY))
@@ -153,6 +156,12 @@ if (SCOPE %in% c("per_chromosome", "both")) {
 
     if (length(chr_list) == 0) stop("No chromosomes found in VCF")
     message(paste0("INFO: Found ", length(chr_list), " chromosomes: ", paste(chr_list, collapse = ", ")))
+    excluded <- ld_excluded_contigs(chr_list, EXCLUDE)
+    if (length(excluded)) {
+        chr_list <- setdiff(chr_list, excluded)
+        if (length(chr_list) == 0) stop("LDdecay.exclude_chromosomes leaves no chromosome")
+        message("INFO: Left out (LDdecay.exclude_chromosomes): ", paste(excluded, collapse = ", "))
+    }
     writeLines(chr_list, file.path(CHR_VCFS_DIR, "chromosomes.txt"))
 } else {
     # Write empty chromosomes.txt so downstream doesn't error

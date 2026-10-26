@@ -6,11 +6,15 @@
 # stat_chr/<stem>_<chr>.stat.gz. <stem> is the group's sample-list name in
 # manifest.tsv. When all pairs within the window fit the pair budget the run is
 # exhaustive; otherwise PLINK pairs a seeded sample of anchor SNPs with every SNP of
-# their window (--ld-snp-list), which thins all distances evenly.
+# their window (--ld-snp-list), which thins all distances evenly. SNPs on the contigs
+# in LDdecay.exclude_chromosomes are left out (--exclude) and never anchor.
 #
-# Chromosomes are read with --chr-set 95 no-x no-y no-xy no-mt: in PLINK's default
-# human mode a numeric chromosome 23-26 is X/Y/XY/MT (Y calls of non-males are
-# dropped) and a code above 26 is an error.
+# Chromosomes are read with --chr-set 95 --allow-extra-chr: in PLINK's default human
+# mode a numeric chromosome 23-26 is X/Y/XY/MT (Y calls of non-males are dropped) and a
+# code above 26 is an error. Here 1-95 are autosomes, X/Y/XY/MT take codes 96-99 and
+# other names (Pt, scaffolds) pass through. X, MT and Pt give the r^2 of an autosome; Y
+# gives no pairs, since a VCF carries no sex and PLINK treats non-males' Y calls as missing.
+# (`no-x no-y no-xy no-mt` made PLINK refuse any VCF with such a contig.)
 library(data.table)
 source("/pipeline/scripts/R/lib/ld_decay.R")
 
@@ -25,10 +29,11 @@ SCOPE            <- args[6]  # genome_wide | per_chromosome | both
 STAT_GW_DIR      <- args[7]
 STAT_CHR_DIR     <- args[8]
 OUT_SUMMARY      <- args[9]  # one row per group: SNPs, anchors, pairs
+EXCLUDE          <- args[10] # LDdecay.exclude_chromosomes, comma-separated, or "NULL"
 ################
-stopifnot(length(args) == 9, MAX_DIST_KB > 0, MAX_PAIRS > 0,
+stopifnot(length(args) == 10, MAX_DIST_KB > 0, MAX_PAIRS > 0,
           SCOPE %in% c("genome_wide", "per_chromosome", "both"))
-PLINK_CHR <- c("--chr-set", "95", "no-x", "no-y", "no-xy", "no-mt", "--allow-extra-chr")
+PLINK_CHR <- c("--chr-set", "95", "--allow-extra-chr")
 max_dist <- MAX_DIST_KB * 1000
 
 manifest <- fread(file.path(SAMPLE_LISTS_DIR, "manifest.tsv"), colClasses = "character")
@@ -72,6 +77,18 @@ chr_name <- setNames(chr_name$name, chr_name$code)
 bim[, id := paste0("v", .I)]
 fwrite(bim, paste0(all_set, ".bim"), sep = "\t", col.names = FALSE)
 
+exclude_args <- character(0)
+excluded <- ld_excluded_contigs(vcf_chr, EXCLUDE)
+if (length(excluded)) {
+    drop <- vcf_chr %in% excluded
+    if (all(drop)) stop("LDdecay.exclude_chromosomes leaves no SNP")
+    writeLines(bim$id[drop], file.path(tmp, "excluded.txt"))
+    exclude_args <- c("--exclude", file.path(tmp, "excluded.txt"))
+    message("INFO: Left out (LDdecay.exclude_chromosomes): ", sum(drop), " SNPs on ",
+            paste(excluded, collapse = ", "))
+    bim <- bim[!drop]
+}
+
 plan <- ld_anchor_plan(bim$chr, bim$pos, max_dist, MAX_PAIRS)
 anchor_args <- character(0)
 if (!plan$exhaustive) {
@@ -100,7 +117,7 @@ for (i in seq_len(nrow(manifest))) {
         keep_args <- c("--keep", keep)
     }
     out <- file.path(tmp, stem)
-    plink("--bfile", all_set, PLINK_CHR, keep_args, "--r2", anchor_args,
+    plink("--bfile", all_set, PLINK_CHR, keep_args, exclude_args, "--r2", anchor_args,
           "--ld-window", "999999", "--ld-window-kb", MAX_DIST_KB, "--ld-window-r2", "0",
           "--threads", "1", "--out", out)
     pairs <- fread(paste0(out, ".ld"), select = c("CHR_A", "BP_A", "SNP_A", "BP_B", "SNP_B", "R2"),

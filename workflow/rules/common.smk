@@ -299,6 +299,35 @@ if not 0 < LD_DECAY_R2_THRESHOLD < 1:
     raise ValueError("LDdecay.r2_threshold must lie strictly between 0 and 1")
 if not 0 < LD_DECAY_LOESS_SPAN <= 1:
     raise ValueError("LDdecay.loess_span must lie in (0, 1]")
+
+def _parse_contig_list(raw, key):
+    """Contig names from a comma-separated string ("X,Y,MT,Pt", what the app writes) or
+    a YAML list; unset or blank = none. A YAML boolean is refused: R's yaml, which the
+    app reads configs with, turns a bare Y in a list into true."""
+    if raw is None:
+        return []
+    items = raw.split(',') if isinstance(raw, str) else raw
+    if not isinstance(items, (list, tuple)):
+        raise ValueError(f"{key} must be a comma-separated string or a list of contig "
+                         f"names, got {raw!r}")
+    names = []
+    for item in items:
+        if isinstance(item, bool):
+            raise ValueError(f"{key}: {item!r} is a YAML boolean; write the names as one "
+                             f"string, e.g. \"X,Y,MT,Pt\" (a bare Y in a list reads as true)")
+        name = str(item).strip()
+        if any(ch.isspace() for ch in name):
+            raise ValueError(f"{key}: contig names have no spaces, got {name!r}")
+        if name:
+            names.append(name)
+    return names
+
+# Contigs left out of the LD-decay curve and its background (organellar, sex): none by
+# default. Matched to the VCF's contigs in scripts/R/lib/ld_decay.R (case, a 'chr'
+# prefix and M/MT ignored); passed to the scripts as one comma-separated word.
+LD_DECAY_EXCLUDE_CHROMOSOMES = _parse_contig_list(_ld_decay.get('exclude_chromosomes'),
+                                                  'LDdecay.exclude_chromosomes')
+LD_DECAY_EXCLUDE_ARG = ','.join(LD_DECAY_EXCLUDE_CHROMOSOMES) or 'NULL'
 # 'plink_' keeps these intermediates apart from the PopLDdecay ones of older runs.
 LD_DECAY_TAG = f"plink_grp{LD_DECAY_GROUP_BY}_min{LD_DECAY_MIN_SAMPLES}_dist{LD_DECAY_MAX_DISTANCE}"
 
@@ -439,19 +468,30 @@ def _parse_ld_rule(group_dict, defaults):
             break
     return ld_rule
 
+# The snp_clumping_distance of a group that sets none, own or inherited: the LD-decay
+# distance under clumping_ld_rule. Until 2026-10-26 it was a fixed 100,000 bp.
+_DEFAULT_CLUMPING_DISTANCE = 'auto_genome_wide'
+
 def resolve_region_params(group_dict, defaults=None):
     """Parse snp_clumping_distance, region_clumping_distance, clumping_ld_rule,
     ld_decay_group, promoter_length.
 
     snp_clumping_distance is ONE distance for the agreement between methods
     (Cross-method), the cross-trait overlap annotation of significant SNPs and the
-    clumping of significant SNPs into regions. region_clumping_distance (advanced,
-    unset by default) replaces it for the region clumping only. An auto_* distance
-    is read from the LD-decay table under clumping_ld_rule."""
+    clumping of significant SNPs into regions; unset (or null) it is
+    _DEFAULT_CLUMPING_DISTANCE, and 'clumping_distance_defaulted' says so.
+    region_clumping_distance (advanced, unset by default) replaces it for the region
+    clumping only. An auto_* distance is read from the LD-decay table under
+    clumping_ld_rule."""
     defaults = defaults or {}
     group_dict = _migrate_assoc_config(group_dict)
     defaults   = _migrate_assoc_config(defaults)
-    raw_rdist = group_dict.get('snp_clumping_distance', defaults.get('snp_clumping_distance', 100000))
+    raw_rdist = group_dict.get('snp_clumping_distance')
+    if raw_rdist is None:
+        raw_rdist = defaults.get('snp_clumping_distance')
+    rdist_defaulted = raw_rdist is None
+    if rdist_defaulted:
+        raw_rdist = _DEFAULT_CLUMPING_DISTANCE
     rdist_val, rdist_mode = _parse_distance_spec(raw_rdist, 'snp_clumping_distance')
     raw_region = group_dict.get('region_clumping_distance', defaults.get('region_clumping_distance', None))
     if raw_region is None or str(raw_region).strip().lower() in ('', 'none', 'null'):
@@ -461,6 +501,7 @@ def resolve_region_params(group_dict, defaults=None):
     return {
         'clumping_distance':      rdist_val,
         'clumping_distance_mode': rdist_mode,
+        'clumping_distance_defaulted': rdist_defaulted,
         'region_distance':        region_val,
         'region_distance_mode':   region_mode,
         'clumping_ld_rule':       _parse_ld_rule(group_dict, defaults),
@@ -967,15 +1008,32 @@ PHENO_REGION_DISTANCE_MODE  = _gwas_rdp['region_distance_mode']
 PHENO_REGION_LD_RULE        = PHENO_CLUMPING_LD_RULE
 PHENO_REGION_LD_DECAY_GROUP = PHENO_CLUMPING_LD_DECAY_GROUP
 
+# The groups that run: GEA needs the climate regime, and each needs its configs. A
+# gwas_only project never reads GEA's distance, so nothing below speaks of it there.
+_assoc_runs = {'GEA': CLIMATE_ENABLED and bool(GEA_CONFIGS), 'GWAS': bool(GWAS_CONFIGS)}
+
+# A group with no snp_clumping_distance, own or inherited, takes the LD-decay distance.
+# Say so once: until 2026-10-26 the default was a fixed 100 kb, and a config written
+# before then may rely on it.
+_defaulted = [(g, rdp['clumping_ld_rule']) for g, rdp in (('GEA', _gea_rdp), ('GWAS', _gwas_rdp))
+              if rdp['clumping_distance_defaulted'] and _assoc_runs[g]]
+if _defaulted:
+    _how = (_defaulted[0][1] if len({r for _, r in _defaulted}) == 1
+            else ', '.join(f"{g} {r}" for g, r in _defaulted))
+    print(f"NOTE: snp_clumping_distance not set ({', '.join(g for g, _ in _defaulted)}): "
+          f"using auto_genome_wide (LD distance, {_how}); the default was a fixed 100 kb "
+          f"until 2026-10-26", file=sys.stderr)
+
 # auto_per_chromosome reads the per-chromosome rows of the LD-decay table, which exist
 # only when LDdecay.scope includes per_chromosome; without them every distance came
 # out NA (regions.R took max(integer(0))). auto_genome_wide likewise needs the
 # genome-wide rows, or every consumer stops after the association jobs have run.
 # Refuse both combinations before any rule runs (declared SNP sets: SNP_SET_DECL).
-_auto_keys = (('GEA.snp_clumping_distance', CLUMPING_DISTANCE_MODE),
-              ('GEA.region_clumping_distance', REGION_DISTANCE_MODE),
-              ('GWAS.snp_clumping_distance', PHENO_CLUMPING_DISTANCE_MODE),
-              ('GWAS.region_clumping_distance', PHENO_REGION_DISTANCE_MODE))
+_auto_keys = [(k, m) for g, k, m in (
+    ('GEA',  'GEA.snp_clumping_distance', CLUMPING_DISTANCE_MODE),
+    ('GEA',  'GEA.region_clumping_distance', REGION_DISTANCE_MODE),
+    ('GWAS', 'GWAS.snp_clumping_distance', PHENO_CLUMPING_DISTANCE_MODE),
+    ('GWAS', 'GWAS.region_clumping_distance', PHENO_REGION_DISTANCE_MODE)) if _assoc_runs[g]]
 _per_chr_keys = [k for k, m in _auto_keys if m == 'auto_per_chromosome']
 if _per_chr_keys and LD_DECAY_SCOPE == 'genome_wide':
     raise ValueError(f"{', '.join(_per_chr_keys)} = auto_per_chromosome needs per-chromosome "

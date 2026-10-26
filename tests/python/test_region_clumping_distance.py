@@ -18,8 +18,17 @@ Pinned:
     rule, and says so on stderr;
   * auto_per_chromosome needs LDdecay.scope per_chromosome or both, auto_genome_wide
     needs genome_wide or both (parse-time errors);
-  * the LD-decay group reaches every script as one shell word ("Tel Aviv").
+  * a group with no snp_clumping_distance, own or inherited (or a null one), takes
+    auto_genome_wide under its clumping_ld_rule, said once on stderr because the
+    default was a fixed 100 kb until 2026-10-26; a config that sets bp, or a legacy
+    key, is unchanged and silent; a group that does not run (GEA in a gwas_only
+    project) is neither announced nor scope-checked;
+  * the LD-decay group reaches every script as one shell word ("Tel Aviv");
+  * LDdecay.exclude_chromosomes (none by default) is a comma-separated string or a
+    list, refuses a YAML boolean, and reaches the three LD-decay steps as one word.
 """
+import contextlib
+import io
 import os
 import re
 import unittest
@@ -27,6 +36,7 @@ import unittest
 import _smk_harness as H
 
 DOWNSTREAM = os.path.join(H.REPO_ROOT, "workflow", "rules", "_assoc_downstream.smk")
+STRUCTURE = os.path.join(H.REPO_ROOT, "workflow", "rules", "structure.smk")
 SUMMARY = os.path.join(H.REPO_ROOT, "workflow", "rules", "summary.smk")
 
 
@@ -137,6 +147,92 @@ class TestLdRule(unittest.TestCase):
         self.assertEqual(source(ns)["clumping_distance_mode"], "auto_per_chromosome")
 
 
+def without_distance(**overrides):
+    """The base config with no GEA.snp_clumping_distance (GWAS sets none either)."""
+    cfg = H.make_config(**overrides)
+    del cfg["GEA"]["snp_clumping_distance"]
+    return cfg
+
+
+def load_err(cfg):
+    """(namespace, stderr) of a parse."""
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        ns = H.load(cfg)
+    return ns, err.getvalue()
+
+
+NOTE = "snp_clumping_distance not set"
+
+
+class TestDefaultDistance(unittest.TestCase):
+    def test_unset_distance_is_the_ld_distance_for_gea_and_gwas(self):
+        ns, err = load_err(without_distance())
+        for name in ("GEA", "GWAS"):
+            with self.subTest(source=name):
+                src = source(ns, name)
+                self.assertEqual(src["clumping_distance"], "auto_genome_wide")
+                self.assertEqual(src["clumping_distance_mode"], "auto_genome_wide")
+                self.assertEqual(src["region_distance_mode"], "auto_genome_wide")
+                self.assertEqual(src["clumping_ld_rule"], "critical")
+        # one line for both groups, naming the old default
+        self.assertEqual(err.count(NOTE), 1)
+        self.assertIn(f"{NOTE} (GEA, GWAS): using auto_genome_wide (LD distance, critical)", err)
+        self.assertIn("fixed 100 kb until 2026-10-26", err)
+
+    def test_a_null_distance_is_unset(self):
+        cfg = without_distance()
+        cfg["GEA"]["snp_clumping_distance"] = None
+        ns, err = load_err(cfg)
+        self.assertEqual(source(ns)["clumping_distance"], "auto_genome_wide")
+        self.assertIn(NOTE, err)
+
+    def test_a_null_gwas_distance_inherits_gea(self):
+        ns, err = load_err(H.make_config(GWAS__snp_clumping_distance=None))
+        self.assertEqual(source(ns, "GWAS")["clumping_distance"], 1000000)
+        self.assertNotIn(NOTE, err)
+
+    def test_a_set_distance_is_unchanged_and_silent(self):
+        ns, err = load_err(H.make_config(GEA__snp_clumping_distance=5000))
+        for name in ("GEA", "GWAS"):
+            with self.subTest(source=name):
+                self.assertEqual(source(ns, name)["clumping_distance"], 5000)
+                self.assertEqual(source(ns, name)["clumping_distance_mode"], "fixed")
+        self.assertNotIn(NOTE, err)
+
+    def test_the_legacy_key_counts_as_set(self):
+        # config_SIMDATA.yaml sets region_distance: 1000000 and so keeps 1 Mb
+        with self.assertWarns(DeprecationWarning):
+            ns, err = load_err(without_distance(GEA__region_distance=1000000))
+        self.assertEqual(source(ns)["clumping_distance"], 1000000)
+        self.assertNotIn(NOTE, err)
+
+    def test_only_the_groups_that_default_are_named(self):
+        ns, err = load_err(without_distance(GWAS__snp_clumping_distance=20000))
+        self.assertEqual(source(ns, "GWAS")["clumping_distance"], 20000)
+        self.assertIn(f"{NOTE} (GEA):", err)
+
+    def test_each_group_is_read_under_its_own_rule(self):
+        ns, err = load_err(without_distance(GWAS__clumping_ld_rule="half_decay"))
+        self.assertEqual(source(ns, "GWAS")["clumping_ld_rule"], "half_decay")
+        self.assertIn("(LD distance, GEA critical, GWAS half_decay)", err)
+
+    def test_per_chromosome_scope_refuses_the_default(self):
+        with self.assertRaisesRegex(ValueError, "auto_genome_wide needs genome-wide"):
+            load_err(without_distance(LDdecay__scope="per_chromosome"))
+
+    def test_gea_in_a_gwas_only_project_is_neither_announced_nor_checked(self):
+        # GEA never runs there, so its default must not refuse the GWAS scope
+        gea_configs = [{"method": "EMMAX", "adjust": "bonf", "threshold": "0.05"},
+                       {"method": "LFMM", "adjust": "bonf", "threshold": "0.05"}]
+        ns, err = load_err(without_distance(Regime={"mode": "gwas_only"}, GEA__configs=gea_configs,
+                                            GWAS__snp_clumping_distance=20000,
+                                            LDdecay__scope="per_chromosome"))
+        self.assertFalse(ns["CLIMATE_ENABLED"])
+        self.assertEqual(source(ns, "GWAS")["clumping_distance"], 20000)
+        self.assertNotIn(NOTE, err)
+
+
 class TestLdDecayKeys(unittest.TestCase):
     def test_defaults(self):
         ns = load()
@@ -144,6 +240,37 @@ class TestLdDecayKeys(unittest.TestCase):
         self.assertEqual(ns["LD_DECAY_R2_THRESHOLD"], 0.2)
         self.assertEqual(ns["LD_DECAY_SEED"], 1)
         self.assertTrue(ns["LD_DECAY_TAG"].startswith("plink_"))
+
+    def test_exclude_chromosomes_is_none_by_default(self):
+        ns = load()
+        self.assertEqual(ns["LD_DECAY_EXCLUDE_CHROMOSOMES"], [])
+        self.assertEqual(ns["LD_DECAY_EXCLUDE_ARG"], "NULL")
+        self.assertEqual(load(LDdecay__exclude_chromosomes="")["LD_DECAY_EXCLUDE_ARG"], "NULL")
+
+    def test_exclude_chromosomes_reads_a_string_or_a_list(self):
+        for value in ("X, MT,Pt", ["X", "MT", "Pt"], "X,MT,Pt,"):
+            with self.subTest(value=value):
+                ns = load(LDdecay__exclude_chromosomes=value)
+                self.assertEqual(ns["LD_DECAY_EXCLUDE_ARG"], "X,MT,Pt")
+
+    def test_exclude_chromosomes_refuses_a_yaml_boolean(self):
+        # R's yaml reads a bare Y in a list as true; the app may write it back as such
+        with self.assertRaisesRegex(ValueError, "YAML boolean"):
+            load(LDdecay__exclude_chromosomes=["X", True, "MT"])
+        for value in ({"a": 1}, ["Pt chloroplast"]):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    load(LDdecay__exclude_chromosomes=value)
+
+    def test_the_three_ld_steps_get_the_exclusion_list(self):
+        with open(STRUCTURE) as handle:
+            text = handle.read()
+        rules = {m.group(1): m.group(2) for m in re.finditer(
+            r"^rule (\w+):\n(.*?)(?=^rule |\Z)", text, re.S | re.M)}
+        for name in ("ld_decay_prepare", "ld_decay_pairs", "ld_decay_background"):
+            with self.subTest(rule=name):
+                self.assertIn("exclude = LD_DECAY_EXCLUDE_ARG", rules[name])
+                self.assertIn('"{params.exclude}" > {log}', rules[name])
 
     def test_invalid_values_fail_at_parse_time(self):
         for key, value in (("LDdecay__max_pairs", 10), ("LDdecay__r2_threshold", 1.5),

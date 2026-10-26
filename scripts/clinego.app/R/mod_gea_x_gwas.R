@@ -207,39 +207,14 @@ mod_gea_x_gwas_server <- function(id, project_data, run_trigger = NULL) {
                                gwas_regime_wza(), gwas_pvalue_fingerprint(),
                                threshold_overrides_key(gwas_threshold_overrides(), gwas_registry_defaults()))
 
-        # ── Initialize per-side filter params from config/region_params ─────────
-        .init_dist_param <- function(input_id, rp_key, config_default_fn) {
-            shiny::observe({
-                pd  <- project_data()
-                rp  <- read_region_params(pd$name)
-                val <- get_global_param(rp, module, rp_key)
-                d <- if (!is.null(val)) as.integer(val)
-                     else config_default_fn(pd$config, pd$name)
-                shiny::updateNumericInput(session, input_id, value = d)
-            })
-            shiny::observeEvent(input[[input_id]], {
-                v  <- input[[input_id]]
-                pd <- project_data()
-                if (is.null(v) || is.na(v) || is.null(pd)) return()
-                rp <- read_region_params(pd$name)
-                rp <- set_global_param(rp, module, rp_key, as.integer(v))
-                save_region_params(pd$name, rp)
-            }, ignoreInit = TRUE)
-        }
-
-        .init_dist_param("gea_snp_clumping_distance", "gea_snp_clumping_distance",
-            function(cfg, proj) DEFAULT_CLUMPING_DISTANCE)
-        .init_dist_param("gwas_snp_clumping_distance", "gwas_snp_clumping_distance",
-            function(cfg, proj) DEFAULT_CLUMPING_DISTANCE)
-
-        gea_snp_clumping_distance <- shiny::reactive({
-            v <- input$gea_snp_clumping_distance
-            if (is.null(v) || is.na(v) || v < 1000L) 1000000L else as.integer(v)
-        })
-        gwas_snp_clumping_distance <- shiny::reactive({
-            v <- input$gwas_snp_clumping_distance
-            if (is.null(v) || is.na(v) || v < 1000L) 1000000L else as.integer(v)
-        })
+        # ── Per-side clumping distance ──────────────────────────────────────────
+        # Each side starts at its saved value, else at its source's own distance (the
+        # LD-decay distance unless the config sets bp), as the GEA and GWAS tabs do, and
+        # is saved only when moved (clumping_distance_state()).
+        gea_snp_clumping_distance <- clumping_distance_state(
+            input, project_data, "gea_snp_clumping_distance", module, "gea_snp_clumping_distance", MOD_GEA)
+        gwas_snp_clumping_distance <- clumping_distance_state(
+            input, project_data, "gwas_snp_clumping_distance", module, "gwas_snp_clumping_distance", MOD_GWAS)
 
         # ── Regime (independent per side) ─────────────────────────────────────
         .init_regime_param <- function(input_id, rp_key) {
@@ -346,7 +321,7 @@ mod_gea_x_gwas_server <- function(id, project_data, run_trigger = NULL) {
             tv <- as.numeric(get_global_param(rp, src_module, "threshold_value") %||%
                       default_threshold(cfg, src_module)$value)
             cd <- as.integer(get_global_param(rp, src_module, "snp_clumping_distance") %||%
-                      DEFAULT_CLUMPING_DISTANCE)
+                      default_clumping_distance(cfg, src_module, ld_decay_table_path(pd$name)))
             rg <- isTRUE(get_global_param(rp, src_module, "regime"))
             st <- get_global_param(rp, src_module, "combine_strategy")
             ov <- get_global_param(rp, src_module, "threshold_overrides")

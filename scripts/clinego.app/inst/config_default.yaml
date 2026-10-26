@@ -117,6 +117,8 @@ LDdecay:
   background_markers_per_chr: 50   # unlinked markers per chromosome for the critical r2
   r2_threshold: 0.2                # level of the r2_threshold decay rule
   seed: 1                          # anchor and unlinked-marker sampling
+  # exclude_chromosomes: "X,Y,MT,Pt" # optional: contigs left out of the LD curve and its background
+  #                                # (organellar, sex); case, a "chr" prefix and M/MT are ignored
 
 #-----------------------------------------------------------------------------
 # GEA: Association analysis settings
@@ -129,10 +131,11 @@ GEA:
     - method: "LFMM"
       adjust: "bonf"
       threshold: '0.05'
-  snp_clumping_distance: 100000    # ONE distance (bp) for the agreement between methods (Cross-method)
-                                    # and for merging significant SNPs into regions; fixed default — tune
-                                    # interactively in the GEA tab's filter bar (or "auto_genome_wide"/
-                                    # "auto_per_chromosome" to derive it from the LD decay table instead)
+  snp_clumping_distance: auto_genome_wide  # ONE distance for the agreement between methods (Cross-method)
+                                    # and for merging significant SNPs into regions: the genome-wide LD-decay
+                                    # distance (mode=structure's LD-decay table) under clumping_ld_rule;
+                                    # "auto_per_chromosome" for one per chromosome, or a fixed bp. The GEA
+                                    # tab's filter bar starts at it (until 2026-10-26 the default was 100000)
   clumping_ld_rule: "critical"     # rule an auto_* distance is read under: "critical" (LD meets the
                                     # critical r2 of unlinked markers), "half_decay" (r2 falls to half its
                                     # short-range value) or "r2_threshold" (LDdecay.r2_threshold)
@@ -190,8 +193,9 @@ GWAS:
       adjust: "bonf"
       threshold: '0.05'
   missing_strategy: "DROP"         # How to handle samples missing phenotype data
-  snp_clumping_distance: 100000    # ONE distance (bp) for the agreement between methods and the region
-                                    # merge; fixed default — tune interactively in the GWAS tab's filter bar
+  snp_clumping_distance: auto_genome_wide  # ONE distance for the agreement between methods and the region
+                                    # merge: the genome-wide LD-decay distance under clumping_ld_rule (GEA's
+                                    # rule unless set here), or a fixed bp. The GWAS tab's filter bar starts at it
   # region_clumping_distance: 200000 # ADVANCED: a separate distance for the region merge only (bp or
   #                                # auto_*); unset = snp_clumping_distance for both
   promoter_length: 10000           # Promoter region length for SNP annotation
