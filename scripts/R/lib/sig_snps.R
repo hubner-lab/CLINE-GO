@@ -5,7 +5,7 @@
 # Find significant SNPs for each trait in a p-value table.
 #
 # @param pvalues_dt  data.table with columns SNPID, chr, pos, [trait_cols...]
-# @param adjustment  character: "bonf" | "qval" | "top"
+# @param adjustment  character: "bonf" | "qval" | "top" | "toppct" | "custom"
 # @param value       numeric: threshold value for the adjustment
 # @param cpu         integer: cores for mclapply
 # @param exclude_cols character vector of non-trait columns to skip

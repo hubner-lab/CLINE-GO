@@ -374,10 +374,11 @@ def save_snp_set(project, name):
 
     resolve_active_snp_sets() (common.smk:1467) reads the filesystem, so the
     maladaptation target list is a function of run state, not of config alone.
+    Three SNPs: a set below MIN_OFFSET_SNPS (common.smk) is skipped under `all`.
     """
     directory = os.path.join(_SANDBOX, f"{project}_results", "_intermediate",
                              "snp_sets", name)
     _real_makedirs(directory, exist_ok=True)
     with _real_open(os.path.join(directory, "selected_snps.tsv"), "w") as handle:
-        handle.write("chr\tpos\n1\t100\n")
+        handle.write("chr\tpos\n1\t100\n1\t200\n1\t300\n")
     return directory

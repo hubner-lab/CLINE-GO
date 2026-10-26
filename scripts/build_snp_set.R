@@ -23,8 +23,9 @@
 #
 # Zero selected SNPs is NOT an error: a header-only TSV and a record with
 # n_snps: 0 are written and the script exits 0, so a strict declaration cannot
-# fail mode=gea after every association job has run. mode=maladaptation skips
-# such a set under snp_sets: all and refuses it when named.
+# fail mode=gea after every association job has run. mode=maladaptation skips a
+# set of fewer than 3 SNPs (MIN_OFFSET_SNPS, workflow/rules/common.smk) under
+# snp_sets: all and refuses it when named.
 
 suppressPackageStartupMessages(library(data.table))
 
@@ -103,6 +104,9 @@ n <- nrow(sel$snps)
 if (n == 0L) {
     message("WARNING: SNP set '", decl$name, "' selected 0 SNPs — writing an empty set. ",
             "mode=maladaptation skips it under snp_sets: all.")
+} else if (n < 3L) {
+    message("WARNING: SNP set '", decl$name, "' selected ", n, " SNP(s). ",
+            "mode=maladaptation skips a set of fewer than 3 SNPs under snp_sets: all.")
 }
 
 dir.create(dirname(OUT_TSV), recursive = TRUE, showWarnings = FALSE)

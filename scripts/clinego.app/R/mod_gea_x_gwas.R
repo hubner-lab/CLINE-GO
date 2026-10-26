@@ -400,13 +400,13 @@ mod_gea_x_gwas_server <- function(id, project_data, run_trigger = NULL) {
         output$gea_threshold_hint <- shiny::renderUI({
             t <- gea_threshold_type()
             hint <- switch(t, bonf="α for Bonferroni", qval="FDR q-value (0–1)",
-                           top="Top N SNPs", custom="Raw p-value (e.g. 1e-5)", "")
+                           top="Top N SNPs", toppct="Top % of SNPs", custom="Raw p-value (e.g. 1e-5)", "")
             htmltools::span(class="text-muted small mt-1", hint)
         })
         output$gwas_threshold_hint <- shiny::renderUI({
             t <- gwas_threshold_type()
             hint <- switch(t, bonf="α for Bonferroni", qval="FDR q-value (0–1)",
-                           top="Top N SNPs", custom="Raw p-value (e.g. 1e-5)", "")
+                           top="Top N SNPs", toppct="Top % of SNPs", custom="Raw p-value (e.g. 1e-5)", "")
             htmltools::span(class="text-muted small mt-1", hint)
         })
 

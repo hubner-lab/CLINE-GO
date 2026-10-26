@@ -86,6 +86,7 @@ threshold_value_default_for_type <- function(type) {
         bonf   = 0.05,
         qval   = 0.05,
         top    = 100,
+        toppct = 1,
         custom = 1e-5,
         0.05
     )
@@ -101,6 +102,7 @@ threshold_value_valid_for_type <- function(type, value) {
         bonf   = v > 0 && v <= 1,
         qval   = v > 0 && v <= 1,
         top    = v >= 1,
+        toppct = v > 0 && v <= 100,
         custom = v > 0,
         FALSE
     )
@@ -116,7 +118,7 @@ threshold_value_valid_for_type <- function(type, value) {
 #' @param ns           Shiny namespace function
 #' @param input_prefix Character prefix for input IDs (e.g. "" or "gea_")
 #' @param regime_value Logical: current WZA regime state
-#' @param threshold_type_value  Character: "bonf"/"qval"/"top"/"custom"
+#' @param threshold_type_value  Character: "bonf"/"qval"/"top"/"toppct"/"custom"
 #' @param threshold_value_value Numeric: current threshold value
 #' @param show_apply_to_config Logical: render the "Apply rules to config"
 #'   button, which collapses the current master/registry/override rules into
@@ -135,6 +137,7 @@ THRESHOLD_TYPE_CHOICES <- c(
     "Bonferroni"     = "bonf",
     "FDR (qval)"     = "qval",
     "Top N SNPs"     = "top",
+    "Top % SNPs"     = "toppct",
     "Custom (raw p)" = "custom"
 )
 
@@ -156,6 +159,7 @@ format_threshold_rule <- function(type, value) {
         bonf   = paste0("Bonferroni \u03b1 ", num(value)),
         qval   = paste0("FDR q \u2264 ", num(value)),
         top    = paste0("Top ", format(round(value), trim = TRUE), " SNPs/trait"),
+        toppct = paste0("Top ", num(value), "% SNPs/trait"),
         custom = paste0("raw p < ", num(value)),
         paste0(type, " ", num(value))
     )
@@ -737,9 +741,7 @@ setup_matrix_rules_server <- function(input, output, session, ns, input_prefix =
         shiny::showModal(shiny::modalDialog(
             title = title,
             shiny::selectInput(ns(pid("thr_popup_type")), "Rule",
-                choices = c("Bonferroni" = "bonf", "FDR (qval)" = "qval",
-                           "Top N" = "top", "Custom (raw p)" = "custom"),
-                selected = rule$type),
+                choices = THRESHOLD_TYPE_CHOICES, selected = rule$type),
             shiny::numericInput(ns(pid("thr_popup_value")), "Value",
                                 value = rule$value, min = 0, step = NA),
             htmltools::p(class = "small text-muted mb-1",

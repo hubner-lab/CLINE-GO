@@ -261,6 +261,7 @@ mod_gea_server <- function(id, project_data, run_trigger = NULL, module = MOD_GE
                 bonf   = "α for Bonferroni correction",
                 qval   = "FDR q-value target (0–1)",
                 top    = "Number of top SNPs per trait",
+                toppct = "Percent of the SNPs per trait (rounded up to a count)",
                 custom = "Raw p-value cutoff (e.g. 1e-5)",
                 ""
             )

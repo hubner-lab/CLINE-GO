@@ -144,15 +144,15 @@ mod_config_sidebar_server <- function(id, config_state, tab_name, snp_sets_trigg
                     output[[dyn_id]] <- shiny::renderUI({
                         snp_sets_trigger()                        # live refresh on save/delete
                         proj <- config_state$project
-                        # Sets with zero SNPs are left out: the pipeline refuses
-                        # one named in an explicit list (pickable_snp_sets()).
+                        # Sets under MIN_OFFSET_SNPS SNPs are left out: the pipeline
+                        # refuses one named in an explicit list (pickable_snp_sets()).
                         sets <- pickable_snp_sets(proj)
 
                         if (nrow(sets) == 0) {
                             return(htmltools::div(
                                 class = "alert alert-warning small mb-0 p-2",
                                 bsicons::bs_icon("info-circle"),
-                                " No SNP sets with SNPs yet. Go to the ",
+                                " No SNP sets with at least ", MIN_OFFSET_SNPS, " SNPs yet. Go to the ",
                                 htmltools::strong("GEA tab"),
                                 " → ",
                                 htmltools::strong("Save SNP set for maladaptation"),

@@ -363,15 +363,22 @@ test_that("a manifest entry whose directory is gone is no longer listed", {
     expect_identical(nrow(list_snp_sets(project)), 0L)
 })
 
-test_that("the picker offers only sets with SNPs, labelled by origin", {
+test_that("the picker offers only sets of at least 3 SNPs, labelled by origin", {
+    # The pipeline skips a set under 3 SNPs under `snp_sets: all` and refuses it
+    # when named (MIN_OFFSET_SNPS, common.smk), so the picker must not offer one.
     project <- new_project("PICK")
-    save_snp_set(project, "mysel", fx_sigsnps(), list())
+    save_snp_set(project, "mysel", fx_sigsnps(), list())        # 2 SNPs: left out
+    save_snp_set(project, "three", fx_sigsnps(snpid = c("1:100", "2:300", "3:5"),
+                                              chr = c("1", "2", "3"),
+                                              pos = c(100L, 300L, 5L)), list())
     fx_config_set(project, "gea.strict", 5L)
+    fx_config_set(project, "gea.pair", 2L)
     fx_config_set(project, "gea.empty", 0L)
     sets <- pickable_snp_sets(project)
-    expect_identical(sets$name, c("mysel", "gea.strict"))
+    expect_identical(sets$name, c("three", "gea.strict"))
     expect_identical(snp_set_label(sets),
-                     c("mysel (2 SNPs) · app", "gea.strict (5 SNPs) · config"))
+                     c("three (3 SNPs) · app", "gea.strict (5 SNPs) · config"))
+    expect_identical(MIN_OFFSET_SNPS, 3L)
 })
 
 # ---------------------------------------------------------------- config snippet

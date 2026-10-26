@@ -32,14 +32,21 @@
     )
 }
 
+# K of a "Cross-method >=K" strategy (k-of-n agreement), NA for any other name.
+.cross_method_k <- function(s) {
+    m <- regmatches(s, regexec("^Cross-method >=([0-9]+)$", s))[[1]]
+    if (length(m) == 2L) as.integer(m[2]) else NA_integer_
+}
+
 # ── Combine ───────────────────────────────────────────────────────────────────
 
 # Combine per-method sig SNPs using a specified strategy.
 #
 # @param sigsnps_list Named list of data.tables, one per method.
 #   Each must have columns: SNPID, chr, pos, pvalue, method, trait.
-# @param strategy "Union", "Cross-method", "Cross-method per-trait", a legacy
-#   alias (see .normalize_strategy), or a method name (single-method passthrough).
+# @param strategy "Union", "Cross-method", "Cross-method per-trait",
+#   "Cross-method >=K" (k-of-n: at least K methods agree), a legacy alias (see
+#   .normalize_strategy), or a method name (single-method passthrough).
 # @param gap Integer. Max bp distance for spatial overlap (Cross-method variants).
 # @return Long-format data.table with SNPID, chr, pos, pvalue, method, trait,
 #   min_pvalue. Empty skeleton (no min_pvalue) if nothing passes.
@@ -47,6 +54,7 @@ combine_sigsnps_long <- function(sigsnps_list, strategy = "All", gap = 200000L) 
     if (length(sigsnps_list) == 0) return(.empty_sigsnps())
 
     strategy <- .normalize_strategy(strategy)
+    k_min <- .cross_method_k(strategy)
 
     # Drop empty methods
     sigsnps_list <- sigsnps_list[vapply(sigsnps_list, nrow, integer(1)) > 0]
@@ -103,9 +111,18 @@ combine_sigsnps_long <- function(sigsnps_list, strategy = "All", gap = 200000L) 
         if (length(selected_rows) == 0) return(.empty_sigsnps())
         unique(data.table::rbindlist(selected_rows, use.names = TRUE, fill = TRUE))
 
+    } else if (!is.na(k_min)) {
+        # ── k-of-n: at least k_min methods call within gap bp (trait-agnostic) ──
+        # k_min = 2 selects exactly what Cross-method does.
+        all_snps <- data.table::rbindlist(sigsnps_list, use.names = TRUE, fill = TRUE)
+        selected_ids <- .k_of_n_ids(all_snps, gap, k_min)
+        if (length(selected_ids) == 0) return(.empty_sigsnps())
+        all_snps[SNPID %in% selected_ids]
+
     } else {
         stop(paste0("Unknown combine strategy: '", strategy,
-                    "'. Valid values: Union, Cross-method, Cross-method per-trait, or a method name."))
+                    "'. Valid values: Union, Cross-method, Cross-method per-trait, ",
+                    "Cross-method >=K, or a method name."))
     }
 
     if (is.null(result) || nrow(result) == 0) return(.empty_sigsnps())
@@ -143,6 +160,32 @@ combine_sigsnps_long <- function(sigsnps_list, strategy = "All", gap = 200000L) 
     if (nrow(ov) == 0) return(character(0))
     # Return IDs from dt1 (window side)
     unique(ov$SNPID)
+}
+
+# SNP IDs where at least k distinct methods call within gap bp, the SNP's own call
+# included. Each called SNP's window [pos - gap, pos + gap] is matched against every
+# call of every method and the methods found there are counted: methods, not cells,
+# and no chaining (A-B and B-C close does not make A count C). The same count as
+# benchmarks/lib_detection.R's combine_support(), whose sets the benchmark built.
+.k_of_n_ids <- function(all_snps, gap, k) {
+    snps <- unique(all_snps, by = "SNPID")
+    win <- data.table::data.table(
+        chr   = as.character(snps$chr),
+        start = pmax(1L, as.integer(snps$pos) - gap),
+        end   = as.integer(snps$pos) + gap,
+        SNPID = snps$SNPID
+    )
+    pts <- unique(data.table::data.table(
+        chr    = as.character(all_snps$chr),
+        start  = as.integer(all_snps$pos),
+        end    = as.integer(all_snps$pos),
+        method = all_snps$method
+    ))
+    data.table::setkey(win, chr, start, end)
+    ov <- data.table::foverlaps(pts, win, type = "within", nomatch = NULL)
+    if (nrow(ov) == 0) return(character(0))
+    support <- ov[, .(n_methods = data.table::uniqueN(method)), by = SNPID]
+    support[n_methods >= k, SNPID]
 }
 
 # Empty sig SNPs skeleton.

@@ -74,6 +74,17 @@ test_that("threshold_value_valid_for_type requires top >= 1 and custom > 0", {
     expect_false(threshold_value_valid_for_type("custom", 0))
 })
 
+test_that("toppct is a percentage in (0, 100] with a 1% default", {
+    # Mirrors _THRESHOLD_VALID / _THRESHOLD_TYPE_DEFAULT in workflow/rules/common.smk.
+    expect_identical(threshold_value_default_for_type("toppct"), 1)
+    expect_true(threshold_value_valid_for_type("toppct", 0.25))
+    expect_true(threshold_value_valid_for_type("toppct", 100))
+    expect_false(threshold_value_valid_for_type("toppct", 0))
+    expect_false(threshold_value_valid_for_type("toppct", 100.5))
+    expect_identical(format_threshold_rule("toppct", 0.25), "Top 0.25% SNPs/trait")
+    expect_true("toppct" %in% THRESHOLD_TYPE_CHOICES)
+})
+
 test_that("threshold_value_valid_for_type rejects NULL, NA and non-numeric", {
     # The NULL check must come first: is.na(NULL) is logical(0), which would make
     # `if` error rather than return FALSE. Upstream, fct_threshold_rules.R:104-105

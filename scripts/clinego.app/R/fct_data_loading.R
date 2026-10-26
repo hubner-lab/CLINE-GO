@@ -1004,7 +1004,7 @@ pairwise_file_fingerprint <- function(project) {
 #'
 #' @param pvalues_list Named list of wide data.tables (method → dt) from
 #'   load_all_method_pvalues() or load_all_method_wza_pvalues().
-#' @param type   Character: "bonf" | "qval" | "top" | "custom"
+#' @param type   Character: "bonf" | "qval" | "top" | "toppct" | "custom"
 #' @param value  Numeric threshold value (alpha for bonf/qval, N for top, raw p for custom)
 #' @param k      K-best value (for cache key)
 #' @param regime Character: "snp" or "wza"
@@ -1155,7 +1155,7 @@ compute_method_sigsnps_cached <- function(pvalues_list, type, value,
 #' For WZA regime, pass the WZA window pvalue list — denominator is n_windows.
 #'
 #' @param pvalues_list Named list: method -> data.table with SNPID/chr/pos + trait cols
-#' @param type         Adjustment type: "bonf", "qval", "top"
+#' @param type         Adjustment type: "bonf", "qval", "top", "toppct", "custom"
 #' @param value        Significance level / FDR / top-N (numeric or character)
 #' @param overrides    Named list: "trait::method" -> list(type=, value=) for
 #'   cells that deviate from the fallback. Default list() = identical output

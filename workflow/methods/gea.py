@@ -15,7 +15,7 @@
 # pseudo_trait:        the single column name when multivariate=True, else None
 # supports_wza:        method's p-values can be fed through compute_wza.R
 # adjust_default:      default significance rule name for this method's
-#                      GEA.configs row ("bonf"|"qval"|"top"|"custom"). Seeds
+#                      GEA.configs row ("bonf"|"qval"|"top"|"toppct"|"custom"). Seeds
 #                      the Shiny config sidebar's method editor and the GEA
 #                      tab's per-method threshold table.
 # threshold_default:   default value paired with adjust_default, as a STRING —

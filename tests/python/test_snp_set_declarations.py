@@ -16,7 +16,8 @@ correctness of a declared set is decided HERE, in the resolution, and pinned by:
   * TestTargets — sets are built by mode=gea / mode=gwas only, by rules that can
     produce them, under a wildcard that can never match a Shiny-saved name;
   * TestMaladaptationResolution — `snp_sets: all` = store contents + declared
-    names, an unbuilt declared set is an error, an empty set is skipped.
+    names, an unbuilt declared set is an error, a set under MIN_OFFSET_SNPS (3)
+    SNPs is skipped, and refused when named.
 """
 import contextlib
 import io
@@ -114,6 +115,17 @@ class TestBaseRule(unittest.TestCase):
         self.assertEqual(r["bio_1::EMMAX"], ("custom", 1e-6))
         self.assertEqual(r["climate_multivariate::RDA"], ("bonf", 0.01))
 
+    def test_toppct_with_an_rda_override_is_the_benchmark_rule(self):
+        # The MVP benchmark's operating point: 0.25 % per predictor, RDA 0.5 %.
+        # Declaring a type pins RDA to its registry rule, so RDA needs the override.
+        r = rules(decl([{"name": "s", "threshold_type": "toppct", "threshold_value": 0.25,
+                         "overrides": {"RDA": {"type": "toppct", "value": 0.5}}}], "gea.s"))
+        self.assertEqual(r["bio_1::LFMM"], ("toppct", 0.25))
+        self.assertEqual(r["bio_3::EMMAX"], ("toppct", 0.25))
+        self.assertEqual(r["climate_multivariate::RDA"], ("toppct", 0.5))
+        r = rules(decl([{"name": "s", "threshold_type": "toppct"}], "gea.s"))
+        self.assertEqual(r["bio_2::EMMAX"], ("toppct", 1.0))
+
     def test_yaml_string_numbers_are_accepted(self):
         # PyYAML reads 1e-05 (no dot) as a STRING; the parse must still take it.
         r = rules(decl([{"name": "s", "threshold_type": "custom",
@@ -182,6 +194,13 @@ class TestPairs(unittest.TestCase):
         ns = H.load(gea_cfg(sets))
         self.assertEqual(ns["SNP_SET_DECL"]["gea.b"]["strategy"], "Cross-method per-trait")
 
+    def test_k_of_n_strategies_are_accepted_up_to_the_sets_method_count(self):
+        sets = [{"name": "a", "strategy": "Cross-method >=3"},
+                {"name": "b", "strategy": "Cross-method >=2", "methods": ["EMMAX", "LFMM"]}]
+        ns = H.load(gea_cfg(sets))
+        self.assertEqual(ns["SNP_SET_DECL"]["gea.a"]["strategy"], "Cross-method >=3")
+        self.assertEqual(ns["SNP_SET_DECL"]["gea.b"]["strategy"], "Cross-method >=2")
+
 
 class TestRejects(unittest.TestCase):
 
@@ -236,12 +255,24 @@ class TestRejects(unittest.TestCase):
                            "takes a probability")
         self.assertRefused([{"name": "x", "overrides": {"LFMM": {"type": "top", "value": 0.5}}}],
                            "takes a SNP count")
+        self.assertRefused([{"name": "x", "threshold_type": "toppct", "threshold_value": 150}],
+                           "takes a percentage")
+        self.assertRefused([{"name": "x", "overrides": {"RDA": {"type": "toppct", "value": 0}}}],
+                           "takes a percentage")
 
     def test_strategy(self):
         self.assertRefused([{"name": "x", "strategy": "Intersection"}], "strategy must be")
         # A method name is a strategy only if the set contains that method.
         self.assertRefused([{"name": "x", "methods": ["EMMAX"], "strategy": "LFMM"}],
                            "strategy must be")
+        # k-of-n: 2 <= K <= the set's own methods, written exactly
+        self.assertRefused([{"name": "x", "strategy": "Cross-method >=4"}],
+                           "needs 2 <= K <= the set's 3 method(s)")
+        self.assertRefused([{"name": "x", "strategy": "Cross-method >=1"}], "K = 1 is Union")
+        self.assertRefused([{"name": "x", "methods": ["EMMAX", "LFMM"],
+                             "strategy": "Cross-method >=3"}],
+                           "needs 2 <= K <= the set's 2 method(s)")
+        self.assertRefused([{"name": "x", "strategy": "Cross-method >= 3"}], "strategy must be")
 
     def test_clumping_distance(self):
         self.assertRefused([{"name": "x", "clumping_distance": "wide"}],
@@ -322,7 +353,7 @@ class TestMaladaptationResolution(unittest.TestCase):
         cfg["Maladaptation"]["snp_sets"] = snp_sets
         return H.load(cfg)
 
-    def store(self, ns, name, rows=1):
+    def store(self, ns, name, rows=3):
         d = H.save_snp_set(ns["PROJECT"], name)
         with open(os.path.join(d, "selected_snps.tsv"), "w") as fh:
             fh.write("SNPID\tchr\tpos\tmin_pvalue\n")
@@ -341,7 +372,8 @@ class TestMaladaptationResolution(unittest.TestCase):
         err = io.StringIO()
         with H.patched(), contextlib.redirect_stderr(err):
             ns["resolve_active_snp_sets"]()
-        self.assertIn("skips SNP set(s) with zero SNPs: ['gea.empty']", err.getvalue())
+        self.assertIn("skips SNP set(s) with fewer than 3 SNPs (the RDA offset's floor), "
+                      "SNP counts: {'gea.empty': 0}", err.getvalue())
 
     def test_all_is_the_store_plus_the_declared_sets(self):
         ns = self.ns_with([{"name": "strict"}])
@@ -363,12 +395,34 @@ class TestMaladaptationResolution(unittest.TestCase):
         self.store(ns, "gea.empty", rows=0)
         self.assertEqual(self.resolve(ns), ["gea.strict"])
 
-    def test_only_empty_sets_is_the_no_sets_error(self):
-        ns = self.ns_with([{"name": "empty"}])
+    def test_a_set_under_three_snps_is_skipped_by_all(self):
+        # rda_offset.R stops below 3 SNPs and takes the whole run down with it.
+        ns = self.ns_with([{"name": "one"}, {"name": "two"}, {"name": "three"}])
+        self.store(ns, "gea.one", rows=1)
+        self.store(ns, "gea.two", rows=2)
+        self.store(ns, "gea.three", rows=3)
+        err = io.StringIO()
+        with H.patched(), contextlib.redirect_stderr(err):
+            self.assertEqual(ns["resolve_active_snp_sets"](), ["gea.three"])
+        self.assertIn("SNP counts: {'gea.one': 1, 'gea.two': 2}", err.getvalue())
+        self.assertEqual(ns["MIN_OFFSET_SNPS"], 3)
+
+    def test_the_apps_picker_uses_the_same_floor(self):
+        # pickable_snp_sets() must not offer a set the explicit list would refuse.
+        ns = self.ns_with([])
+        with open(os.path.join(H.REPO_ROOT, "scripts", "clinego.app", "R",
+                               "fct_snp_sets.R")) as fh:
+            app = re.search(r"^MIN_OFFSET_SNPS <- ([0-9]+)L$", fh.read(), re.M)
+        self.assertIsNotNone(app, "MIN_OFFSET_SNPS not found in fct_snp_sets.R")
+        self.assertEqual(int(app.group(1)), ns["MIN_OFFSET_SNPS"])
+
+    def test_only_small_sets_is_the_no_sets_error(self):
+        ns = self.ns_with([{"name": "empty"}, {"name": "two"}])
         self.store(ns, "gea.empty", rows=0)
+        self.store(ns, "gea.two", rows=2)
         with self.assertRaises(ValueError) as cm:
             self.resolve(ns)
-        self.assertIn("No non-empty curated SNP sets", str(cm.exception))
+        self.assertIn("No curated SNP sets with at least 3 SNPs", str(cm.exception))
 
     def test_an_explicit_list_may_name_declared_sets(self):
         ns = self.ns_with([{"name": "strict"}], snp_sets=["gea.strict"])
@@ -391,7 +445,14 @@ class TestMaladaptationResolution(unittest.TestCase):
         self.store(ns, "gea.empty", rows=0)
         with self.assertRaises(ValueError) as cm:
             self.resolve(ns)
-        self.assertIn("zero SNPs", str(cm.exception))
+        self.assertIn("fewer than 3 SNPs", str(cm.exception))
+
+        ns = self.ns_with([{"name": "two"}, {"name": "big"}], snp_sets=["gea.big", "gea.two"])
+        self.store(ns, "gea.two", rows=2)
+        self.store(ns, "gea.big", rows=5)
+        with self.assertRaises(ValueError) as cm:
+            self.resolve(ns)
+        self.assertIn("(SNP counts: {'gea.two': 2})", str(cm.exception))
 
     def test_a_stale_directory_stays_in_all(self):
         # Declaration removed from config, directory still on disk: documented.

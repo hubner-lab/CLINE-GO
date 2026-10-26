@@ -84,15 +84,22 @@ list_snp_sets <- function(project) {
     do.call(rbind, rows)
 }
 
-#' The sets the Maladaptation picker offers: every listed set with at least one SNP
+#' The fewest SNPs a set needs to enter mode=maladaptation (the RDA offset's floor).
+#' Mirrors MIN_OFFSET_SNPS in workflow/rules/common.smk; keep the two in step.
+#' @noRd
+MIN_OFFSET_SNPS <- 3L
+
+#' The sets the Maladaptation picker offers: every listed set with at least
+#' MIN_OFFSET_SNPS SNPs
 #'
-#' A config set that selected nothing is built as a header-only TSV. The pipeline
-#' skips it under `snp_sets: all` and refuses it when named, so offering it would
-#' let one unchecked box write a list that fails mode=maladaptation at parse time.
+#' A config set that selected nothing is built as a header-only TSV, and a strict
+#' one can select one or two SNPs. The pipeline skips such a set under
+#' `snp_sets: all` and refuses it when named, so offering it would let one
+#' unchecked box write a list that fails mode=maladaptation at parse time.
 #' @noRd
 pickable_snp_sets <- function(project) {
     sets <- list_snp_sets(project)
-    sets[!is.na(sets$n_snps) & sets$n_snps > 0L, , drop = FALSE]
+    sets[!is.na(sets$n_snps) & sets$n_snps >= MIN_OFFSET_SNPS, , drop = FALSE]
 }
 
 #' Picker label: "<name> (<n> SNPs) · app" / "· config"

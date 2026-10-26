@@ -49,7 +49,7 @@ max_pvalue_top <- function(pvalues, topN) {
 #   "no_hits"       the rule RAN and nothing passed. threshold is NA because the
 #                   call set is empty — the honest hit count is 0, not unknown.
 #   "too_few_tests" the rule REFUSED to run (qval under 10 tests, top N above
-#                   the number of tests, invalid custom value).
+#                   the number of tests, invalid custom or toppct value).
 #   "engine_error"  the rule CRASHED; $message carries why.
 #   "no_tests"      there were no non-NA p-values at all.
 # All four return threshold = NA, so a caller that only tests is.na() cannot
@@ -62,6 +62,10 @@ max_pvalue_top <- function(pvalues, topN) {
 # and every observation tied with it. Under 'top' the inclusive rule can
 # therefore return MORE than N rows when the N-th smallest p has ties — that is
 # correct, not a defect.
+#
+# 'toppct' is 'top' with N = ceiling(value / 100 x length(pvalues)): a percentage
+# of ALL the rows passed in, NA rows included, so every method tested on the same
+# SNPs gets the same N whatever its NA count. It then runs exactly as 'top'.
 compute_pval_threshold <- function(pvalues, adjustment, value) {
     n_total      <- length(pvalues)
     pvalues      <- pvalues[!is.na(pvalues)]
@@ -71,6 +75,21 @@ compute_pval_threshold <- function(pvalues, adjustment, value) {
     if (n_tested == 0L) {
         return(list(threshold = NA_real_, n_tested = 0L,
                     n_na_dropped = n_na_dropped, status = "no_tests"))
+    }
+
+    if (adjustment == 'toppct') {
+        share <- suppressWarnings(as.numeric(value))
+        if (is.na(share) || share <= 0 || share > 100) {
+            message(paste0("WARNING: toppct value '", value,
+                           "' invalid (must be a percentage in (0, 100]). Returning no threshold."))
+            return(list(threshold = NA_real_, n_tested = n_tested,
+                        n_na_dropped = n_na_dropped, status = "too_few_tests"))
+        }
+        # The 1e-9 absorbs floating-point noise: 1.1 / 100 * 1000 is 11.000000000000002,
+        # whose plain ceiling() is 12. A share of at most 6 decimals makes share x rows / 100
+        # a multiple of 1e-8, so the 1e-9 never moves a real fraction.
+        adjustment <- 'top'
+        value      <- ceiling(share * n_total / 100 - 1e-9)
     }
 
     if (adjustment == 'bonf') {

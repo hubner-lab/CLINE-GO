@@ -227,7 +227,9 @@ mod_gwas_server <- function(id, project_data, run_trigger = NULL, config_state =
             t <- threshold_type()
             hint <- switch(t,
                 bonf = "α for Bonferroni correction", qval = "FDR q-value target (0–1)",
-                top  = "Number of top SNPs per trait", custom = "Raw p-value cutoff (e.g. 1e-5)", "")
+                top  = "Number of top SNPs per trait",
+                toppct = "Percent of the SNPs per trait (rounded up to a count)",
+                custom = "Raw p-value cutoff (e.g. 1e-5)", "")
             htmltools::span(class = "text-muted small mt-1", hint)
         })
 

@@ -56,6 +56,9 @@ calc_threshold <- function(assoc, adjust_str) {
     return(signif)
   } else if (method == 'top') {
     return(sort(assoc$pvalue)[min(as.integer(signif), nrow(assoc))])
+  } else if (method == 'toppct') {
+    # N as compute_pval_threshold() takes it: a share of all rows (pval_threshold.R)
+    return(sort(assoc$pvalue)[min(ceiling(signif * nrow(assoc) / 100 - 1e-9), nrow(assoc))])
   } else {
     message(paste0('WARNING: Unknown threshold method: ', method, ', using Bonferroni'))
     return(signif / nrow(assoc))

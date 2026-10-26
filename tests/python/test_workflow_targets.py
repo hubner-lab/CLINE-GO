@@ -212,6 +212,16 @@ class TestConfigValidation(unittest.TestCase):
         with self.assertRaises(ValueError):
             H.load(config)
 
+    def test_toppct_outside_zero_to_hundred_is_rejected(self):
+        # adjust='toppct' takes a percentage of the tested SNPs.
+        for threshold in ("0", "100.5", "-1"):
+            config = H.make_config()
+            config["GEA"]["configs"][0] = {"method": "EMMAX", "adjust": "toppct",
+                                           "threshold": threshold}
+            with self.subTest(threshold=threshold):
+                with self.assertRaisesRegex(ValueError, "a percentage"):
+                    H.load(config)
+
     def test_probability_thresholds_above_one_are_rejected(self):
         for adjust in ("bonf", "qval"):
             config = H.make_config()
@@ -229,10 +239,10 @@ class TestConfigValidation(unittest.TestCase):
             H.load(config)
 
     def test_every_supported_rule_still_parses(self):
-        # The four rules compute_pval_threshold() implements must all survive
+        # The five rules compute_pval_threshold() implements must all survive
         # the new check, and must still reach the target list verbatim.
         for adjust, threshold in (("bonf", "0.05"), ("qval", "0.1"),
-                                  ("top", "50"), ("custom", "1e-6")):
+                                  ("top", "50"), ("toppct", "0.25"), ("custom", "1e-6")):
             config = H.make_config()
             config["GEA"]["configs"] = [{"method": "EMMAX", "adjust": adjust,
                                          "threshold": threshold}]
@@ -247,7 +257,7 @@ class TestConfigValidation(unittest.TestCase):
         # (fct_combine.R) accepts. Refusing them here would make the Shiny
         # sidebar write configs the pipeline cannot parse.
         for adjust, threshold in (("bonf", "1"), ("qval", "1"), ("top", "1"),
-                                  ("custom", "5")):
+                                  ("toppct", "100"), ("custom", "5")):
             config = H.make_config()
             config["GEA"]["configs"] = [{"method": "EMMAX", "adjust": adjust,
                                          "threshold": threshold}]

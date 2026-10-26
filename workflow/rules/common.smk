@@ -816,16 +816,18 @@ def resolve_method_params(method, registry, user_params):
 # The significance rules compute_pval_threshold() implements
 # (scripts/R/utils/pval_threshold.R). Anything else reaches its final
 # stop("Unknown adjustment method: ") — but only once p-values exist.
-PVAL_ADJUSTMENTS = ('bonf', 'qval', 'top', 'custom')
+PVAL_ADJUSTMENTS = ('bonf', 'qval', 'top', 'toppct', 'custom')
 
 # Valid threshold range per rule. Mirrors the app's
 # threshold_value_valid_for_type() (scripts/clinego.app/R/fct_combine.R) —
 # keep the two in step, or the Shiny sidebar writes configs this refuses.
+# 'toppct' is a percentage of the table's rows: top N with N = ceiling(share x rows).
 _THRESHOLD_VALID = {
-    'bonf':   (lambda v: 0 < v <= 1, "a probability in (0, 1]"),
-    'qval':   (lambda v: 0 < v <= 1, "a probability in (0, 1]"),
-    'top':    (lambda v: v >= 1,     "a SNP count >= 1"),
-    'custom': (lambda v: v > 0,      "a raw p-value cutoff > 0"),
+    'bonf':   (lambda v: 0 < v <= 1,   "a probability in (0, 1]"),
+    'qval':   (lambda v: 0 < v <= 1,   "a probability in (0, 1]"),
+    'top':    (lambda v: v >= 1,       "a SNP count >= 1"),
+    'toppct': (lambda v: 0 < v <= 100, "a percentage of the tested SNPs in (0, 100]"),
+    'custom': (lambda v: v > 0,        "a raw p-value cutoff > 0"),
 }
 
 
@@ -1833,6 +1835,11 @@ def snp_set_file(set_name):
     """Path to the curated SNP set TSV (SNPID, chr, pos, min_pvalue)."""
     return f"{INTER}snp_sets/{set_name}/selected_snps.tsv"
 
+# The fewest SNPs a set needs to enter mode=maladaptation: rda_offset.R stops below
+# 3 candidate SNPs, and that stop takes the whole run down. One floor for every
+# offset method, so `snp_sets: all` selects the same sets whatever methods run.
+MIN_OFFSET_SNPS = 3
+
 def resolve_active_snp_sets():
     """Return the list of active SNP-set names for mode=maladaptation.
 
@@ -1845,10 +1852,11 @@ def resolve_active_snp_sets():
     declared in config (<source>.snp_sets, built by mode=gea / mode=gwas as
     gea.<name> / gwas.<name>). `all` is the store's contents plus every declared
     name; a declared set not built yet is an error, not a silent omission. A set
-    with zero SNPs (header-only TSV — build_snp_set.R writes one when a strict
-    declaration selects nothing) is dropped from `all` with a message, and is an
-    error when named explicitly. A directory left behind by a declaration since
-    removed from config stays in `all` until deleted (app or by hand).
+    with fewer than MIN_OFFSET_SNPS SNPs (zero included: build_snp_set.R writes a
+    header-only TSV when a strict declaration selects nothing) is dropped from
+    `all` with a message, and is an error when named explicitly. A directory left
+    behind by a declaration since removed from config stays in `all` until deleted
+    (app or by hand).
     """
     import glob as _glob
     store = f"{INTER}snp_sets/"
@@ -1856,9 +1864,13 @@ def resolve_active_snp_sets():
     def _built(n):
         return os.path.exists(f"{store}{n}/selected_snps.tsv")
 
-    def _empty(n):
-        with open(f"{store}{n}/selected_snps.tsv") as fh:
-            return sum(1 for line in fh if line.strip()) <= 1
+    def _too_small(candidates):
+        """{name: SNP count} of the sets below MIN_OFFSET_SNPS, in input order."""
+        counts = {}
+        for n in candidates:
+            with open(f"{store}{n}/selected_snps.tsv") as fh:
+                counts[n] = max(sum(1 for line in fh if line.strip()) - 1, 0)
+        return {n: c for n, c in counts.items() if c < MIN_OFFSET_SNPS}
 
     unbuilt = [n for n in SNP_SET_DECL if not _built(n)]
     if SNP_SETS_CFG == 'all' or SNP_SETS_CFG is None:
@@ -1871,14 +1883,15 @@ def resolve_active_snp_sets():
             os.path.basename(os.path.dirname(p))
             for p in _glob.glob(f"{store}*/selected_snps.tsv")
         )
-        empty = [n for n in found if _empty(n)]
-        if empty:
-            print(f"INFO: Maladaptation.snp_sets=all skips SNP set(s) with zero SNPs: {empty}",
+        small = _too_small(found)
+        if small:
+            print(f"INFO: Maladaptation.snp_sets=all skips SNP set(s) with fewer than "
+                  f"{MIN_OFFSET_SNPS} SNPs (the RDA offset's floor), SNP counts: {small}",
                   file=sys.stderr)
-        found = [n for n in found if n not in empty]
+        found = [n for n in found if n not in small]
         if not found:
             raise ValueError(
-                f"No non-empty curated SNP sets found under {store}. "
+                f"No curated SNP sets with at least {MIN_OFFSET_SNPS} SNPs found under {store}. "
                 "Declare one under GEA.snp_sets and run mode=gea, or open the GEA tab "
                 "in the CLINE-GO Shiny app, curate SNPs with your desired "
                 "threshold/strategy/regime, and click 'Save SNP set for maladaptation' "
@@ -1905,10 +1918,11 @@ def resolve_active_snp_sets():
             "Save them in the GEA tab, declare them under GEA.snp_sets / GWAS.snp_sets "
             "(named gea.<name> / gwas.<name>), or fix the names in config."
         )
-    empty = [n for n in names if _empty(n)]
-    if empty:
+    small = _too_small(names)
+    if small:
         raise ValueError(
-            f"Maladaptation.snp_sets names SNP set(s) with zero SNPs: {empty}. "
+            f"Maladaptation.snp_sets names SNP set(s) with fewer than {MIN_OFFSET_SNPS} "
+            f"SNPs, the RDA offset's floor (SNP counts: {small}). "
             "Loosen the declaration's threshold or drop them from the list.")
     return names
 
@@ -2196,9 +2210,14 @@ _SNP_SET_NAME = re.compile(r"^[A-Za-z0-9_]+$")
 _SNP_SET_KEYS = {"name", "threshold_type", "threshold_value", "overrides", "methods",
                  "traits", "pairs", "strategy", "clumping_distance", "regime"}
 # Mirrors threshold_value_default_for_type() (scripts/clinego.app/R/fct_combine.R).
-_THRESHOLD_TYPE_DEFAULT = {"bonf": 0.05, "qval": 0.05, "top": 100.0, "custom": 1e-5}
+_THRESHOLD_TYPE_DEFAULT = {"bonf": 0.05, "qval": 0.05, "top": 100.0, "toppct": 1.0,
+                           "custom": 1e-5}
 # The strategies the app's filter bar offers, plus every alias both R sides accept.
 _SNP_SET_STRATEGIES = set(_COMBINE_STRATEGIES)
+# Plus k-of-n agreement, declared sets only (snp_set_select.R; combine_sigsnps.R has
+# no such strategy): "Cross-method >=K" keeps a SNP when at least K of the set's
+# methods call within clumping_distance of it, its own call included.
+_SNP_SET_K_OF_N = re.compile(r"^Cross-method >=([0-9]+)$")
 
 
 def _snp_set_rule(where, base, override):
@@ -2361,9 +2380,17 @@ def resolve_snp_set_declarations(source, sets_cfg, configs_list, configs, regist
 
         # --- strategy / clumping -----------------------------------------------
         strategy = str(entry.get("strategy", "Union"))
-        if strategy not in _SNP_SET_STRATEGIES and strategy not in pair_methods:
-            raise ValueError(f"{where}: strategy must be one of {sorted(_SNP_SET_STRATEGIES)} "
-                             f"or one of the set's methods {sorted(pair_methods)}, got {strategy!r}")
+        k_of_n = _SNP_SET_K_OF_N.match(strategy)
+        if k_of_n:
+            k = int(k_of_n.group(1))
+            if not 2 <= k <= len(pair_methods):
+                raise ValueError(f"{where}: strategy {strategy!r} needs 2 <= K <= the set's "
+                                 f"{len(pair_methods)} method(s) {sorted(pair_methods)} "
+                                 f"(K = 1 is Union)")
+        elif strategy not in _SNP_SET_STRATEGIES and strategy not in pair_methods:
+            raise ValueError(f"{where}: strategy must be one of {sorted(_SNP_SET_STRATEGIES)}, "
+                             f"'Cross-method >=K' (at least K methods agree), or one of the "
+                             f"set's methods {sorted(pair_methods)}, got {strategy!r}")
         raw_cd = entry.get("clumping_distance", default_clumping)
         cd_auto = isinstance(raw_cd, str) and raw_cd.strip().lower() in _VALID_REGION_MODES
         if cd_auto:

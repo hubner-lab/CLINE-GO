@@ -150,6 +150,64 @@ test_that("max_pvalue_top ignores NA when counting against topN", {
     expect_equal(max_pvalue_top(c(0.1, NA, 0.2, NA, 0.3), 2), 0.2)
 })
 
+# --- toppct ----------------------------------------------------------------
+
+test_that("toppct is top N with N = ceiling(share x rows)", {
+    ps <- seq(0.001, 0.4, length.out = 400)                  # 400 distinct p-values
+    pct <- compute_pval_threshold(ps, "toppct", 1)           # 1% of 400 = 4
+    expect_identical(pct$status, "ok")
+    expect_identical(pct$threshold, compute_pval_threshold(ps, "top", 4)$threshold)
+    expect_identical(sum(ps <= pct$threshold), 4L)
+    # 0.3% of 400 = 1.2, rounded UP to 2
+    expect_identical(sum(ps <= compute_pval_threshold(ps, "toppct", 0.3)$threshold), 2L)
+})
+
+test_that("toppct's denominator is every row, NA rows included", {
+    # 400 rows, 100 of them NA: 1% is 4 SNPs (of 400 rows), not 3 (of 300 tested).
+    # So every method tested on the same SNPs gets the same N, whatever its NA count.
+    ps <- c(seq(0.001, 0.3, length.out = 300), rep(NA_real_, 100))
+    res <- compute_pval_threshold(ps, "toppct", 1)
+    expect_identical(res$n_tested, 300L)
+    expect_identical(res$n_na_dropped, 100L)
+    expect_identical(sum(ps <= res$threshold, na.rm = TRUE), 4L)
+})
+
+test_that("toppct ignores floating-point noise in share x rows", {
+    # 1.1 / 100 * 1000 is 11.000000000000002 in floating point: a plain ceiling()
+    # would call 12.
+    res <- compute_pval_threshold(seq_len(1000) / 1000, "toppct", 1.1)
+    expect_identical(sum(seq_len(1000) / 1000 <= res$threshold), 11L)
+})
+
+test_that("toppct takes the old benchmark builder's N at its two operating points", {
+    # benchmarks/mvp_build_snp_sets.R called ceiling(0.0025 x rows) per predictor and,
+    # for RDA, ceiling(0.0025 x 2 x rows). The corpus spans 5,141-32,130 rows.
+    rows <- c(5141L, 24518L, 32130L, 20000L, 400L, 1200L)
+    for (n in rows) {
+        ps <- seq_len(n) / n
+        expect_identical(sum(ps <= compute_pval_threshold(ps, "toppct", 0.25)$threshold),
+                         as.integer(ceiling(0.0025 * 1 * n)), info = paste("rows", n))
+        expect_identical(sum(ps <= compute_pval_threshold(ps, "toppct", 0.5)$threshold),
+                         as.integer(ceiling(0.0025 * 2 * n)), info = paste("rows", n))
+    }
+})
+
+test_that("toppct keeps every p tied at the N-th, as top does", {
+    ps <- c(0.01, 0.02, 0.30, 0.30, 0.40, rep(0.9, 95))      # 100 rows, 3% = 3
+    expect_identical(sum(ps <= compute_pval_threshold(ps, "toppct", 3)$threshold), 4L)
+})
+
+test_that("toppct refuses a share outside (0, 100] and an N above the tested count", {
+    for (bad in list(0, -1, 101, "abc")) {
+        res <- suppressMessages(compute_pval_threshold(c(0.1, 0.2), "toppct", bad))
+        expect_identical(res$status, "too_few_tests")
+        expect_true(is.na(res$threshold))
+    }
+    # 50% of 10 rows is 5, but only 2 rows carry a p-value
+    res <- suppressMessages(compute_pval_threshold(c(0.1, 0.2, rep(NA, 8)), "toppct", 50))
+    expect_identical(res$status, "too_few_tests")
+})
+
 # --- custom ----------------------------------------------------------------
 
 test_that("custom passes a positive number through unchanged", {

@@ -87,12 +87,12 @@ PLOT_DIR       <- args[24]
 # safety. Single caller: workflow/rules/gea.smk. These carry the candidate
 # significance rule (GEA.configs[RDA].adjust/threshold) — linking the
 # candidates table to the same rule find_sig_snps.R applies downstream.
-CAND_ADJUST    <- args[25]                   # "bonf" | "qval" | "top" | "custom"
+CAND_ADJUST    <- args[25]                   # "bonf" | "qval" | "top" | "toppct" | "custom"
 CAND_VALUE     <- suppressWarnings(as.numeric(args[26]))
 ################################################################################
 
-if (!CAND_ADJUST %in% c("bonf", "qval", "top", "custom")) {
-    stop("RDA: unknown adjust '", CAND_ADJUST, "' — expected bonf|qval|top|custom. ",
+if (!CAND_ADJUST %in% c("bonf", "qval", "top", "toppct", "custom")) {
+    stop("RDA: unknown adjust '", CAND_ADJUST, "' — expected bonf|qval|top|toppct|custom. ",
          "This must match GEA.configs[RDA].adjust; see workflow/methods/gea.py.")
 }
 if (is.na(CAND_VALUE) || CAND_VALUE <= 0) {
