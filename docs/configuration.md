@@ -186,6 +186,7 @@ LDdecay:
   background_quantile: 0.95
   r2_threshold: 0.2
   loess_span: 0.3
+  min_signal_ratio: 2
   seed: 1
 ```
 
@@ -200,6 +201,7 @@ LDdecay:
 | `LDdecay.background_quantile` | Quantile of sqrt(r²) of unlinked pairs whose square is the critical r² | `0.95` |
 | `LDdecay.r2_threshold` | r² level of the `r2_threshold` decay rule | `0.2` |
 | `LDdecay.loess_span` | Span of the LOESS curve through the binned mean r² | `0.3` |
+| `LDdecay.min_signal_ratio` | A curve is reliable when its short-range r² is at least this many times the critical r² of unlinked markers (must be > 1); an `auto_*` distance stops on an unreliable curve | `2` |
 | `LDdecay.seed` | Seed for the anchor SNPs and the unlinked markers | `1` |
 | `LDdecay.exclude_chromosomes` | Optional: contigs left out of the decay curve and its unlinked background, such as organellar or sex contigs, which do not recombine like autosomes. One comma-separated string (`"X,Y,MT,Pt"`, what the app writes) or a list; case, a leading `chr` and M/MT are ignored, and a name with no contig is reported in the log. A YAML boolean is refused: in a list, write `Y` in quotes | none |
 
@@ -209,7 +211,9 @@ r² is PLINK 1.9's `--r2` (squared allele-count correlation, missing calls exclu
 - `decay_half_bp` — where r² falls to half its short-range value (Zhao et al. 2011; Vos et al. 2017);
 - `decay_r2thr_bp` — where r² falls to `LDdecay.r2_threshold`.
 
-An `auto_genome_wide` / `auto_per_chromosome` clumping or region distance is read from one of these columns, chosen by `GEA.clumping_ld_rule` (below). PLINK runs with `--chr-set 95 --allow-extra-chr`: numeric chromosomes up to 95 stay autosomes, and `X`, `MT` and other names (`Pt`, scaffolds) enter the curve and the background with an autosome's r². `Y` gives no pairs, because a VCF carries no sex and PLINK treats non-males' Y calls as missing. To leave such contigs out, list them in `LDdecay.exclude_chromosomes`.
+Every row also gets `ld_status` (`reliable` / `unreliable`) and `ld_status_reason`. A curve is unreliable when its short-range r² is less than `LDdecay.min_signal_ratio` (default 2) times the critical r² of unlinked markers: below 2 the unlinked background lies above half the short-range LD, so the curve meets noise before it has halved and every distance read off it is set by the background rather than by decay. A small sample (unlinked r² grows roughly as 1/n) and a few inbred, strongly differentiated lineages both compress the ratio. A curve is also unreliable when it has too few distance bins, or no background (a single chromosome). Measured 2026-10-27 (genome-wide, group All): Arabidopsis 1001G (n 1,049) 14.5; wild barley WBDC (580) 4.7; barley GBS panels (303, 582) 3.9 and 4.4; 57-plant subsamples of Arabidopsis and WBDC 2.7–5.4; 600 SS-Clines simulations (1,000) 4.8–36.5; Trifolium (57 plants, five selfing lineages) 1.75, the one unreliable curve.
+
+An `auto_genome_wide` / `auto_per_chromosome` clumping or region distance is read from one of these columns, chosen by `GEA.clumping_ld_rule` (below). On an unreliable genome-wide curve it **stops** with the reason, whatever the rule: declare `snp_clumping_distance` (or `region_clumping_distance`, or a SNP set's `clumping_distance`) in bp instead. Under `auto_per_chromosome` an unreliable chromosome takes the genome-wide distance (with a warning) when the genome-wide curve is reliable, and stops otherwise. The WZA `window_size: auto_*` keeps its fallback window on an unreliable curve. A table written before the check (no `ld_status`) is read as before, with a notice to re-run `mode=structure`. PLINK runs with `--chr-set 95 --allow-extra-chr`: numeric chromosomes up to 95 stay autosomes, and `X`, `MT` and other names (`Pt`, scaffolds) enter the curve and the background with an autosome's r². `Y` gives no pairs, because a VCF carries no sex and PLINK treats non-males' Y calls as missing. To leave such contigs out, list them in `LDdecay.exclude_chromosomes`.
 
 ---
 

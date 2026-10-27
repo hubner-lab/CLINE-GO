@@ -287,6 +287,11 @@ LD_DECAY_BG_MARKERS_PER_CHR = int(_ld_decay.get('background_markers_per_chr', 50
 LD_DECAY_BG_QUANTILE = float(_ld_decay.get('background_quantile', 0.95))
 LD_DECAY_R2_THRESHOLD = float(_ld_decay.get('r2_threshold', 0.2))
 LD_DECAY_LOESS_SPAN = float(_ld_decay.get('loess_span', 0.3))
+# A curve is reliable when its short-range r2 is at least min_signal_ratio times the
+# critical r2: below 2 the unlinked background lies above half the short-range LD, so
+# the curve reaches noise before it halves. An auto_* distance refuses an unreliable
+# curve (ld_status in the LD-decay table); a distance in bp is then declared instead.
+LD_DECAY_MIN_SIGNAL_RATIO = float(_ld_decay.get('min_signal_ratio', 2))
 if LD_DECAY_MAX_DISTANCE <= 0:
     raise ValueError("LDdecay.max_distance must be > 0 (kb)")
 if LD_DECAY_MAX_PAIRS < 1e4:
@@ -299,6 +304,9 @@ if not 0 < LD_DECAY_R2_THRESHOLD < 1:
     raise ValueError("LDdecay.r2_threshold must lie strictly between 0 and 1")
 if not 0 < LD_DECAY_LOESS_SPAN <= 1:
     raise ValueError("LDdecay.loess_span must lie in (0, 1]")
+if not LD_DECAY_MIN_SIGNAL_RATIO > 1:
+    raise ValueError("LDdecay.min_signal_ratio must be > 1 (short-range r2 over the "
+                     "critical r2 of unlinked markers)")
 
 def _parse_contig_list(raw, key):
     """Contig names from a comma-separated string ("X,Y,MT,Pt", what the app writes) or

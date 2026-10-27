@@ -107,6 +107,35 @@ ld_decay_distances <- function(binned, background_r2 = NA_real_, r2_threshold = 
          curve = curve)
 }
 
+# Whether an LD-decay curve can give a clumping distance at all: "reliable" or
+# "unreliable", with the reason. The test is the curve's room to decay, short_r2 over
+# the critical r^2 of unlinked markers. Below `min_ratio` (default 2) the unlinked
+# background lies above half the short-range LD, so the curve reaches noise before it
+# has halved and every distance read off it is set by the background, not by decay.
+# A small sample (unlinked r^2 rises roughly as 1/n) or a few strongly differentiated,
+# inbred lineages compress the ratio. Also unreliable: no curve (too few bins) and no
+# background (a single chromosome), where the ratio cannot be measured.
+ld_reliability <- function(short_r2, background_r2, method, min_ratio = 2) {
+    out <- function(ok, why = "") list(status = if (ok) "reliable" else "unreliable",
+                                       reason = why)
+    if (identical(method, "insufficient_data") || is.na(short_r2)) {
+        return(out(FALSE, "too few distance bins to fit a decay curve"))
+    }
+    if (is.na(background_r2)) {
+        return(out(FALSE, paste0("no critical r2 of unlinked markers (one chromosome), so ",
+                                 "the curve's room to decay cannot be measured")))
+    }
+    ratio <- short_r2 / background_r2
+    if (ratio < min_ratio) {
+        return(out(FALSE, sprintf(paste0(
+            "short-range r2 %.3g is %.2fx the critical r2 of unlinked markers (%.3g), below ",
+            "%g: the unlinked background lies above half the short-range LD, so the curve ",
+            "reaches noise before it halves (typical of a small sample or a few inbred, ",
+            "strongly differentiated lineages)"), short_r2, ratio, background_r2, min_ratio)))
+    }
+    out(TRUE)
+}
+
 # How many anchor SNPs PLINK should pair with every SNP in the window, given a budget
 # of pairs. chr/pos describe every SNP; max_dist is in bp. When all pairs within
 # max_dist fit the budget the run is exhaustive (no anchors); otherwise anchors are

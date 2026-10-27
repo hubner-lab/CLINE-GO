@@ -60,6 +60,22 @@ resolve_row_distance <- function(row, rule) {
          "): ", why, ". Choose another clumping_ld_rule or set a fixed distance in bp")
 }
 
+# Whether a table row's LD-decay curve can give a distance (ld_status, written by
+# ld_decay_analyze.R). A table written before the check has no ld_status: TRUE.
+.row_reliable <- function(row) {
+    st <- row[["ld_status"]]
+    is.null(st) || is.na(st) || !identical(as.character(st), "unreliable")
+}
+
+# Stop for an auto_* distance on an unreliable curve: no LD rule can be read from it,
+# so the distance has to be declared.
+.unreliable <- function(group, where, row) {
+    stop("LD decay for group '", group, "' (", where, ") is unreliable: ",
+         row[["ld_status_reason"]], ". An auto_* distance cannot be read from it; declare ",
+         "snp_clumping_distance (or region_clumping_distance, or the SNP set's ",
+         "clumping_distance) in bp")
+}
+
 # Resolve snp_clumping_distance from config spec + optional LD decay table.
 #
 # @param spec           character: "auto_per_chromosome" | "auto_genome_wide" | "auto" | integer string
@@ -104,6 +120,10 @@ resolve_clumping_distance <- function(spec, ld_decay_path = "NULL",
         stop("LD decay table ", ld_decay_path, " lacks ", paste(missing_cols, collapse = ", "),
              ": it predates the PLINK LD-decay estimator; re-run mode=structure")
     }
+    if (!"ld_status" %in% names(ld_table)) {
+        message("WARNING: LD decay table ", ld_decay_path, " predates the reliability check ",
+                "(no ld_status column); re-run mode=structure to assess it")
+    }
     table_thr <- if ("r2_threshold" %in% names(ld_table)) ld_table$r2_threshold[1] else NA_real_
     rule <- .ld_rule(rule, table_thr)
     if (!want_group %in% ld_table$group) {
@@ -121,6 +141,7 @@ resolve_clumping_distance <- function(spec, ld_decay_path = "NULL",
             stop("No genome-wide LD decay row for group='", group, "': auto_genome_wide ",
                  "needs LDdecay.scope genome_wide or both")
         }
+        if (!.row_reliable(as.list(row[1]))) .unreliable(group, "genome-wide", as.list(row[1]))
         dist_val <- resolve_row_distance(as.list(row[1]), rule)
         if (is.na(dist_val)) .not_reached(rule, group, "genome-wide", as.list(row[1]))
         message(paste0("INFO: AUTO genome-wide distance (", rule, "): ", round(dist_val), " bp"))
@@ -137,7 +158,9 @@ resolve_clumping_distance <- function(spec, ld_decay_path = "NULL",
              "per_chromosome or both, or use auto_genome_wide")
     }
 
-    gw_dist <- if (nrow(gw_row) > 0) {
+    # The genome-wide value is the fallback for a chromosome; an unreliable genome-wide
+    # curve gives none.
+    gw_dist <- if (nrow(gw_row) > 0 && .row_reliable(as.list(gw_row[1]))) {
         d <- resolve_row_distance(as.list(gw_row[1]), rule)
         if (!is.na(d)) as.integer(round(d)) else NULL
     } else NULL
@@ -146,12 +169,18 @@ resolve_clumping_distance <- function(spec, ld_decay_path = "NULL",
     for (i in seq_len(nrow(chr_rows))) {
         row      <- as.list(chr_rows[i])
         chr_name <- row[["scope"]]
-        d        <- resolve_row_distance(row, rule)
+        reliable <- .row_reliable(row)
+        d        <- if (reliable) resolve_row_distance(row, rule) else NA_real_
         if (is.na(d)) {
+            why <- if (reliable) paste0("rule '", rule, "' not reached") else
+                paste0("LD decay unreliable (", row[["ld_status_reason"]], ")")
             if (!is.null(gw_dist)) {
-                message(paste0("WARNING: chr ", chr_name, ": rule '", rule,
-                               "' not reached; using the genome-wide distance ", gw_dist, " bp"))
+                message(paste0("WARNING: chr ", chr_name, ": ", why,
+                               "; using the genome-wide distance ", gw_dist, " bp"))
                 d <- gw_dist
+            } else if (!reliable) {
+                .unreliable(group, paste0("chromosome ", chr_name, ", with no reliable ",
+                                          "genome-wide value to fall back to"), row)
             } else {
                 .not_reached(rule, group, paste0("chromosome ", chr_name,
                                                  ", with no genome-wide value to fall back to"),

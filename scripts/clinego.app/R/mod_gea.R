@@ -356,6 +356,7 @@ mod_gea_server <- function(id, project_data, run_trigger = NULL, module = MOD_GE
                 config_badge("significance",
                              format_threshold_rule(threshold_type(), threshold_value())),
                 config_badge("clumping", .format_bp(snp_clumping_distance())),
+                clumping_issue_note(pd, MOD_GEA),
                 # Always shown, both ways: the regime is one of two states, and a
                 # badge that only appears when WZA is on leaves per-SNP implicit.
                 if (regime_wza()) config_badge("regime", "WZA windows", "bg-info")

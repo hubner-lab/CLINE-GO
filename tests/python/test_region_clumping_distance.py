@@ -239,7 +239,16 @@ class TestLdDecayKeys(unittest.TestCase):
         self.assertEqual(ns["LD_DECAY_MAX_PAIRS"], 2e7)
         self.assertEqual(ns["LD_DECAY_R2_THRESHOLD"], 0.2)
         self.assertEqual(ns["LD_DECAY_SEED"], 1)
+        self.assertEqual(ns["LD_DECAY_MIN_SIGNAL_RATIO"], 2.0)
+        self.assertEqual(load(LDdecay__min_signal_ratio=3)["LD_DECAY_MIN_SIGNAL_RATIO"], 3.0)
         self.assertTrue(ns["LD_DECAY_TAG"].startswith("plink_"))
+
+    def test_analyze_gets_the_min_signal_ratio(self):
+        with open(STRUCTURE) as handle:
+            text = handle.read()
+        rule = re.search(r"^rule ld_decay_analyze:\n(.*?)(?=^rule |\Z)", text, re.S | re.M).group(1)
+        self.assertIn("min_signal_ratio = LD_DECAY_MIN_SIGNAL_RATIO", rule)
+        self.assertIn("{params.loess_span} \\\n            {params.min_signal_ratio} > {log}", rule)
 
     def test_exclude_chromosomes_is_none_by_default(self):
         ns = load()
@@ -275,7 +284,8 @@ class TestLdDecayKeys(unittest.TestCase):
     def test_invalid_values_fail_at_parse_time(self):
         for key, value in (("LDdecay__max_pairs", 10), ("LDdecay__r2_threshold", 1.5),
                            ("LDdecay__background_markers_per_chr", 1),
-                           ("LDdecay__max_distance", 0)):
+                           ("LDdecay__max_distance", 0), ("LDdecay__min_signal_ratio", 1),
+                           ("LDdecay__min_signal_ratio", 0.5)):
             with self.subTest(key=key):
                 with self.assertRaises(ValueError):
                     load(**{key: value})

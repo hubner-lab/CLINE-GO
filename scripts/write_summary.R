@@ -418,6 +418,13 @@ if (MODE == 'processing') {
                 row('structure', 'ld_decay_r2_threshold_genome_wide', gw_all$decay_r2thr_bp[1]),
                 row('structure', 'ld_decay_critical_r2', gw_all$background_r2[1])
             )
+            if ('ld_status' %in% names(gw_all)) {
+                new_rows <- rbind(new_rows,
+                    row('structure', 'ld_decay_status_genome_wide', gw_all$ld_status[1]),
+                    row('structure', 'ld_decay_signal_ratio_genome_wide',
+                        round(gw_all$short_r2[1] / gw_all$background_r2[1], 2))
+                )
+            }
         }
         new_rows <- rbind(new_rows,
             row('structure', 'ld_decay_group_by', LD_DECAY_GROUP_BY),

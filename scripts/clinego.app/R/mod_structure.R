@@ -188,7 +188,7 @@ mod_structure_server <- function(id, project_data) {
             })
 
             ld_r2_note <- shiny::reactive({
-                filter_note(
+                info <- filter_note(
                     "critical r²",
                     paste0(
                         "Points are binned mean r² (PLINK), lines the LOESS curves. The dashed ",
@@ -198,6 +198,21 @@ mod_structure_server <- function(id, project_data) {
                         "tabulated below; an auto_* clumping distance is read from them under ",
                         "clumping_ld_rule."
                     )
+                )
+                # A genuine status signal: an unreliable 'All' curve gives no auto_* distance.
+                gw <- ld_decay_genome_wide_status(load_ld_decay_table(pd$name))
+                if (is.null(gw) || gw$status != "unreliable") return(info)
+                htmltools::tagList(
+                    filter_note(
+                        "unreliable",
+                        htmltools::p(
+                            htmltools::tags$strong("LD decay of 'All' is unreliable"),
+                            " — ", gw$reason, ". An auto_* clumping distance stops on it; ",
+                            "declare ", htmltools::tags$code("snp_clumping_distance"), " in bp."
+                        ),
+                        class = "bg-warning text-dark"
+                    ),
+                    info
                 )
             })
 
@@ -222,10 +237,11 @@ mod_structure_server <- function(id, project_data) {
             ld_cols <- c("decay_critical_bp", "decay_half_bp", "decay_r2thr_bp")
             if (nrow(tbl) > 0 && all(ld_cols %in% names(tbl))) {
                 for (cc in ld_cols) tbl[[cc]] <- round(tbl[[cc]] / 1000, 2)
-                tbl <- tbl[, c("group", "scope", "decay_critical_bp", "decay_half_bp",
+                if (!"ld_status" %in% names(tbl)) tbl$ld_status <- "not assessed"
+                tbl <- tbl[, c("group", "scope", "ld_status", "decay_critical_bp", "decay_half_bp",
                                "decay_r2thr_bp", "short_r2", "background_r2",
                                "n_samples", "n_pairs")]
-                names(tbl) <- c("Group", "Scope", "Critical r² distance (kb)",
+                names(tbl) <- c("Group", "Scope", "Status", "Critical r² distance (kb)",
                                 "Half-decay (kb)", "r² threshold distance (kb)",
                                 "Short-range r²", "Critical r²", "N samples", "N pairs")
             } else if (nrow(tbl) > 0) {

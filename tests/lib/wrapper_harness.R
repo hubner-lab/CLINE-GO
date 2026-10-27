@@ -79,7 +79,8 @@ fx_ld_decay <- function(path) {
         group = "All", scope = "genome_wide", n_samples = 50L, n_pairs = 120000,
         max_dist_bp = 500000, short_r2 = 0.45, background_r2 = 0.06,
         background_mean_r2 = 0.02, decay_critical_bp = 3100, decay_half_bp = 1240,
-        decay_r2thr_bp = 2600, r2_threshold = 0.2, decay_method = "loess_log"), path)
+        decay_r2thr_bp = 2600, r2_threshold = 0.2, decay_method = "loess_log",
+        ld_status = "reliable", ld_status_reason = ""), path)
     path
 }
 
@@ -422,7 +423,7 @@ fx_dbmem_diag <- function(d, name = "dbmem_diagnostics.tsv") {
     write_tsv(dt, file.path(d, name))
 }
 
-# The thirteen columns of ld_decay_analyze.R's table (the populated table and the
+# The fifteen columns of ld_decay_analyze.R's table (the populated table and the
 # empty skeleton now share them), which write_summary.R's structure branch reads
 # back: one fixture for both sides, so a column rename cannot pass one and fail the
 # other silently. The group == "All" & scope == "genome_wide" row is what it picks;
@@ -441,7 +442,9 @@ fx_ld_decay_table <- function(d, name = "ld_decay_half_distances.tsv") {
         decay_half_bp = c(1240, 1180, 990),
         decay_r2thr_bp = c(2600, 2500, 2100),
         r2_threshold = 0.2,
-        decay_method = "loess_log"),
+        decay_method = "loess_log",
+        ld_status = "reliable",
+        ld_status_reason = ""),
         file.path(d, name))
 }
 

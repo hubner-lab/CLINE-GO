@@ -119,7 +119,7 @@ analyze_with_n <- function(d, n_samples) {
                        c("genome_wide", gw, chrd, mf,
                          file.path(d, "chromosomes.txt"), tbl,
                          file.path(d, "ld_decay_gw.png"), "NULL",
-                         "NULL", "0.2", "NULL", "0.3"))
+                         "NULL", "0.2", "NULL", "0.3", "2"))
     list(res = res, table = data.table::fread(tbl))
 }
 

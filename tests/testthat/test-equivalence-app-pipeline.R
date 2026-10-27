@@ -730,7 +730,8 @@ ld_table_both_scopes <- function(env = parent.frame()) {
         group = "All", scope = scope, n_samples = 50L, n_pairs = 1e5, max_dist_bp = 5e5,
         short_r2 = 0.45, background_r2 = 0.06, background_mean_r2 = 0.02,
         decay_critical_bp = critical, decay_half_bp = half, decay_r2thr_bp = r2thr,
-        r2_threshold = 0.2, decay_method = "loess_log")
+        r2_threshold = 0.2, decay_method = "loess_log", ld_status = "reliable",
+        ld_status_reason = "")
     dt <- rbind(row("genome_wide", 3100, 1240, 2600), row("1", 5200, 800, 4100),
                 row("2", 2300, 1500, 1900))
     path <- withr::local_tempfile(fileext = ".tsv", .local_envir = env)

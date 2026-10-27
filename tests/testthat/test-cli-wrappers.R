@@ -757,7 +757,7 @@ WRAPPERS <- list(
                                    file.path(d, "chromosomes.txt"),
                                    file.path(d, "ld_decay_half_distances.tsv"),
                                    file.path(d, "ld_decay_gw.png"), "NULL",
-                                   "NULL", "0.2", "NULL", "0.3"),
+                                   "NULL", "0.2", "NULL", "0.3", "2"),
         # The .svg sibling is derived inside the script (save_plot /
         # .write_placeholder_plot), not passed as an argument, so it has to be
         # declared here explicitly.
@@ -786,7 +786,7 @@ WRAPPERS <- list(
                                    file.path(d, "ld_decay_half_distances.tsv"),
                                    file.path(d, "ld_decay_gw.png"),
                                    file.path(d, "ld_decay_chr.png"),
-                                   "NULL", "0.2", "NULL", "0.3"),
+                                   "NULL", "0.2", "NULL", "0.3", "2"),
         outputs = function(d) file.path(d, c("ld_decay_half_distances.tsv",
                                              "ld_decay_gw.png", "ld_decay_gw.svg",
                                              "ld_decay_chr.png", "ld_decay_chr.svg")),
@@ -813,7 +813,7 @@ WRAPPERS <- list(
                                    file.path(d, "chromosomes.txt"),
                                    file.path(d, "ld_decay_half_distances.tsv"),
                                    file.path(d, "ld_decay_gw.png"), "NULL",
-                                   f[4], "0.2", file.path(d, "ld_decay_curve.tsv"), "0.3"),
+                                   f[4], "0.2", file.path(d, "ld_decay_curve.tsv"), "0.3", "2"),
         outputs = function(d) file.path(d, c("ld_decay_half_distances.tsv",
                                              "ld_decay_curve.tsv",
                                              "ld_decay_gw.png", "ld_decay_gw.svg")),

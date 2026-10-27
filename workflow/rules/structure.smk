@@ -381,7 +381,8 @@ rule ld_decay_analyze:
         plot_gw_path = O['ld_decay_plot_gw'] if LD_DECAY_SCOPE in ('genome_wide', 'both') else 'NULL',
         plot_chr_path = O['ld_decay_plot_chr'] if LD_DECAY_SCOPE in ('per_chromosome', 'both') else 'NULL',
         r2_threshold = LD_DECAY_R2_THRESHOLD,
-        loess_span = LD_DECAY_LOESS_SPAN
+        loess_span = LD_DECAY_LOESS_SPAN,
+        min_signal_ratio = LD_DECAY_MIN_SIGNAL_RATIO
     log: f"{LOGDIR}structure/ld_decay_analyze.log"
     shell:
         """
@@ -390,5 +391,5 @@ rule ld_decay_analyze:
             {params.manifest} {params.chr_list} \
             {output.table} {params.plot_gw_path} {params.plot_chr_path} \
             {input.background} {params.r2_threshold} {output.curve} {params.loess_span} \
-            > {log} 2>&1
+            {params.min_signal_ratio} > {log} 2>&1
         """

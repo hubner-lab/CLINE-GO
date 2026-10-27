@@ -75,6 +75,11 @@ resolve_window_size <- function(spec, ld_path, group, fallback_bp) {
                            "'. Using fallback: ", fallback_bp, " bp"))
             return(fallback_bp)
         }
+        if (!.row_reliable(as.list(row[1]))) {
+            message(paste0("WARNING: LD decay for group '", LD_DECAY_GROUP, "' is unreliable (",
+                           row$ld_status_reason[1], "). Using fallback: ", fallback_bp, " bp"))
+            return(fallback_bp)
+        }
         rule <- .ld_rule(LD_RULE, if ("r2_threshold" %in% names(ld)) ld$r2_threshold[1] else NA_real_)
         col  <- LD_RULE_COLUMNS[[rule]]
         d <- if (col %in% names(row)) as.numeric(row[[col]][1]) else NA_real_

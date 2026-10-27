@@ -12,6 +12,9 @@
 #                        (Zhao et al. 2011; Vos et al. 2017);
 #   decay_r2thr_bp    -- where it falls to the fixed r^2 R2_THRESHOLD.
 # NA means the curve never reaches that level within the measured distance.
+# ld_status / ld_status_reason: whether the curve can give a distance at all
+# (ld_reliability(): short-range r^2 at least MIN_SIGNAL_RATIO times the critical r^2);
+# an auto_* clumping distance refuses an unreliable row (scripts/R/lib/region_distance.R).
 #
 # .stat.gz layout (tab-separated, with header):
 #   #Dist  Mean_r^2  Mean_D'  Sum_r^2  Sum_D'  NumberPairs
@@ -34,8 +37,9 @@ BACKGROUND_TABLE <- args[9]   # ld_decay_background.tsv (or "NULL")
 R2_THRESHOLD     <- as.numeric(args[10])
 OUT_CURVE        <- args[11]  # ld_decay_curve.tsv (or "NULL")
 LOESS_SPAN       <- as.numeric(args[12])
+MIN_SIGNAL_RATIO <- as.numeric(args[13])  # LDdecay.min_signal_ratio
 ################
-stopifnot(length(args) == 12)
+stopifnot(length(args) == 13, MIN_SIGNAL_RATIO > 1)
 source("/pipeline/scripts/R/lib/ld_decay.R")
 source("/pipeline/scripts/R/utils/theme_clinego.R")
 tmp <- ld_scratch_dir(STAT_GW_DIR, "analyze_tmp")   # fread(cmd = "zcat ...")'s copies
@@ -129,13 +133,14 @@ analyze_one <- function(raw, grp, n_samp, scope) {
         curve_rows[[length(curve_rows) + 1]] <<- dd$curve[, .(group = grp, scope = scope,
             dist_bp = round(dist_bp, 1), r2 = round(r2, 6), r2_mono = round(r2_mono, 6))]
     }
+    rel <- ld_reliability(dd$short_r2, dd$background_r2, dd$method, MIN_SIGNAL_RATIO)
     data.table(group = grp, scope = scope, n_samples = n_samp, n_pairs = sum(raw$n_pairs),
                max_dist_bp = max(raw$dist_bp), short_r2 = round(dd$short_r2, 4),
                background_r2 = dd$background_r2,
                background_mean_r2 = bg_of(grp, "mean_r2"),
                decay_critical_bp = round(dd$critical_bp), decay_half_bp = round(dd$half_bp),
                decay_r2thr_bp = round(dd$r2thr_bp), r2_threshold = R2_THRESHOLD,
-               decay_method = dd$method)
+               decay_method = dd$method, ld_status = rel$status, ld_status_reason = rel$reason)
 }
 
 if (SCOPE %in% c("genome_wide", "both")) {
@@ -148,6 +153,10 @@ if (SCOPE %in% c("genome_wide", "both")) {
             message(paste0("INFO: ", row$group, " genome-wide: critical ", .kb(row$decay_critical_bp),
                            ", half-decay ", .kb(row$decay_half_bp), ", r2 = ", R2_THRESHOLD,
                            " at ", .kb(row$decay_r2thr_bp)))
+            if (row$ld_status == "unreliable") {
+                message(paste0("WARNING: ", row$group, " genome-wide LD decay is unreliable: ",
+                               row$ld_status_reason))
+            }
         }
     }
 }
@@ -173,7 +182,8 @@ result_table <- if (length(results) > 0) rbindlist(results) else
                background_r2 = numeric(), background_mean_r2 = numeric(),
                decay_critical_bp = numeric(), decay_half_bp = numeric(),
                decay_r2thr_bp = numeric(), r2_threshold = numeric(),
-               decay_method = character())
+               decay_method = character(), ld_status = character(),
+               ld_status_reason = character())
 fwrite(result_table, OUT_TABLE, sep = "\t")
 message(paste0("INFO: Written results table: ", OUT_TABLE, " (", nrow(result_table), " rows)"))
 

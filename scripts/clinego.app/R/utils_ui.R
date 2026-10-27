@@ -79,6 +79,28 @@ config_badges_bar <- function(...) {
     )
 }
 
+#' Amber badge when the pipeline cannot read the project's clumping distance
+#'
+#' E.g. an auto_* distance on an unreliable LD-decay curve: the pipeline stops there,
+#' while the filter bar starts at DEFAULT_CLUMPING_DISTANCE. The badge names the reason.
+#' @param pd     Project bundle (make_project_data()).
+#' @param source MOD_GEA or MOD_GWAS.
+#' @return A filter_note() badge, or NULL when the distance is readable.
+#' @noRd
+clumping_issue_note <- function(pd, source) {
+    msg <- clumping_distance_issue(pd$config, source, ld_decay_table_path(pd$name))
+    if (is.null(msg)) return(NULL)
+    filter_note(
+        "clumping distance",
+        htmltools::p(
+            htmltools::tags$strong("The pipeline cannot read this project's clumping distance"),
+            " — ", msg, ". The filter bar starts at ",
+            format(DEFAULT_CLUMPING_DISTANCE, big.mark = ","), " bp instead."
+        ),
+        class = "bg-warning text-dark"
+    )
+}
+
 #' Info-circle popover explaining WZA window size and how to change it
 #'
 #' @param context One of "gea", "gwas", or "overlap"

@@ -189,13 +189,15 @@ test_that("ld_decay_analyze.R writes background-aware distances and curves", {
     res <- run_wrapper("ld_decay_analyze.R",
                        c("genome_wide", gw, file.path(d, "none"), mf,
                          file.path(d, "chromosomes.txt"), out, "NULL", "NULL",
-                         bg, "0.2", curve, "0.3"), wd = d)
+                         bg, "0.2", curve, "0.3", "2"), wd = d)
     expect_equal(res$status, 0L, info = paste(res$output, collapse = "\n"))
     tab <- data.table::fread(out)
     expect_identical(names(tab), c("group", "scope", "n_samples", "n_pairs", "max_dist_bp",
                                    "short_r2", "background_r2", "background_mean_r2",
                                    "decay_critical_bp", "decay_half_bp", "decay_r2thr_bp",
-                                   "r2_threshold", "decay_method"))
+                                   "r2_threshold", "decay_method", "ld_status",
+                                   "ld_status_reason"))
+    expect_identical(tab$ld_status, "reliable")   # short r2 ~0.6 over a critical 0.1
     expect_equal(tab$decay_method, "loess_log")
     expect_equal(tab$background_r2, 0.1)
     expect_equal(tab$background_mean_r2, 0.04)
@@ -205,6 +207,41 @@ test_that("ld_decay_analyze.R writes background-aware distances and curves", {
     expect_gt(nrow(cv), 100L)
     expect_true(all(diff(cv$r2_mono) <= 0))
     expect_false(dir.exists(file.path(d, "analyze_tmp")))   # scratch removed, never in tempdir()
+})
+
+test_that("ld_decay_analyze.R marks a curve with no room to decay unreliable", {
+    d <- withr::local_tempdir()
+    gw <- file.path(d, "stat_gw"); dir.create(gw)
+    fx_stat_gz(gw, "All")      # short-range r2 ~0.6
+    mf <- write_tsv(data.table::data.table(group = "All", n_samples = 12L, list_file = "All"),
+                    file.path(d, "manifest.tsv"))
+    bg <- write_tsv(data.table::data.table(group = "All", critical_r2 = 0.4, mean_r2 = 0.1),
+                    file.path(d, "ld_decay_background.tsv"))
+    out <- file.path(d, "half.tsv")
+    res <- run_wrapper("ld_decay_analyze.R",
+                       c("genome_wide", gw, file.path(d, "none"), mf,
+                         file.path(d, "chromosomes.txt"), out, "NULL", "NULL",
+                         bg, "0.2", file.path(d, "curve.tsv"), "0.3", "2"), wd = d)
+    expect_equal(res$status, 0L, info = paste(res$output, collapse = "\n"))
+    tab <- data.table::fread(out)
+    expect_identical(tab$ld_status, "unreliable")
+    expect_match(tab$ld_status_reason, "1\\.[0-9]+x the critical r2")
+    expect_true(any(grepl("WARNING: All genome-wide LD decay is unreliable", res$output)))
+    # the distances are still written: the status, not an NA, is what refuses them
+    expect_false(is.na(tab$decay_critical_bp))
+})
+
+test_that("ld_reliability: each branch", {
+    expect_identical(ld_reliability(0.5, 0.05, "loess_log")$status, "reliable")
+    expect_identical(ld_reliability(0.5, 0.05, "loess_log")$reason, "")
+    r <- ld_reliability(0.464, 0.26936, "loess_log")          # Trifolium, ratio 1.72
+    expect_identical(r$status, "unreliable")
+    expect_match(r$reason, "1\\.72x")
+    expect_identical(ld_reliability(0.4, 0.2, "loess_log")$status, "reliable")   # ratio = 2
+    expect_identical(ld_reliability(0.4, 0.2, "loess_log", min_ratio = 3)$status, "unreliable")
+    expect_match(ld_reliability(NA, 0.1, "insufficient_data")$reason, "too few distance bins")
+    expect_match(ld_reliability(0.5, NA, "loess_log")$reason, "one chromosome")
+    expect_identical(ld_reliability(0.8, 1, "loess_log")$status, "unreliable")   # starts below
 })
 
 test_that("ld_excluded_contigs matches LDdecay.exclude_chromosomes to the VCF's contigs", {

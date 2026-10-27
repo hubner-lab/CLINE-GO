@@ -116,7 +116,9 @@ LDdecay:
   max_pairs: 20000000              # PLINK --r2 pairs per group; above it, seeded anchor SNPs
   background_markers_per_chr: 50   # unlinked markers per chromosome for the critical r2
   r2_threshold: 0.2                # level of the r2_threshold decay rule
-  seed: 1                          # anchor and unlinked-marker sampling
+  min_signal_ratio: 2              # reliable curve: short-range r2 >= this x the critical r2;
+                                   # an auto_* clumping distance stops on an unreliable one
+  seed: 1                        # anchor and unlinked-marker sampling
   # exclude_chromosomes: "X,Y,MT,Pt" # optional: contigs left out of the LD curve and its background
   #                                # (organellar, sex); case, a "chr" prefix and M/MT are ignored
 

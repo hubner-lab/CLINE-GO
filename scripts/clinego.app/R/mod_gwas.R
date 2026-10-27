@@ -312,7 +312,8 @@ mod_gwas_server <- function(id, project_data, run_trigger = NULL, config_state =
                 if (!is.na(k)) config_badge("K", k, "bg-primary"),
                 config_badge("combine", cmb),
                 config_badge("missing", missing_strat),
-                if (regime_wza()) config_badge("regime", "WZA", "bg-info")
+                if (regime_wza()) config_badge("regime", "WZA", "bg-info"),
+                clumping_issue_note(pd, MOD_GWAS)
             )
         })
 

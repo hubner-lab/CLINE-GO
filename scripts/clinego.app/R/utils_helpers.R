@@ -148,6 +148,25 @@ DEFAULT_CLUMPING_DISTANCE <- 100000L
 #'   or the spec is neither bp nor auto_*.
 #' @noRd
 default_clumping_distance <- function(cfg, source = MOD_GEA, ld_table = "NULL") {
+    r <- .resolve_config_clumping(cfg, source, ld_table)
+    if (is.null(r$bp)) DEFAULT_CLUMPING_DISTANCE else r$bp
+}
+
+#' Why the project's own clumping distance could not be read, or NULL when it was.
+#'
+#' The pipeline stops on these cases (e.g. an auto_* distance on an unreliable LD-decay
+#' curve) while the filter bar starts at DEFAULT_CLUMPING_DISTANCE; this is the reason to
+#' show beside it, so the stand-in is never silent.
+#' @inheritParams default_clumping_distance
+#' @return Character message or NULL.
+#' @noRd
+clumping_distance_issue <- function(cfg, source = MOD_GEA, ld_table = "NULL") {
+    .resolve_config_clumping(cfg, source, ld_table)$error
+}
+
+# The config's clumping distance of `source` in bp (`bp`), or the reason it could not be
+# read (`error`); both NULL for a spec that is neither bp nor auto_*.
+.resolve_config_clumping <- function(cfg, source, ld_table) {
     group_keys <- function(group) {
         d <- config_get(cfg, group, default = list())
         if (!is.list(d)) d <- list()
@@ -161,16 +180,17 @@ default_clumping_distance <- function(cfg, source = MOD_GEA, ld_table = "NULL") 
 
     spec <- pick("snp_clumping_distance", "auto_genome_wide")
     bp <- suppressWarnings(as.numeric(spec))
-    if (length(bp) == 1 && !is.na(bp)) return(as.integer(bp))
+    if (length(bp) == 1 && !is.na(bp)) return(list(bp = as.integer(bp), error = NULL))
     if (!tolower(trimws(as.character(spec)))[1] %in%
             c("auto_genome_wide", "auto_per_chromosome", "auto")) {
-        return(DEFAULT_CLUMPING_DISTANCE)
+        return(list(bp = NULL, error = NULL))
     }
     tryCatch(
-        suppressMessages(resolve_clumping_distance(
-            "auto_genome_wide", ld_table, rule = pick("clumping_ld_rule", "critical"),
-            group = pick("ld_decay_group", "All"))),
-        error = function(e) DEFAULT_CLUMPING_DISTANCE)
+        list(bp = suppressMessages(resolve_clumping_distance(
+                 "auto_genome_wide", ld_table, rule = pick("clumping_ld_rule", "critical"),
+                 group = pick("ld_decay_group", "All"))),
+             error = NULL),
+        error = function(e) list(bp = NULL, error = conditionMessage(e)))
 }
 
 #' A filter bar's clumping distance: one value per project, saved only when moved.

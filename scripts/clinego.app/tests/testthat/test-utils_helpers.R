@@ -132,7 +132,8 @@ ld_table_file <- function(rows = list(list(group = "All", critical = 3100, half 
         group = r$group, scope = "genome_wide", n_samples = 50L, n_pairs = 1e5,
         max_dist_bp = 5e5, short_r2 = 0.45, background_r2 = 0.06, background_mean_r2 = 0.02,
         decay_critical_bp = r$critical, decay_half_bp = r$half, decay_r2thr_bp = r$r2thr,
-        r2_threshold = 0.2, decay_method = "loess_log")))
+        r2_threshold = 0.2, decay_method = "loess_log", ld_status = r$status %||% "reliable",
+        ld_status_reason = if (identical(r$status, "unreliable")) "short-range r2 0.45 is 1.50x" else "")))
     path <- withr::local_tempfile(fileext = ".tsv", .local_envir = env)
     data.table::fwrite(dt, path, sep = "\t")
     path
@@ -198,11 +199,40 @@ test_that("100 kb stands in when the LD distance cannot be read", {
                   old_table = list(list(), old),          # predates the PLINK estimator
                   unreached = list(list(), unreached),    # critical r2 never reached
                   bad_group = list(list(GEA = list(ld_decay_group = "nowhere")), ld_table_file()),
-                  bad_spec  = list(list(GEA = list(snp_clumping_distance = "wide")), ld_table_file()))
+                  bad_spec  = list(list(GEA = list(snp_clumping_distance = "wide")), ld_table_file()),
+                  unreliable = list(list(), ld_table_file(list(list(group = "All", critical = 3100,
+                      half = 1240, r2thr = 2600, status = "unreliable")))))
     for (nm in names(cases)) {
         expect_identical(default_clumping_distance(cases[[nm]][[1]], MOD_GEA, cases[[nm]][[2]]),
                          DEFAULT_CLUMPING_DISTANCE, info = nm)
     }
+})
+
+test_that("clumping_distance_issue names why the pipeline cannot read the distance", {
+    unrel <- ld_table_file(list(list(group = "All", critical = 3100, half = 1240, r2thr = 2600,
+                                     status = "unreliable")))
+    expect_match(clumping_distance_issue(list(), MOD_GEA, unrel),
+                 "is unreliable: short-range r2 0.45 is 1.50x")
+    expect_match(clumping_distance_issue(list(), MOD_GWAS, "NULL"), "LD decay table not found")
+    # readable: a reliable table, a declared bp (even on an unreliable table), a non-auto spec
+    expect_null(clumping_distance_issue(list(), MOD_GEA, ld_table_file()))
+    expect_null(clumping_distance_issue(list(GEA = list(snp_clumping_distance = 150000L)),
+                                        MOD_GEA, unrel))
+    expect_null(clumping_distance_issue(list(GEA = list(snp_clumping_distance = "wide")),
+                                        MOD_GEA, unrel))
+})
+
+test_that("ld_decay_genome_wide_status reads ld_status of a group's genome-wide row", {
+    tbl <- data.table::fread(ld_table_file(list(
+        list(group = "All", critical = 3100, half = 1240, r2thr = 2600, status = "unreliable"),
+        list(group = "C1", critical = 3100, half = 1240, r2thr = 2600))),
+        colClasses = c(group = "character"))
+    expect_identical(ld_decay_genome_wide_status(tbl)$status, "unreliable")
+    expect_match(ld_decay_genome_wide_status(tbl)$reason, "1.50x")
+    expect_identical(ld_decay_genome_wide_status(tbl, "C1")$status, "reliable")
+    expect_null(ld_decay_genome_wide_status(tbl, "nowhere"))
+    expect_null(ld_decay_genome_wide_status(tbl[, !c("ld_status", "ld_status_reason")]))
+    expect_null(ld_decay_genome_wide_status(data.table::data.table()))
 })
 
 # --- clumping_distance_state(): one value per project, saved only when moved -------

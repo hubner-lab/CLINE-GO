@@ -53,6 +53,18 @@ load_ld_decay_table <- function(project) {
     )
 }
 
+#' Reliability of one group's genome-wide LD-decay curve (ld_status of ld_decay_analyze.R).
+#' @param tbl LD-decay table (load_ld_decay_table()).
+#' @return list(status, reason), or NULL when the row or the column (an older table) is absent.
+#' @noRd
+ld_decay_genome_wide_status <- function(tbl, group = "All") {
+    if (!nrow(tbl) || !"ld_status" %in% names(tbl)) return(NULL)
+    want <- group
+    row <- tbl[tbl$group == want & tbl$scope == "genome_wide", ]
+    if (!nrow(row)) return(NULL)
+    list(status = row$ld_status[1], reason = row$ld_status_reason[1])
+}
+
 #' Load sample heterozygosity table
 #' @noRd
 load_sample_heterozygosity <- function(project) {

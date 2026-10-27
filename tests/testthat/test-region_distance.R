@@ -11,13 +11,14 @@
 # fread() every call, but the rows are also handed to resolve_row_distance() as
 # lists and nothing here should be able to leak between tests.
 ld_row <- function(group = "All", scope = "genome_wide", critical = 3100,
-                   half = 1240, r2thr = 2600, r2_threshold = 0.2) {
+                   half = 1240, r2thr = 2600, r2_threshold = 0.2, status = "reliable") {
     data.table::data.table(
         group = group, scope = scope, n_samples = 50L, n_pairs = 1e5,
         max_dist_bp = 5e5, short_r2 = 0.45, background_r2 = 0.06,
         background_mean_r2 = 0.02, decay_critical_bp = critical,
         decay_half_bp = half, decay_r2thr_bp = r2thr, r2_threshold = r2_threshold,
-        decay_method = "loess_log"
+        decay_method = "loess_log", ld_status = status,
+        ld_status_reason = if (status == "unreliable") "short-range r2 0.45 is 1.50x the critical r2" else ""
     )
 }
 
@@ -189,6 +190,60 @@ test_that("auto_per_chromosome without per-chromosome rows is an error, not NA d
     path <- write_ld(ld_row())
     expect_error(suppressMessages(resolve_clumping_distance("auto_per_chromosome", path)),
                  "no per-chromosome rows")
+})
+
+# --- reliability (ld_status) -----------------------------------------------
+# An auto_* distance refuses a curve ld_decay_analyze.R marked unreliable, whatever
+# rule is asked: the curve meets the unlinked background before it halves, so no
+# distance read off it measures decay.
+
+test_that("an unreliable genome-wide curve stops auto_genome_wide under every rule", {
+    path <- write_ld(ld_row(status = "unreliable"))
+    for (rule in c("critical", "half_decay", "r2_threshold")) {
+        expect_error(suppressMessages(resolve_clumping_distance("auto_genome_wide", path, rule)),
+                     "is unreliable: short-range r2 0.45 is 1.50x.*declare snp_clumping_distance")
+    }
+    # a declared distance is untouched by the table
+    expect_identical(suppressMessages(resolve_clumping_distance("150000", path)), 150000L)
+})
+
+test_that("an unreliable chromosome falls back to a reliable genome-wide distance", {
+    path <- write_ld(rbind(
+        ld_row(scope = "genome_wide", critical = 3000),
+        ld_row(scope = "1", critical = 4000),
+        ld_row(scope = "2", critical = 900, status = "unreliable")
+    ))
+    msgs <- character(0)
+    d <- withCallingHandlers(resolve_clumping_distance("auto_per_chromosome", path),
+                             message = function(m) {
+                                 msgs <<- c(msgs, conditionMessage(m))
+                                 invokeRestart("muffleMessage")
+                             })
+    expect_identical(d[["1"]], 4000L)
+    expect_identical(d[["2"]], 3000L)    # not its own 900 bp
+    expect_true(any(grepl("chr 2: LD decay unreliable", msgs)))
+})
+
+test_that("an unreliable chromosome with an unreliable genome-wide curve stops", {
+    path <- write_ld(rbind(
+        ld_row(scope = "genome_wide", critical = 3000, status = "unreliable"),
+        ld_row(scope = "1", critical = 4000),
+        ld_row(scope = "2", critical = 900, status = "unreliable")
+    ))
+    expect_error(suppressMessages(resolve_clumping_distance("auto_per_chromosome", path)),
+                 "chromosome 2, with no reliable genome-wide value")
+})
+
+test_that("a table without ld_status (before the check) resolves as before, with a notice", {
+    path <- write_ld(ld_row()[, !c("ld_status", "ld_status_reason")])
+    msgs <- character(0)
+    d <- withCallingHandlers(resolve_clumping_distance("auto_genome_wide", path),
+                             message = function(m) {
+                                 msgs <<- c(msgs, conditionMessage(m))
+                                 invokeRestart("muffleMessage")
+                             })
+    expect_identical(d, 3100L)
+    expect_true(any(grepl("predates the reliability check", msgs)))
 })
 
 # --- resolve_clumping_distance_strict / format_clumping_distance -----------
