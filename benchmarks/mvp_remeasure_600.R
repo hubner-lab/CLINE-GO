@@ -106,11 +106,43 @@ if (nzchar(Sys.getenv("WINDOWS_KB"))) {
     WINDOWS_KB <- sort(unique(c(0, as.numeric(strsplit(Sys.getenv("WINDOWS_KB"), ",")[[1]]))))
     if (anyNA(WINDOWS_KB) || any(WINDOWS_KB < 0)) stop("WINDOWS_KB must be non-negative numbers")
 }
+# [added 2026-10-27, LD-window plan Phase 4] option B and per-seed windows.
+#   MVP_LINKED_BP=<tsv: seed, d_bp>  relabels each replicate's truth before scoring: a non-causal
+#       SNP within d_bp (the replicate's own critical LD distance) of a causal locus on its
+#       chromosome is "linked" (expected_linked), every other non-causal SNP "background"
+#       (fp_background). Unset: the deposit's linked_neutral / background_neutral categories.
+#   MVP_SEED_WINDOW=1  (needs MVP_LINKED_BP) the agreement windows are {0, d_bp / 1000} per seed
+#       instead of WINDOWS_KB; calls_combine's window_kb then carries the seed's own value.
+SEED_BP <- NULL
+if (nzchar(Sys.getenv("MVP_LINKED_BP"))) {
+    SEED_BP <- fread(Sys.getenv("MVP_LINKED_BP"), colClasses = c(seed = "character"))
+    stopifnot(all(c("seed", "d_bp") %in% names(SEED_BP)), !anyDuplicated(SEED_BP$seed), all(SEED_BP$d_bp > 0))
+}
+SEED_WINDOW <- identical(Sys.getenv("MVP_SEED_WINDOW"), "1")
+if (SEED_WINDOW && is.null(SEED_BP)) stop("MVP_SEED_WINDOW=1 needs MVP_LINKED_BP")
+if (SEED_WINDOW) WINDOWS_KB <- c(0, NA_real_)   # length 2 per seed; NA = "the seed's own d_bp"
+relabel_truth_b <- function(truth, truth_path, d_bp) {
+    tt <- fread(truth_path, colClasses = c(chr = "character"))
+    tt[, key := paste(chr, pos, sep = ":")]
+    cz <- tt[category == "causal"]
+    tt[, dist := Inf]
+    for (ch in unique(cz$chr)) {
+        p <- sort(cz[chr == ch, pos]); i <- which(tt$chr == ch)
+        x <- tt$pos[i]; j <- findInterval(x, p)
+        lo <- ifelse(j >= 1, x - p[pmax(j, 1)], Inf)
+        hi <- ifelse(j < length(p), p[pmin(j + 1, length(p))] - x, Inf)
+        tt$dist[i] <- pmin(lo, hi)
+    }
+    truth$linked_keys <- tt[category != "causal" & dist <= d_bp, key]
+    truth$bg_keys     <- tt[category != "causal" & dist >  d_bp, key]
+    truth
+}
 
 source(file.path(ROOT, "scripts/R/utils/pval_threshold.R"))
 source(file.path(ROOT, "benchmarks/lib_detection.R"))
 source(file.path(ROOT, "benchmarks/mvp_arm.R"))
-source(file.path(ROOT, "scripts/R/lib/combine_sigsnps.R"))   # .overlap_cross_method(), for A2
+source(file.path(ROOT, "scripts/R/lib/regions.R"))           # distance_for_chr(), which
+source(file.path(ROOT, "scripts/R/lib/combine_sigsnps.R"))   # .overlap_cross_method() calls, for A2
 dir.create(OUT, recursive = TRUE, showWarnings = FALSE)
 
 GRID <- rbind(
@@ -128,7 +160,18 @@ stopifnot(!anyDuplicated(GRID$rung))
 
 # ------------------------------------------------------------------ one replicate
 remeasure_seed <- function(seed, check_pipeline) {
-    truth <- load_truth(file.path(ROOT, "data/mvp", paste0("MVP", seed), "truth_any.tsv"))
+    truth_path <- file.path(ROOT, "data/mvp", paste0("MVP", seed), "truth_any.tsv")
+    truth <- load_truth(truth_path)
+    # rank metrics (AUC-PR, R-precision, PR curves) always score the deposit's categories:
+    # AUC-PR stays exact-causal; option B relabels only the calls (truth_calls)
+    truth_calls <- truth
+    wins <- WINDOWS_KB
+    if (!is.null(SEED_BP)) {
+        d_bp <- SEED_BP$d_bp[SEED_BP$seed == seed]
+        if (length(d_bp) != 1L) stop("MVP_LINKED_BP has no distance for seed ", seed)
+        truth_calls <- relabel_truth_b(truth, truth_path, d_bp)
+        if (SEED_WINDOW) wins <- c(0, d_bp / 1000)
+    }
     L <- setNames(lapply(METHODS, function(m) {
         f <- file.path(PDIR, paste0("MVP", seed), CELL, paste0(m, "_pvalues.tsv"))
         if (!file.exists(f)) stop("missing p-value table: ", f)
@@ -178,7 +221,7 @@ remeasure_seed <- function(seed, check_pipeline) {
                     trait = tc, adjust = adj, rung = rung, value_applied = as.numeric(val),
                     status = th$status, cutoff = th$threshold, n_called_trait = ntc)
             }
-            s <- score_calls(res$called, 0, truth, lp$testable)
+            s <- score_calls(res$called, 0, truth_calls, lp$testable)
             meth_rows[[length(meth_rows) + 1L]] <- data.table(seed = seed, method = m,
                 adjust = adj, rung = rung, value_applied = as.numeric(val),
                 status = paste(vapply(lp$trait_cols, function(tc) res$info[[tc]]$status, ""),
@@ -197,7 +240,7 @@ remeasure_seed <- function(seed, check_pipeline) {
         parts <- called[[rk]]
         adj   <- GRID$adjust[gi]
         tab   <- table(unlist(parts, use.names = FALSE))
-        for (w in WINDOWS_KB) {
+        for (w in wins) {
             sup  <- combine_support(parts, w * 1000)
             sets <- list(union = sup$snp, ge2 = sup[n_methods >= 2, snp],
                          all3 = sup[n_methods >= length(METHODS), snp])
@@ -236,7 +279,7 @@ remeasure_seed <- function(seed, check_pipeline) {
                 a2 <- a2 + 1L
             }
             for (cn in names(sets)) {
-                s <- score_calls(sets[[cn]], 0, truth, testable_union)
+                s <- score_calls(sets[[cn]], 0, truth_calls, testable_union)
                 comb_rows[[length(comb_rows) + 1L]] <- data.table(seed = seed, adjust = adj,
                     rung = rk, window_kb = w, combine = cn, n_called = s$n_called,
                     tp = s$tp, tp_any_causal = s$tp_any_causal,
@@ -337,7 +380,9 @@ writeLines(c(sprintf("arm\t%s", ARM), sprintf("params_dir\t%s", PDIR), sprintf("
              sprintf("corpus\t%s", mvp_arm_label()), sprintf("a3_methods\t%s", paste(A3_METHODS, collapse = ",")),
              sprintf("n_replicates\t%d", length(SEEDS)),
              sprintf("grid\t%s", paste(GRID$rung, collapse = ",")),
-             sprintf("windows_kb\t%s", paste(WINDOWS_KB, collapse = ",")),
+             sprintf("windows_kb\t%s", if (SEED_WINDOW) "0,seed_ld" else paste(WINDOWS_KB, collapse = ",")),
+             sprintf("linked\t%s", if (is.null(SEED_BP)) "deposit_category" else
+                     paste0("option_B:", Sys.getenv("MVP_LINKED_BP"))),
              sprintf("share_mult\t%s", paste(names(SHARE_MULT), SHARE_MULT, sep = "=", collapse = ",")),
              sprintf("check_replicates\t%s", paste(CHECK, collapse = ",")),
              sprintf("run_at\t%s", format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z"))),
