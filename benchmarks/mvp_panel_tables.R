@@ -110,6 +110,38 @@ if (identical(Sys.getenv("MVP_PANELS"), "offset13"))
 # carries only the usable ones, and the exclusions are enumerated rather than inferred.
 RDA_OFFSET_MIN <- 3L
 
+# [added 2026-10-27, LD-window plan Phase 4] MVP_PANELS=hd reads the framework's declared sets
+# of the MVP<seed>hd trees: panel X lives in _intermediate/snp_sets/gea.X/ (truth keeps its name).
+# MVP_LINKED_BP=<tsv with seed, d_bp> switches n_linked to option B: a selected non-causal SNP is
+# "linked" when it lies within the replicate's own LD distance d_bp of a causal locus on the same
+# chromosome (any number of SNPs per locus); the deposit's linked_neutral category is kept as
+# n_linked_cat. Unset, both behave as before.
+PROJ_SFX <- ""
+SET_DIR <- function(p) p
+if (identical(Sys.getenv("MVP_PANELS"), "hd")) {
+    PANELS   <- c("truth", "union", "best", "intersect3", "solo_lfmm", "solo_rda", "solo_emmax")
+    PROJ_SFX <- "hd"
+    SET_DIR  <- function(p) if (p == "truth") p else paste0("gea.", p)
+}
+LINKED_BP <- NULL
+if (nzchar(Sys.getenv("MVP_LINKED_BP"))) {
+    LINKED_BP <- fread(Sys.getenv("MVP_LINKED_BP"), colClasses = c(seed = "character"))
+    stopifnot(all(c("seed", "d_bp") %in% names(LINKED_BP)), !anyDuplicated(LINKED_BP$seed))
+}
+# distance from each query SNP to the nearest causal locus on its chromosome (Inf when none)
+near_causal_bp <- function(chr, pos, cz) {
+    out <- rep(Inf, length(pos))
+    for (ch in unique(chr)) {
+        p <- sort(cz$pos[cz$chr == ch]); i <- which(chr == ch)
+        if (!length(p) || !length(i)) next
+        x <- pos[i]; j <- findInterval(x, p)
+        lo <- ifelse(j >= 1, x - p[pmax(j, 1)], Inf)
+        hi <- ifelse(j < length(p), p[pmin(j + 1, length(p))] - x, Inf)
+        out[i] <- pmin(lo, hi)
+    }
+    out
+}
+
 pr_rows <- list()
 for (s in SEEDS) {
     proj    <- paste0("MVP", s)
@@ -120,20 +152,31 @@ for (s in SEEDS) {
     causal <- TR[category == "causal"]$key
     linked <- TR[category == "linked_neutral"]$key
 
+    d_bp <- NA_real_
+    if (!is.null(LINKED_BP)) {
+        d_bp <- LINKED_BP[seed == s, d_bp]
+        if (length(d_bp) != 1L || is.na(d_bp)) stop("MVP_LINKED_BP has no distance for seed ", s)
+    }
     for (p in PANELS) {
-        f <- file.path(PIPELINE_ROOT, paste0(proj, "_results"), "_intermediate",
-                       "snp_sets", p, "selected_snps.tsv")
+        f <- file.path(PIPELINE_ROOT, paste0(proj, PROJ_SFX, "_results"), "_intermediate",
+                       "snp_sets", SET_DIR(p), "selected_snps.tsv")
         # size-curve panels are built on one block only; absent elsewhere = not built, not empty
         if (startsWith(p, "union_top") && !file.exists(f)) next
+        # the framework always writes a declared set's file (header-only when empty), so in the
+        # hd trees an absent file is a broken run, never an empty set
+        if (nzchar(PROJ_SFX) && !file.exists(f)) stop("missing declared set file: ", f)
         if (file.exists(f)) {
             S <- fread(f, colClasses = c("chr" = "character"))
             k <- paste(S$chr, S$pos, sep = ":")
         } else {
+            S <- data.table(chr = character(0), pos = integer(0))
             k <- character(0)     # combination rule produced an empty set
         }
         n_causal <- sum(k %in% causal)
-        n_linked <- sum(k %in% linked)
-        pr_rows[[length(pr_rows) + 1L]] <- data.table(
+        n_linked_cat <- sum(k %in% linked)
+        n_linked <- if (is.null(LINKED_BP)) n_linked_cat else
+            sum(!(k %in% causal) & near_causal_bp(S$chr, S$pos, TR[category == "causal"]) <= d_bp)
+        row <- data.table(
             seed = s, set = p, n = length(k),
             n_causal = n_causal, n_linked = n_linked,
             causal_total = length(causal),
@@ -146,6 +189,9 @@ for (s in SEEDS) {
             precision = if (length(k)) n_causal / length(k) else NA_real_,
             recall    = if (length(causal)) n_causal / length(causal) else NA_real_,
             usable_for_offset = length(k) >= RDA_OFFSET_MIN)
+        # option B only: keep the category count and the distance used, for old -> new
+        if (!is.null(LINKED_BP)) row[, `:=`(n_linked_cat = n_linked_cat, linked_bp = d_bp)]
+        pr_rows[[length(pr_rows) + 1L]] <- row
     }
 }
 PR <- rbindlist(pr_rows)
