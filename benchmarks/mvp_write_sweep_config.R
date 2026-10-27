@@ -44,6 +44,10 @@ CPU     <- as.integer(opt("cpu", "3"))
 #   gardens     all 112 (the full reciprocal-transplant design)
 GARDEN_SUBDIR <- opt("gardens_subdir", "gardens")
 SUFFIX        <- opt("suffix", "_sweep")
+# --base-suffix=hd: build on config_MVP{seed}hd.yaml (project MVP{seed}hd, LD-window plan Phase 5)
+# and write config_MVP{seed}hd{SUFFIX}.yaml. Such a base already sets cpu (2, for the GEA scans),
+# so its cpu line is replaced by --cpu: the offset fits ran at cpu 3 in offset13.
+BASE_SUFFIX   <- opt("base_suffix", "")
 
 # Panel roster -- see mvp_write_garden_configs.R for what each panel means in
 # Lind & Lotterhos vocabulary. Overridable with --sets so a sweep can run the
@@ -105,7 +109,7 @@ mala_block <- function(kbest) c(
 
 written <- 0L
 for (s in SEEDS) {
-    base <- file.path(PIPELINE_ROOT, sprintf("config_MVP%s.yaml", s))
+    base <- file.path(PIPELINE_ROOT, sprintf("config_MVP%s%s.yaml", s, BASE_SUFFIX))
     if (!file.exists(base)) { message("SKIP (no base config): ", base); next }
 
     gdir <- file.path(PIPELINE_ROOT, "data/mvp", sprintf("MVP%s", s), GARDEN_SUBDIR)
@@ -130,13 +134,16 @@ for (s in SEEDS) {
     # `cpu` MUST be set. Unset, common.smk takes os.cpu_count() - 2, which inside a
     # container is the HOST core count, and rda_offset declares `threads: CPU` --
     # so one job reserves every core and the sweep serialises.
+    if (nzchar(BASE_SUFFIX) && any(grepl("^cpu:", L))) {
+        L[grepl("^cpu:", L)] <- sprintf("cpu: %d   # caps rda_offset's `threads: CPU` request", CPU)
+    }
     if (!any(grepl("^cpu:", L))) {
         j <- grep("^project_name:", L)
         L <- append(L, sprintf("cpu: %d   # caps rda_offset's `threads: CPU` request", CPU),
                     after = if (length(j)) j[1] else 0L)
     }
 
-    out <- file.path(PIPELINE_ROOT, sprintf("config_MVP%s%s.yaml", s, SUFFIX))
+    out <- file.path(PIPELINE_ROOT, sprintf("config_MVP%s%s%s.yaml", s, BASE_SUFFIX, SUFFIX))
     writeLines(c(L, mala_block(as.integer(kbest))), out)
     message(sprintf("wrote %s  (%d scenarios, k_best=%s)", basename(out), length(tabs), kbest))
     written <- written + 1L
