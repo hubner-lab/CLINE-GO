@@ -17,7 +17,8 @@ INTER_DIR = args[6]
 #################################
 
 RANDOM_N = 10000
-set.seed(42)
+SEED = 42
+set.seed(SEED)
 
 #=============================================================================
 # SINGLE-SITE GUARD
@@ -37,14 +38,18 @@ if (n_sites < 2) {
                  " sampling site(s) in the metadata, need >= 2. ",
                  "There is no between-population stratum to partition."))
 
+  # The subsample rows of the main table (563755), NA where no VCF was read.
   data.table(
     Parameter = c('status', 'n_sites',
                   'Between_populations_var_percent',
                   'Within_populations_var_percent',
                   'Phi-samples-total', 'p-value', 'Nperm',
-                  'df_between', 'df_within', 'df_total'),
+                  'df_between', 'df_within', 'df_total',
+                  'n_snps_vcf', 'snp_cap', 'n_snps_sampled', 'n_loci_used', 'seed'),
     Value = c('skipped_single_site', as.character(n_sites),
-              rep(NA_character_, 8))
+              rep(NA_character_, 8),
+              NA_character_, as.character(RANDOM_N), NA_character_, NA_character_,
+              as.character(SEED))
   ) %>%
     fwrite(file.path(TABLES_DIR, 'amova.tsv'), sep = '\t')
 
@@ -117,7 +122,10 @@ AMOVA <- poppr.amova(my_genind,
 # Test significance
 AMOVAsignif <- randtest(AMOVA, nrepet = 999)
 
-# Create comprehensive AMOVA results table
+# Create comprehensive AMOVA results table. The last five rows say what the distance was
+# computed on (563755): the VCF's SNPs, the cap, the seeded subsample, the loci of the
+# genind that entered bitwise.dist() and the seed, so the percentages can be reproduced
+# from the table alone.
 data.table(
   Parameter = c('Between_populations_var_percent',
                 'Within_populations_var_percent',
@@ -126,7 +134,12 @@ data.table(
                 'Nperm',
                 'df_between',
                 'df_within',
-                'df_total'),
+                'df_total',
+                'n_snps_vcf',
+                'snp_cap',
+                'n_snps_sampled',
+                'n_loci_used',
+                'seed'),
   Value = c(AMOVA$componentsofcovariance$`%`[1],
             AMOVA$componentsofcovariance$`%`[2],
             AMOVA$statphi$Phi,
@@ -134,7 +147,12 @@ data.table(
             AMOVAsignif$rep %>% as.numeric,
             AMOVA$results$Df[1],
             AMOVA$results$Df[2],
-            AMOVA$results$Df[3])
+            AMOVA$results$Df[3],
+            total_snps,
+            RANDOM_N,
+            length(random_rows),
+            nLoc(my_genind),
+            SEED)
 ) %>%
   fwrite(file.path(TABLES_DIR, 'amova.tsv'), sep = '\t')
 

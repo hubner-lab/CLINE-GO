@@ -11,6 +11,8 @@
 #   rda_offset.R             2c9c67 + 87eac5  cells by ID, site offsets keyed on sample
 #   amova.R                  52289b  sites by sample id, LD VCF's 0_ prefix handled
 # geometric_offset.R needs LEA, so its case is in tests/heavy/test-heavy-offsets.R.
+# The amova.R fixture also carries Phase 4a's 563755 test: amova.tsv records the SNPs its
+# distance was computed on.
 
 source(file.path(getOption("clinego.repo_root", "/pipeline"),
                  "tests", "lib", "wrapper_harness.R"))
@@ -194,4 +196,49 @@ test_that("amova.R gives each individual its own site, by id, in any metadata or
     s <- amova(d, vcf, short, "short")
     expect_false(identical(s$res$status, 0L))
     expect_match(s$res$output, "1 VCF sample\\(s\\) have no row in .* \\(e.g. 0_S01\\)")
+})
+
+AMOVA_SUBSAMPLE_ROWS <- c("n_snps_vcf", "snp_cap", "n_snps_sampled", "n_loci_used", "seed")
+
+test_that("amova.tsv records the SNPs its distance was computed on (563755)", {
+    # amova.R draws RANDOM_N = 10000 SNPs (seed 42) before bitwise.dist(), and the table
+    # recorded neither the cap nor the loci used, so its percentages could not be
+    # reproduced from it. A VCF above the cap tells the sampled count from the VCF's.
+    d <- withr::local_tempdir()
+    set.seed(6)
+    meta_dt <- data.table::data.table(site = rep(c("A", "B", "C", "D"), each = 3),
+                                      sample = sprintf("S%02d", 1:12),
+                                      latitude = 31, longitude = 34)
+    meta <- write_tsv(meta_dt, file.path(d, "metadata.tsv"))
+    r <- amova(d, fx_amova_vcf(d, meta_dt, n_snp = 10050L), meta, "cap")
+    expect_ok(r$res)
+    tab <- data.table::fread(r$table, colClasses = "character")
+    expect_identical(tail(tab$Parameter, 5), AMOVA_SUBSAMPLE_ROWS)
+    num <- function(p) as.numeric(tab[Parameter == p, Value])
+    expect_identical(num("n_snps_vcf"), 10050)
+    expect_identical(num("snp_cap"), 10000)
+    expect_identical(num("n_snps_sampled"), 10000)
+    expect_identical(num("n_loci_used"), 10000)
+    expect_identical(num("seed"), 42)
+    # The AMOVA rows themselves are still there, in their old order.
+    expect_identical(head(tab$Parameter, 8),
+                     c("Between_populations_var_percent", "Within_populations_var_percent",
+                       "Phi-samples-total", "p-value", "Nperm",
+                       "df_between", "df_within", "df_total"))
+})
+
+test_that("a single-site amova.tsv lists the same subsample rows, NA where no VCF was read", {
+    d <- withr::local_tempdir()
+    set.seed(7)
+    meta_dt <- data.table::data.table(site = "A", sample = sprintf("S%02d", 1:4),
+                                      latitude = 31, longitude = 34)
+    meta <- write_tsv(meta_dt, file.path(d, "metadata.tsv"))
+    r <- amova(d, fx_amova_vcf(d, meta_dt, n_snp = 5L), meta, "one")
+    expect_ok(r$res)
+    tab <- data.table::fread(r$table, colClasses = "character", na.strings = c("", "NA"))
+    expect_identical(tab[Parameter == "status", Value], "skipped_single_site")
+    expect_identical(tail(tab$Parameter, 5), AMOVA_SUBSAMPLE_ROWS)
+    expect_identical(tab[Parameter == "snp_cap", Value], "10000")
+    expect_identical(tab[Parameter == "seed", Value], "42")
+    expect_true(all(is.na(tab[Parameter %in% c("n_snps_vcf", "n_snps_sampled", "n_loci_used"), Value])))
 })

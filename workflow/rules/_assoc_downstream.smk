@@ -60,6 +60,25 @@ if ASSOC_SOURCES:
                 {params.ld_decay_path} {params.ld_rule} "{params.ld_decay_group}" > {log} 2>&1
             """
 
+    rule assoc_method_params:
+        """Write the parameters a method's p-value table was computed with beside it
+        (method_params_tsv() in common.smk, ce8cd4). Its own rule, not an output of the
+        method rules, so an existing tree gains the file without rerunning a genome scan.
+        The table is an input only for order and its mtime trigger; the text is a param, so
+        a changed parameter rewrites the file."""
+        input:
+            pvalues = f"{OUTDIR}{{source}}/tables/methods/{{method}}/{{method}}_pvalues_K{K_BEST}.tsv"
+        output:
+            f"{OUTDIR}{{source}}/tables/methods/{{method}}/{{method}}_params_K{K_BEST}.tsv"
+        wildcard_constraints:
+            source = SOURCE_REGEX,
+            method = _ALL_ASSOC_METHODS_REGEX
+        params:
+            table = lambda wc: method_params_tsv(wc.source, wc.method)
+        run:
+            with open(output[0], "w") as handle:
+                handle.write(params.table)
+
     rule assoc_combine_selected_snps:
         """Combine significant SNPs from all methods for a given source.
 

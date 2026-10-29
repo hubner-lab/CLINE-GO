@@ -99,6 +99,55 @@ test_that("snmf.R is reproducible run to run, without collapsing its repetitions
     expect_false(isTRUE(all.equal(m[[1]], m[[2]], tolerance = 1e-10)))
 })
 
+test_that("snmf.R gives the same Q matrices and cross-entropies at 1, 4 and 8 threads", {
+    # snmf.R hands LEA::snmf() CPU = {threads}, and cpu defaults to the host's cores - 2,
+    # so the thread count differs between machines and between runs of one project. The
+    # seed must make a run independent of it: the Q matrices become clusters_K*.tsv and
+    # drive the sNMF imputation, and each run's cross-entropy picks the best run and the K
+    # (c0f228). Measured 2026-10-29 in image 005aa13b65f0: identical at 1, 4 and 8 threads
+    # and run to run at 4, with or without OPENBLAS_NUM_THREADS=1.
+    skip_if_not(dir.exists(SCRIPTS), "scripts/ not mounted")
+    require_tools("Rscript")
+    d <- withr::local_tempdir()
+
+    # Three source populations, so the runs have structure to converge on.
+    set.seed(11)
+    n_ind <- 60L; n_snp <- 400L
+    pop <- rep(1:3, each = n_ind / 3)
+    freqs <- matrix(stats::runif(3 * n_snp, 0.05, 0.95), 3)
+    lines <- vapply(seq_len(n_snp), function(j)
+        paste(stats::rbinom(n_ind, 2, freqs[pop, j]), collapse = ""), character(1))
+
+    run_at <- function(tag, cpu) {
+        sub <- file.path(d, tag)
+        dir.create(sub)
+        geno <- file.path(sub, "t.geno")
+        writeLines(lines, geno)
+        res <- run_wrapper("snmf.R", c(geno, "2", "4", "2", "3", cpu, "new"))
+        expect_identical(res$status, 0L, info = res$output)
+        runs <- sort(list.files(sub, "\\.snmfClass$", recursive = TRUE, full.names = TRUE))
+        expect_length(runs, 9L)   # K 2..4 x 3 repetitions
+        ce <- vapply(runs, function(f) {
+            txt <- paste(readLines(f), collapse = " ")
+            as.numeric(sub(".*crossEntropy = ([-0-9.eE+]+).*", "\\1", txt))
+        }, numeric(1), USE.NAMES = FALSE)
+        expect_false(anyNA(ce))
+        list(run = substring(runs, nchar(sub) + 2L), ce = ce,
+             q = lapply(sub("\\.snmfClass$", ".Q", runs),
+                        function(f) as.matrix(utils::read.table(f))))
+    }
+
+    one   <- run_at("cpu1", "1")
+    four  <- run_at("cpu4", "4")
+    again <- run_at("cpu4_again", "4")
+    eight <- run_at("cpu8", "8")
+    for (other in list(again, one, eight)) {
+        expect_identical(other$run, four$run)
+        expect_identical(other$ce, four$ce)
+        expect_identical(other$q, four$q)
+    }
+})
+
 test_that("the EMMAX TPED rules keep the VCF's full sample names as FID and IID", {
     # plink's --vcf importer splits a sample ID on '_': WBDC_001 becomes
     # FID=WBDC / IID=001, and an ID with TWO underscores is a hard error

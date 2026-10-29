@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.join(workflow.basedir, "workflow"))
 from methods.gea import GEA_METHODS, K_BEST_SENTINEL
 from methods.gwas import GWAS_METHODS
 from methods.maladaptation import MALADAPTATION_METHODS
+import run_record
 
 #=============================================================================
 # CONFIGURATION
@@ -2305,6 +2306,59 @@ def _src(source, key):
     """Look up a source-indexed config value in unified downstream rule bodies."""
     return ASSOC_SOURCES[source][key]
 
+# --- Method parameters beside each p-value table (ce8cd4, release half) -------
+# {method}_pvalues_K{k}.tsv carries sNMF.k_best in its name, never the method's own
+# structure parameter (LFMM K, EMMAX/GAPIT n_pcs, RDA condition_pcs), so the table could
+# not say what produced it. The paths stay as they are; {method}_params_K{k}.tsv beside it
+# does (assoc_method_params, _assoc_downstream.smk), and so does each gea/gwas run record.
+def method_params_table(source, method):
+    """Path of a method's parameter table, beside its p-value table."""
+    return f"{ASSOC_SOURCES[source]['mod']}tables/methods/{method}/{method}_params_K{K_BEST}.tsv"
+
+def _param_text(value):
+    """A resolved parameter as the config spells it: true/false, numbers as Python prints them."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+def method_param_rows(source, method):
+    """(parameter, value, set_by) rows of one GEA/GWAS method's <source>.configs entry as the
+    pipeline resolved it. set_by: config (set in the entry), default (registry default),
+    sNMF.k_best (the @k_best default), Climate.predictors (RDA predictor_set auto) or
+    registry (engine, GAPIT model). The last row, file_name_k, states that the K in the
+    method's file names is sNMF.k_best."""
+    if source == "GEA":
+        configs, params, registry, group = GEA_CONFIGS, GEA_PARAMS, GEA_METHODS, _assoc
+    else:
+        configs, params, registry, group = GWAS_CONFIGS, GWAS_PARAMS, GWAS_METHODS, _pheno
+    entry = next((c for c in (group.get('configs') or []) if c.get('method') == method), {})
+    user = set(entry.get('params') or {})
+    spec = registry[method]
+    adjust, threshold = configs[method].split('_', 1)
+    rows = [('engine', spec['engine'], 'registry')]
+    if spec.get('gapit_model'):
+        rows.append(('gapit_model', spec['gapit_model'], 'registry'))
+    rows += [('adjust', adjust, 'config'), ('threshold', threshold, 'config')]
+    for name, pspec in spec.get('params', {}).items():
+        value = params[method][name]
+        set_by = ('config' if name in user else
+                  'sNMF.k_best' if pspec['default'] == K_BEST_SENTINEL else 'default')
+        if name == 'predictor_set' and value == 'auto':
+            value, set_by = PREDICTORS_SELECTED, 'Climate.predictors'
+        rows.append((name, _param_text(value), set_by))
+    if source == "GWAS":
+        rows.append(('missing_strategy', PHENO_MISSING,
+                     'config' if 'missing_strategy' in _pheno else 'default'))
+    rows.append(('file_name_k', _param_text(K_BEST), 'sNMF.k_best'))
+    return rows
+
+def method_params_tsv(source, method):
+    """Text of method_params_table(): a header and one row per parameter. No date, no
+    commit: two runs with one config write the same bytes."""
+    lines = ["method\tparameter\tvalue\tset_by"]
+    lines += [f"{method}\t{p}\t{v}\t{s}" for p, v, s in method_param_rows(source, method)]
+    return "\n".join(lines) + "\n"
+
 # Wildcard regex matching all configured sources (used in _assoc_downstream.smk)
 SOURCE_REGEX = "|".join(ASSOC_SOURCES.keys()) if ASSOC_SOURCES else "gea"
 # Trait wildcard: union of GEA (bio_\d+) and GWAS (identifier) patterns.
@@ -2967,6 +3021,7 @@ def _targets_for_assoc_source(source):
         m_traits = method_traits(source, method)
         # Per-SNP outputs
         targets.append(src["pvalues_fn"](method))
+        targets.append(method_params_table(source, method))
         targets.append(src["sigsnps_fn"](method, adjust))
         for trait in m_traits:
             targets.append(f"{src['mod']}plots/manhattan/{method}/manhattan_{trait}_K{K_BEST}_{adjust}.png")
@@ -3338,6 +3393,41 @@ def wza_ld_decay_input(wza_cfg):
     needs = isinstance(wza_cfg.get('window_size', ''), str) and \
             wza_cfg.get('window_size_mode', 'fixed') != 'fixed'
     return O.get('ld_decay_table', []) if needs else []
+
+#=============================================================================
+# RUN RECORDS (665953, 96ccfb)
+#=============================================================================
+# _intermediate/run_records/<mode>.json + history.jsonl, written by the Snakefile's
+# onstart/onsuccess/onerror handlers; workflow/run_record.py says what a record holds.
+# Nothing here runs at parse time: Snakemake calls the handlers only for a real run with
+# jobs, so -n and a "Nothing to be done" invocation write nothing.
+_RUN_STARTED = {}
+
+def _record_methods():
+    """{source: {method: {parameter: {value, set_by}}}} for the mode's GEA/GWAS methods."""
+    source = {'gea': 'GEA', 'gwas': 'GWAS'}.get(MODE)
+    if source not in ASSOC_SOURCES:
+        return None
+    return {source: {m: {p: {'value': v, 'set_by': s} for p, v, s in method_param_rows(source, m)}
+                     for m in ASSOC_SOURCES[source]['configs']}}
+
+def write_run_record(status, log):
+    """Write this mode's run record (status running, success or error). Provenance never
+    stops a run: any error becomes a WARNING on stderr."""
+    try:
+        if status == 'running':
+            _RUN_STARTED['at'] = run_record.utc_now()
+        record = run_record.build_record(
+            mode=MODE, status=status, started=_RUN_STARTED.get('at'),
+            finished=None if status == 'running' else run_record.utc_now(),
+            argv=sys.argv, launch_dir=getattr(workflow, 'workdir_init', None),
+            configfiles=list(getattr(workflow, 'configfiles', []) or []), config=config,
+            repo=workflow.basedir, image_id=os.environ.get(run_record.IMAGE_ENV),
+            snakemake_version=run_record.snakemake_version(), cpu=CPU, methods=_record_methods(),
+            snakemake_log=[log] if isinstance(log, str) else list(log or []))
+        run_record.write(INTER, record)
+    except Exception as exc:
+        print(f"WARNING: run record not written ({type(exc).__name__}: {exc})", file=sys.stderr)
 
 #=============================================================================
 # MAIN RULE

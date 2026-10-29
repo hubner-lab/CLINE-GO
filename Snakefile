@@ -22,5 +22,16 @@ if GWAS_CONFIGS and GEA_CONFIGS:
 include: "workflow/rules/maladaptation.smk"
 include: "workflow/rules/summary.smk"
 
+# Run records: _intermediate/run_records/<mode>.json + history.jsonl (write_run_record in
+# common.smk). Snakemake runs these only for a real run with jobs, never for -n.
+onstart:
+    write_run_record("running", log)
+
+onsuccess:
+    write_run_record("success", log)
+
+onerror:
+    write_run_record("error", log)
+
 rule all:
     input: get_targets(MODE)

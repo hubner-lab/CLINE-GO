@@ -137,8 +137,9 @@ forcing its rule, then reading the output.
 ## Architecture
 
 ### Key Files
-- `Snakefile` - Thin orchestrator (~24 lines): includes + `rule all`
+- `Snakefile` - Thin orchestrator (~35 lines): includes, the run-record hooks (onstart/onsuccess/onerror) + `rule all`. The hooks stay here: `tests/python/_smk_harness.py` exec()s common.smk as plain Python, where an `onstart:` block is a SyntaxError
 - `workflow/rules/common.smk` - Config parsing, path dicts, helpers, `get_targets()`
+- `workflow/run_record.py` - Builds and writes `_intermediate/run_records/` (stdlib JSON: the image's system python3, which runs the Python tests, has no PyYAML)
 - `workflow/rules/{module}.smk` - Per-module rules: `processing`, `structure`, `structure_k`, `association`, `phenotype_assoc`, `overlapping`, `maladaptation`, `summary`
 - `workflow/rules/regionplot.smk` - Only `gff2topr` rule remains (used by Shiny on-demand regionplots); `mode=regionplot` is deprecated
 - `Snakefile_old` - Original workflow (**do NOT modify**)
@@ -215,7 +216,9 @@ Organized by **module** (matching pipeline modes). Each module owns its plots an
 │   │   └── combined/                      # manhattan_combined_K{k}.png/svg, qq_combined_K{k}.png/svg
 │   ├── plots/enrichment/{trait}/          # region_{id}_dotplot/emapplot/cnetplot
 │   └── tables/
-│       ├── methods/{method}/              # {method}_pvalues_K{k}.tsv, _sig_snps_{adjust}.tsv
+│       ├── methods/{method}/              # {method}_pvalues_K{k}.tsv, _sig_snps_{adjust}.tsv, {method}_params_K{k}.tsv
+│       │                                  # (_params_: the method's configs entry as resolved, one row per parameter with
+│       │                                  # set_by; the K in these names is sNMF.k_best, not LFMM K / n_pcs, ce8cd4)
 │       ├── selected_snps.tsv, selected_snps_per_trait.tsv (per-(SNP, trait) min p — feeds regions_per_trait's trait-scoped min_pvalue), regions_per_trait.tsv, regions_combined.tsv
 │       ├── genes_per_region.tsv, genes_per_region_collapsed.tsv, genes_combined.tsv
 │       └── enrichment/{trait}/            # GO enrichment TSVs per region
@@ -233,6 +236,10 @@ Organized by **module** (matching pipeline modes). Each module owns its plots an
 ├── pipeline_summary.tsv                   # all modes append here
 ├── _work/maf{}_miss{}_smiss{}/ld{}_win{}_step{}/  # parameterized intermediates
 └── _intermediate/                         # internal: samples/, annotation/, enrichment/, {method}/{SUFFIX}/, haplotype/, qs_cache/, flags/
+    ├── run_records/                       # {mode}.json: what the mode last ran with (config + its sha256, command, git commit
+    │                                      # and dirty paths, image when -e CLINEGO_IMAGE_ID is passed, gea/gwas method params);
+    │                                      # history.jsonl: one line per finished run. Written by the Snakefile's
+    │                                      # onstart/onsuccess/onerror (workflow/run_record.py), so never by -n (665953, 96ccfb)
     └── snp_sets/                          # curated SNP sets mode=maladaptation reads (Maladaptation.snp_sets)
         ├── manifest.json                  # app-saved sets only; the pipeline never writes it
         ├── {name}/                        # saved from the GEA tab: selected_snps.tsv + snp_set.yaml (record + config_snippet)
@@ -313,7 +320,7 @@ here is QEMU emulation, and some things simply do not work. **Verified 2026-08-2
 
 | What | Symptom on mac-studio | Where it does work |
 |---|---|---|
-| `emmax-kin-intel64` / `emmax-intel64` | Used to **hang forever** after `Identified N individuals` / `nex = 0` — no crash, no exit, `docker run` sat there until killed. Every call site now goes through `scripts/emmax_run.sh`, which refuses to launch on an emulated x86-64 host and **fails in under a second** with the reason. Override for experiments: `-e ADAPTOGENE_ALLOW_EMULATED_EMMAX=1` (pins Intel OpenMP/MKL to one thread; may still hang). | Linux (x86) |
+| `emmax-kin-intel64` / `emmax-intel64` | Used to **hang forever** after `Identified N individuals` / `nex = 0` — no crash, no exit, `docker run` sat there until killed. Every call site now goes through `scripts/emmax_run.sh`, which refuses to launch on an emulated x86-64 host and **fails in under a second** with the reason. Override for experiments: `-e ADAPTOGENE_ALLOW_EMULATED_EMMAX=1` (adds disabled thread affinity and MKL's sequential layer to the fixed environment every call gets; may still hang). | Linux (x86) |
 | `mode=pregea` (end to end) | Fails at `pregea_kinship_pruned` (the EMMAX preflight, immediately — no longer a hang), which is upstream of `pregea_emmax_ladder` → `pregea_recommend`. The LFMM ladder, the RDA setup and the screeplot have no EMMAX dependency, so sub-targets that avoid that branch DO run — e.g. `snakemake … <file>` for `PreGEA/tables/rda/rda_predictor_collinearity.tsv`. **Still never verified end to end on any machine.** | Linux |
 | `mode=gwas`, `mode=gea` with EMMAX in `association.configs` | Same preflight failure (was: same hang). GAPIT/LFMM/RDA methods are unaffected. | Linux |
 | `docker build` | Random `gcc: internal compiler error: Segmentation fault … cc1` under QEMU, a different package each time. Retry — layers that compiled are cached, so each attempt resumes. ~11+ min. | native x86 |
@@ -430,7 +437,7 @@ exists to prevent.
 - **GAPIT3** (tag GAPIT3.5) - GLM, MLM, CMLM, ECMLM, SUPER, MLMM, FarmCPU, BLINK
 
 ### Association Workflow
-1. **EMMAX** - Mixed model with BN kinship (PCA covariates, full dataset). TPED and kinship are built from the sNMF-imputed matrix since 2026-10-04: fed the filtered VCF, `emmax-intel64` fills each missing call with the per-SNP mean of the observed dosages (measured: an R GLS reproduction matches EMMAX only at that fill value)
+1. **EMMAX** - Mixed model with BN kinship (PCA covariates, full dataset). TPED and kinship are built from the sNMF-imputed matrix since 2026-10-04: fed the filtered VCF, `emmax-intel64` fills each missing call with the per-SNP mean of the observed dosages (measured: an R GLS reproduction matches EMMAX only at that fill value). Both binaries run through `scripts/emmax_run.sh`, which execs them under `env -i` with only `MKL_CBWR=COMPATIBLE OMP_NUM_THREADS=1 MKL_NUM_THREADS=1`: their static Intel MKL otherwise gives p-values that follow the size of the process environment (one more container variable moved SIMDATA's GWAS EMMAX p-values by up to 7e-5 relative) and the thread count, and `MKL_CBWR` alone did not stop that (2026-10-29)
 2. **LFMM** - Latent factor model (trains on LD-pruned, tests on full)
 3. **GAPIT3** - 8 additional models (GLM, MLM, CMLM, ECMLM, SUPER, MLMM, FarmCPU, BLINK) via pre-computed GD/GM numeric format
 4. **Combine** - Merge methods via `association.combine_method` (Sum/Overlap/single)

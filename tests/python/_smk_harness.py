@@ -30,9 +30,11 @@ unreachable:
   * ``_out_path``-style locals assigned in the loop body — ``_local_assigns()``;
   * anonymous ``rule:`` blocks with a ``name:`` field, which have no rule name.
 
-Configs are built as dicts by ``make_config()`` rather than read from YAML: PyYAML
-is present in the image but the fixture wants to be perturbable field by field,
-and a dict literal makes the perturbation the readable part of each test.  The
+Configs are built as dicts by ``make_config()`` rather than read from YAML: the
+image's system python3, which runs this suite, has no PyYAML (only Snakemake's pipx
+venv does; measured 2026-10-29), so neither this file nor anything common.smk imports
+may need it; and the fixture wants to be perturbable field by field, a dict literal
+making the perturbation the readable part of each test.  The
 values mirror ``test_data/config_testdata.yaml`` (including its deliberately
 float-spelled ``k_end: 7.0`` / ``ntree: 1000.0``, which exist to exercise the
 integer casting at :89) with ONE deviation: ``GEA.snp_clumping_distance``

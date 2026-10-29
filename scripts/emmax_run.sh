@@ -26,12 +26,12 @@
 # "Fail loudly, not silently") instead of hanging.
 #
 # Escape hatch: ADAPTOGENE_ALLOW_EMULATED_EMMAX=1 downgrades the emulation
-# error to a warning and pins the Intel OpenMP/MKL runtime to a single thread,
-# which is the usual cure for KMP-under-emulation spins. Untested here; it is
-# an experiment switch, not a supported configuration. It is deliberately NOT
-# the default, because forcing a different thread count changes the order of
-# the floating-point reductions inside MKL and could perturb the kinship
-# matrix on hosts where EMMAX works today.
+# error to a warning and also disables Intel OpenMP thread affinity and selects
+# MKL's sequential layer, the usual cure for KMP-under-emulation spins. Untested
+# here; it is an experiment switch, not a supported configuration. Every call,
+# emulated or not, runs EMMAX in a fixed environment with one thread and
+# MKL_CBWR=COMPATIBLE (step 3 below): the thread count and the environment both
+# change MKL's floating-point results, so neither is left to the caller.
 
 set -eu
 
@@ -79,9 +79,7 @@ if [ "$emulated" = yes ]; then
         echo "WARNING: emulated x86-64 detected; ADAPTOGENE_ALLOW_EMULATED_EMMAX=1" >&2
         echo "         is set, so EMMAX will be attempted with the Intel OpenMP/MKL" >&2
         echo "         runtime pinned to one thread. It may still hang." >&2
-        OMP_NUM_THREADS=1; MKL_NUM_THREADS=1; KMP_AFFINITY=disabled
-        MKL_THREADING_LAYER=SEQUENTIAL
-        export OMP_NUM_THREADS MKL_NUM_THREADS KMP_AFFINITY MKL_THREADING_LAYER
+        EMULATED_ENV="KMP_AFFINITY=disabled MKL_THREADING_LAYER=SEQUENTIAL"
     else
         echo "ERROR: this container reports x86_64 but is running on a non-x86 kernel" >&2
         echo "       (/proc/cpuinfo has no 'flags'/'vendor_id' line) — i.e. the amd64" >&2
@@ -97,4 +95,19 @@ if [ "$emulated" = yes ]; then
     fi
 fi
 
-exec "$BIN" "$@"
+# 3. Reproducible numbers: EMMAX runs in a fixed environment, whoever calls it. Its static
+#    Intel MKL takes an alignment-dependent code path, and the alignment follows the size of
+#    the process environment (the Intel OpenMP runtime copies it onto the heap at start): one
+#    more variable in the container moved SIMDATA's GWAS EMMAX p-values by up to 7e-5 relative
+#    (2026-10-29). The output also changes with the thread count (another one at 5, 6, 8, 12
+#    and 16+ threads). `env -i` hands EMMAX exactly the variables below, so its result depends
+#    on its inputs alone: measured on SIMDATA, one .ps for caller environments padded by 1 to
+#    4,096 bytes, project names of 1 to 42 characters and MKL_NUM_THREADS=8 outside. One
+#    thread is what every pipeline job already ran with (Snakemake exports MKL_NUM_THREADS =
+#    the rule's threads, and no EMMAX rule declares any). MKL_CBWR=COMPATIBLE asks MKL for one
+#    code path on any x86-64 CPU; on the lab host it gives the output it gives without it.
+#    $BIN was checked above, so `env -i ... "$BIN"` cannot fall through to a bare env.
+FIXED_ENV="MKL_CBWR=COMPATIBLE OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 ${EMULATED_ENV:-}"
+
+# shellcheck disable=SC2086  # FIXED_ENV is NAME=value words with no spaces, split on purpose
+exec env -i $FIXED_ENV "$BIN" "$@"

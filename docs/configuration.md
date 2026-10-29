@@ -179,6 +179,10 @@ Population:
 | `Population.calc_stats` | Calculate Tajima's D, Pi diversity, IBD, Mantel test, AMOVA | `false` |
 | `Population.window_size` | Window size (bp) for Tajima's D and Pi diversity | `10000` |
 
+AMOVA computes its distance on at most 10,000 SNPs of the LD-pruned, imputed VCF, drawn with seed 42.
+`amova.tsv` ends with the rows that make its percentages reproducible: `n_snps_vcf`, `snp_cap`,
+`n_snps_sampled`, `n_loci_used` and `seed`.
+
 ---
 
 ### LDdecay — LD decay analysis
@@ -620,7 +624,7 @@ Set `GFF.go_field: "NULL"` to skip enrichment.
 │   │   └── combined/                      # manhattan_combined_K{k}.png/svg
 │   ├── plots/enrichment/{trait}/          # region_{id}_dotplot/emapplot/cnetplot (Shiny on-demand)
 │   └── tables/
-│       ├── methods/{method}/              # {method}_pvalues_K{k}.tsv, _sig_snps_{adjust}.tsv
+│       ├── methods/{method}/              # {method}_pvalues_K{k}.tsv, _sig_snps_{adjust}.tsv, {method}_params_K{k}.tsv
 │       ├── selected_snps.tsv, selected_snps_per_trait.tsv, regions_per_trait.tsv, regions_combined.tsv
 │       ├── genes_per_region.tsv, genes_per_region_collapsed.tsv, genes_combined.tsv
 │       └── enrichment/{trait}/            # GO enrichment TSVs (Shiny on-demand)
@@ -647,6 +651,7 @@ Set `GFF.go_field: "NULL"` to skip enrichment.
 │
 └── _intermediate/                         # internal: samples/, annotation/, {method}/, qs_cache/
     ├── region_params.json                 # per-region Shiny parameter persistence
+    ├── run_records/                       # {mode}.json + history.jsonl: what each mode ran with (see Run records)
     └── snp_sets/                          # curated SNP sets read by mode=maladaptation
         ├── manifest.json                  # app-saved sets only (the pipeline never writes it)
         ├── <name>/                        # saved in the GEA tab: selected_snps.tsv, snp_set.yaml
@@ -659,3 +664,31 @@ Set `GFF.go_field: "NULL"` to skip enrichment.
 - `_work/maf0.05_miss0.1_smiss0.5/` — VCF filtered with these thresholds
 - `_work/.../ld0.2_win100_step20/` — LD-pruned with R²=0.2, 100kb window, 20kb step
 - `Maladaptation/.../my_run_spatial/` — GF run_label + spatial_correction tag
+
+**Method parameters**: the `K{k}` in `{method}_pvalues_K{k}.tsv` and its siblings is `sNMF.k_best`,
+not the method's own structure parameter. `{method}_params_K{k}.tsv` beside the table holds the
+method's `GEA.configs` / `GWAS.configs` entry as the pipeline resolved it: one row per parameter
+(LFMM `K`, EMMAX and GAPIT `n_pcs`, RDA `condition_pcs` and its resolved `predictor_set`, the
+significance rule, GWAS `missing_strategy`), each with `set_by` (`config`, `default`,
+`sNMF.k_best`, `Climate.predictors` or `registry`).
+
+### Run records
+
+Every mode run that has jobs to do writes `_intermediate/run_records/{mode}.json` and appends one
+line to `_intermediate/run_records/history.jsonl`. The record names the mode, status, start and
+finish (UTC), the command line, each `--configfile` with the sha256 of its bytes, the full config
+the run used, the pipeline's git commit with the paths changed since it and a hash of the
+uncommitted diff, the Snakemake version, `cpu`, and for `gea`/`gwas` every method's parameters. A
+results tree copied elsewhere keeps them. A dry run (`-n`) and a run with nothing to do write
+nothing. No author, committer or e-mail address is recorded.
+
+A container cannot see its own image, so the image ID is recorded only when it is passed in:
+
+```bash
+docker run ... -e CLINEGO_IMAGE_ID=$(docker images --no-trunc -q cline-go:latest) cline-go:latest snakemake ...
+```
+
+Passing it, or any other variable, does not change EMMAX's numbers: `scripts/emmax_run.sh` runs
+both EMMAX binaries in a fixed environment (`env -i` with one thread and `MKL_CBWR=COMPATIBLE`).
+The bundled `emmax-intel64` links Intel MKL, whose results otherwise follow the size of the process
+environment and the thread count, in the fifth significant digit of the p-values.
