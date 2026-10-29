@@ -109,7 +109,7 @@ find_significant_snps_per_trait <- function(pvalues_dt, adjustment, value, cpu,
 #   overlap_snps     comma-sep "chr:pos" strings (NA if none)
 #   overlap_distance integer: the distance used for that row's chromosome
 annotate_cross_trait_overlaps <- function(sig_snps, distance) {
-    distance <- stats::setNames(as.integer(distance), names(distance))
+    distance <- as_distance_spec(distance)
 
     empty_cols <- function(n) {
         list(

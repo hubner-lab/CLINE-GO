@@ -23,6 +23,7 @@ LD_DECAY_PATH          = if (length(args) >= 5) args[5] else "NULL"
 LD_RULE                = if (length(args) >= 6) args[6] else "critical"  # clumping_ld_rule
 LD_DECAY_GROUP         = if (length(args) >= 7) args[7] else "All"
 TRAIT_PVALUES          = if (length(args) >= 8) args[8] else "NULL"   # selected_snps_per_trait.tsv
+COMBINE_METHOD         = if (length(args) >= 9) args[9] else "All"    # the source's combine_method
 ################
 
 message('INFO: Creating regions from selected SNPs using single-linkage clustering')
@@ -31,6 +32,8 @@ dist_spec <- resolve_clumping_distance_strict(CLUMPING_DISTANCE_SPEC, LD_DECAY_P
                                                LD_RULE, LD_DECAY_GROUP)
 
 snps <- fread(SELECTED_SNPS, colClasses = c(chr = "character"))
+# Under a single-method combine_method only that method's calls give a SNP its traits (dfb365).
+snps <- restrict_to_selecting_method(snps, COMBINE_METHOD)
 
 if (nrow(snps) == 0) {
     message('WARNING: No SNPs to process')

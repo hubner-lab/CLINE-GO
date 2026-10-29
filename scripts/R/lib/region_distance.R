@@ -245,6 +245,9 @@ resolve_clumping_distance <- function(spec, ld_decay_path = "NULL",
     for (chr in names(dist_map)) message(paste0("  chr ", chr, ": ", dist_map[chr], " bp"))
     if (!is.null(gw_dist)) message(paste0("  genome-wide fallback: ", gw_dist, " bp"))
 
+    # The same fallback for a chromosome with no row at all, looked up at use time by
+    # regions.R's distance_for_chr() (f503bd).
+    if (!is.null(gw_dist)) attr(dist_map, "genome_wide") <- gw_dist
     dist_map
 }
 

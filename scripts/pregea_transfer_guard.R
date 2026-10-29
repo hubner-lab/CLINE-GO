@@ -23,6 +23,7 @@ suppressPackageStartupMessages({
 
 source("/pipeline/scripts/R/utils/theme_clinego.R")
 source("/pipeline/scripts/R/utils/emmax_core.R")
+source("/pipeline/scripts/R/lib/pregea_calibration.R")  # transfer_verdict()
 
 args <- commandArgs(trailingOnly = TRUE)
 ################################################################################
@@ -49,6 +50,11 @@ SEED            <- as.numeric(args[18])
 OUT_TSV         <- args[19]
 PLOT_DIR        <- args[20]
 INTER_DIR       <- args[21]
+# Appended after the outputs: the calibration band pregea_recommend.R picked the rungs in
+# (PREGEA_LAMBDA_TOL, PREGEA_DEFLATION_FLOOR), which the verdict now checks the full set against.
+if (length(args) < 23) stop("pregea_transfer_guard.R: expected 23 arguments (... INTER_DIR LAMBDA_TOL DEFLATION_FLOOR), got ", length(args))
+LAMBDA_TOL      <- as.numeric(args[22])
+DEFLATION_FLOOR <- as.numeric(args[23])
 ################################################################################
 
 for (d in c(dirname(OUT_TSV), PLOT_DIR, INTER_DIR)) dir.create(d, recursive = TRUE, showWarnings = FALSE)
@@ -110,7 +116,7 @@ lfmm_lambda_for <- function(geno_path) {
 lambda_pruned <- tryCatch(lfmm_lambda_for(LFMM_PRUNED_IMP), error = function(e) { message("WARNING: LFMM pruned fit failed: ", e$message); NA_real_ })
 lambda_full   <- tryCatch(lfmm_lambda_for(LFMM_FULL_IMP),   error = function(e) { message("WARNING: LFMM full fit failed: ", e$message); NA_real_ })
 delta_lfmm <- if (!is.na(lambda_pruned) && !is.na(lambda_full)) lambda_full - lambda_pruned else NA_real_
-verdict_lfmm <- if (is.na(delta_lfmm)) "unavailable" else if (abs(delta_lfmm) < 0.3) "transfers" else "diverges"
+verdict_lfmm <- transfer_verdict(lambda_pruned, lambda_full, DEFLATION_FLOOR, LAMBDA_TOL)
 add_row("LFMM", "K", lfmm_k, "pruned", "lambda_gc", lambda_pruned, NA_real_, "reference")
 add_row("LFMM", "K", lfmm_k, "full", "lambda_gc", lambda_full, delta_lfmm, verdict_lfmm)
 message("INFO: LFMM lambda pruned=", round(lambda_pruned, 3), " full=", round(lambda_full, 3), " verdict=", verdict_lfmm)
@@ -168,7 +174,7 @@ if (!emmax_arm_available(EMMAX_VCF_FULL)) {
                          file.path(INTER_DIR, "transfer_emmax_full")),
         error = function(e) { message("WARNING: EMMAX full transfer-guard fit failed: ", e$message); NA_real_ })
     delta_emmax <- if (!is.na(lambda_pruned_e) && !is.na(lambda_full_e)) lambda_full_e - lambda_pruned_e else NA_real_
-    verdict_emmax <- if (is.na(delta_emmax)) "unavailable" else if (abs(delta_emmax) < 0.3) "transfers" else "diverges"
+    verdict_emmax <- transfer_verdict(lambda_pruned_e, lambda_full_e, DEFLATION_FLOOR, LAMBDA_TOL)
     add_row("EMMAX", "n_pcs", emmax_npcs, "full", "lambda_gc", lambda_full_e, delta_emmax, verdict_emmax)
     message("INFO: EMMAX lambda pruned=", round(lambda_pruned_e, 3), " full=", round(lambda_full_e, 3), " verdict=", verdict_emmax)
 }

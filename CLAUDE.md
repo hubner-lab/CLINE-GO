@@ -672,7 +672,7 @@ One command runs everything:
 |---|---|
 | default | **MUST be green.** Hermetic, no genomics tool, ~5 min. |
 | `--heavy` | **EXPECTED green.** Needs plink / LEA / EMMAX / vcftools. Separated by RUNTIME and tool dependency, NOT by correctness. Run before publishing a pipeline version. |
-| `--invariants` | **EXPECTED RED.** Every violation maps to a filed defect; a clean run is itself a failure signal. |
+| `--invariants` | **EXPECTED RED on `SIMDATA_results`.** Every violation maps to a filed defect; a fresh tree comes back clean since 2026-10-29. |
 
 Heavy tests **fail, never skip**, on a missing tool (`require_tools()` uses `expect_true`): inside
 the image plink/LEA/vcftools/EMMAX are all present, so absence means the image is wrong. And
@@ -829,19 +829,23 @@ before editing:
   production. The file asserts the cause instead — that `qvalue` is absent from the app's
   DESCRIPTION Imports. A live qval comparison there would pass and prove nothing.
 
-**`--invariants` is opt-in and is EXPECTED to be red**, which is why it is not part of the
-default gate. `scripts/check_invariants.R` validates a `{PROJECT}_results/` tree against
+**`--invariants` is opt-in and is EXPECTED to be red on `SIMDATA_results`**, which is why it is
+not part of the default gate. `scripts/check_invariants.R` validates a `{PROJECT}_results/` tree against
 `scripts/R/lib/invariants.R` — checks that must hold on ANY dataset (region/SNP consistency,
 p-values in [0,1], chromosome names never re-acquiring a `chr` prefix, sample accounting that
 closes, cross-module referential integrity, and — since 2026-09-13 — that a per-trait region's
 `min_pvalue` is never below the trait's own best p, `per_trait_region_min_pvalue_below_own_trait`).
-On `SIMDATA_results` it reports 2 violations, **both defects already filed in
-`docs/pipeline_improvement_requests.md`**:
+On `SIMDATA_results` it reports 1 violation once `mode=structure` has re-run there (2 until then), **a
+defect already filed in `docs/pipeline_improvement_requests.md`**:
 
 | count | check | filed as |
 |---|---|---|
 | 1 | `multiple_threshold_variants_on_disk` | RDA sig table orphaned by a threshold change |
-| 1 | `climate_predictor_count_disagrees` | `write_summary.R:362` |
+
+**Was 2 until 2026-10-29**: `climate_predictor_count_disagrees` was fixed (2e7ba2: `write_summary.R`
+counted the climate site table as `ncol - 4`, 16 for 19 predictors); `SIMDATA_results` still shows it
+until `mode=structure` re-runs there. A fresh tree (the release windows' `SIMDATA_v_*`) has no
+orphaned threshold variant either, so `--invariants` on one comes back clean.
 
 **Was 3 until 2026-09-14**: `pairwise_table_references_unknown_trait` cleared because the full
 sequential re-run put `mode=gea_x_gwas` after `mode=gea` again — it was a staleness artefact, not
@@ -853,7 +857,8 @@ them: `overlap_traits_includes_own_trait` (14) and `overlap_snps_names_unknown_s
 `genes_in_regions.R`. Fixing the library alone moves nothing — `--invariants` reads the TSVs on
 disk, so the count only falls after the modes that wrote them are re-run.
 
-A run that comes back **clean is itself a failure signal** — those two are confirmed present.
+On `SIMDATA_results`, a run that comes back **clean is itself a failure signal** — the orphaned
+variant is confirmed present.
 Any check name outside that table is new and must be triaged: a real defect gets filed, a
 checker misreading a schema gets fixed. Never tune a check down to make the output green.
 

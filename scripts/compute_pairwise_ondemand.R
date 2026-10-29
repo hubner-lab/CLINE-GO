@@ -155,20 +155,29 @@ message("INFO: Saved pairwise_collapsed_snps.tsv (", nrow(combined), " rows)")
     cluster
 }
 
-count_window_overlaps <- function(pos_a, pos_b, chr_a, chr_b, window_size, min_snps) {
-    dt_a <- data.table::data.table(chr = chr_a, pos = pos_a, grp = "A")
-    dt_b <- data.table::data.table(chr = chr_b, pos = pos_b, grp = "B")
+# Windows (single-linkage clusters of both traits' SNPs at window_size) holding >= min_snps
+# SNPs of each trait. A window that holds an exact shared SNP is also counted in
+# `with_exact`, so the overlap score can count that locus once (ad7fce).
+count_window_overlaps <- function(pos_a, pos_b, chr_a, chr_b, window_size, min_snps,
+                                  id_a, id_b) {
+    shared <- intersect(id_a, id_b)
+    dt_a <- data.table::data.table(chr = chr_a, pos = pos_a, grp = "A", exact = id_a %in% shared)
+    dt_b <- data.table::data.table(chr = chr_b, pos = pos_b, grp = "B", exact = id_b %in% shared)
     all_pos <- data.table::rbindlist(list(dt_a, dt_b))
     data.table::setorder(all_pos, chr, pos)
     n_overlap <- 0L
+    n_with_exact <- 0L
     for (ch in unique(all_pos$chr)) {
         sub  <- all_pos[chr == ch]
         clus <- .cluster_snps(sub$pos, window_size)
         sub[, cluster := clus]
-        cl_summary <- sub[, .(n_a = sum(grp == "A"), n_b = sum(grp == "B")), by = cluster]
-        n_overlap <- n_overlap + nrow(cl_summary[n_a >= min_snps & n_b >= min_snps])
+        cl_summary <- sub[, .(n_a = sum(grp == "A"), n_b = sum(grp == "B"), has_exact = any(exact)),
+                          by = cluster]
+        hit <- cl_summary[n_a >= min_snps & n_b >= min_snps]
+        n_overlap    <- n_overlap + nrow(hit)
+        n_with_exact <- n_with_exact + sum(hit$has_exact)
     }
-    n_overlap
+    list(windows = n_overlap, with_exact = n_with_exact)
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -209,7 +218,7 @@ for (i in 1L:(n_traits - 1L)) {
         exact  <- length(intersect(dt_a$SNPID, dt_b$SNPID))
         wovlap <- count_window_overlaps(dt_a$pos, dt_b$pos,
                                         dt_a$chr, dt_b$chr,
-                                        win, MIN_SNPS)
+                                        win, MIN_SNPS, dt_a$SNPID, dt_b$SNPID)
         idx <- idx + 1L
         pair_rows[[idx]] <- data.table::data.table(
             trait_a         = ta,
@@ -219,8 +228,10 @@ for (i in 1L:(n_traits - 1L)) {
             source_b        = src_b,
             n_snps_b        = nrow(dt_b),
             exact_matches   = exact,
-            window_overlaps = wovlap,
-            overlap_score   = exact + wovlap,
+            window_overlaps = wovlap$windows,
+            # Each shared SNP once, plus each window that holds none: a window around
+            # shared SNPs used to add a second count for them (ad7fce).
+            overlap_score   = exact + wovlap$windows - wovlap$with_exact,
             comparison_type = ctype
         )
     }

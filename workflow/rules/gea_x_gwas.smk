@@ -52,12 +52,16 @@ if GEA_RUNS or GWAS_CONFIGS:
           gea_snps  = O.get('selected_snps',       'NULL') if GEA_RUNS     else 'NULL',
           gwas_snps = O.get('pheno_selected_snps',  'NULL') if GWAS_CONFIGS else 'NULL',
           window    = PAIRWISE_WINDOW_SIZE,
-          min_snps  = PAIRWISE_MIN_SNPS
+          min_snps  = PAIRWISE_MIN_SNPS,
+          # A single-method combine_method gives SNPs their traits from that method alone.
+          gea_combine  = SIGSNPS_METHOD       if GEA_RUNS     else 'All',
+          gwas_combine = PHENO_COMBINE_METHOD if GWAS_CONFIGS else 'All'
       log: f"{LOGDIR}gea_x_gwas/compute_pairwise_overlaps.log"
       shell:
           """
           Rscript /pipeline/scripts/compute_pairwise_overlaps.R \
               {params.gea_snps} {params.gwas_snps} \
               {params.window} {params.min_snps} \
-              {output.collapsed} {output.pairwise} > {log} 2>&1
+              {output.collapsed} {output.pairwise} \
+              "{params.gea_combine}" "{params.gwas_combine}" > {log} 2>&1
           """

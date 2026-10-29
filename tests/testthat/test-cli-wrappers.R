@@ -391,10 +391,9 @@ WRAPPERS <- list(
         label   = "write_summary.R (structure, all optional inputs)",
         script  = "write_summary.R",
         build   = function(d) {
-            # NOT fx_climate_site: that fixture is 4 columns, and :362 computes
-            # n_climate_vars as ncol - 4 assuming site/sample/lat/lon, which
-            # would bake the known-wrong 0 into this row. The real shape is
-            # those four identity columns PLUS one column per predictor.
+            # Identity columns besides `sample` on purpose: n_climate_variables counts
+            # the predictor columns whatever identity columns the table has (2e7ba2;
+            # the real site table is `sample` + predictors, test-table_fixes.R).
             cs <- write_tsv(data.table::data.table(
                       site = c("NEG", "TAV"), sample = c("ID001", "ID002"),
                       latitude = c(30.85, 32.08), longitude = c(34.78, 34.78),
@@ -1356,6 +1355,29 @@ test_that("compare_results.R: row order, tolerance, columns, files and grids", {
     expect_identical(json$status, 0L, info = json$output)
     expect_identical(json$report$status, "info")
     expect_identical(json$report$kind, "changed_bytes")
+})
+
+test_that("compare_results.R: a changed table holding non-ASCII text is compared, not refused", {
+    skip_if_not(dir.exists(SCRIPTS), "scripts/ not mounted")
+    # pregea_recommendations.tsv carries em dashes in its notes. Its first changed value
+    # (the p3 window) stopped the comparator with "Character encoding must be UTF-8,
+    # Latin-1 or bytes": the row-order test radix-sorted unmarked non-ASCII strings.
+    notes <- function(tree) file.path(tree, "GEA", "tables", "notes.tsv")
+    both <- function(rows) function(b) {
+        a <- file.path(dirname(b), "FXA_results")
+        writeLines(c("method\trule\tnote", "RDA\tsmallest rung\tkept — see table",
+                     "LFMM\tmin ks\tnot lambda — C.0"), notes(a))
+        writeLines(c("method\trule\tnote", rows), notes(b))
+    }
+    changed <- compare_case(both(c("RDA\tmax R2adj\tkept — see table",
+                                   "LFMM\tmin ks\tnot lambda — C.0")))
+    expect_identical(changed$status, 1L, info = changed$output)
+    expect_identical(paste(changed$report$kind, changed$report$column), "changed_values rule")
+
+    swapped <- compare_case(both(c("LFMM\tmin ks\tnot lambda — C.0",
+                                   "RDA\tsmallest rung\tkept — see table")))
+    expect_identical(swapped$status, 1L, info = swapped$output)
+    expect_match(swapped$report$detail, "same 2 rows in a different order")
 })
 
 test_that("compare_results.R: a usage error exits 2 and writes no report", {

@@ -99,6 +99,19 @@ test_that("Cross-method reads a per-chromosome distance map chromosome by chromo
     expect_setequal(r$SNPID, c("a1", "b1"))
 })
 
+test_that("Cross-method gives a chromosome missing from the map the map's genome-wide value", {
+    # f503bd: chr 2 has no LD-decay row. Its pair, 500 bp apart, used to be judged at the
+    # map's maximum (1000 bp, paired); the genome-wide 100 bp keeps it apart.
+    row <- function(SNPID, chr, pos, method) data.table::data.table(
+        SNPID = SNPID, chr = chr, pos = as.integer(pos), trait = "bio_1",
+        method = method, pvalue = 1e-8)
+    lst <- list(EMMAX = rbind(row("a1", "1", 1000, "EMMAX"), row("a2", "2", 1000, "EMMAX")),
+                RDA   = rbind(row("b1", "1", 1500, "RDA"),   row("b2", "2", 1500, "RDA")))
+    spec <- structure(c("1" = 1000L), genome_wide = 100L)
+    r <- quiet(combine_sigsnps(lst, "Cross-method", spec, PREDICTORS))
+    expect_setequal(r$SNPID, c("a1", "b1"))
+})
+
 test_that("clumping_distance widens Cross-method from identical positions to nearby ones", {
     # At distance 0 only A and C pair up. At 1500 bp, EMMAX's B (1:2000) is within
     # reach of LFMM's A (1:1000) and C (1:3000), so B joins the set.

@@ -86,7 +86,19 @@ if (MODEL_TYPE == 'adaptive') {
   # "controlled" by a 300-SNP random model, 62% larger than the thing it controls for. The
   # neutral model only means anything as a like-for-like comparison, and nothing recorded the
   # size difference downstream. See docs/pipeline_improvement_requests.md request M.
-  n_random <- min(n_adaptive, ncol(lfmm_dt))
+  # Drawn OUTSIDE the SNP set: a neutral control that shares SNPs with the adaptive model
+  # controls for nothing (5ae1e3; the SIMDATA top100 random model shared 189 of its 300 SNPs).
+  random_pool <- names(lfmm_dt)[!vcfsnp %in% sigsnps]
+  if (length(random_pool) == 0) {
+    stop(sprintf(paste0('gradient_forest_model.R: every one of the %d SNPs in %s is in the SNP set, ',
+                        'so no SNP is left to draw a random model from'), ncol(lfmm_dt), LFMM))
+  }
+  n_random <- min(n_adaptive, length(random_pool))
+  if (n_random < n_adaptive) {
+    message(sprintf(paste0('WARNING: only %d SNPs lie outside the SNP set, so the random model has %d ',
+                           'SNPs, not the adaptive model\'s %d'),
+                    length(random_pool), n_random, n_adaptive))
+  }
   if (n_random < 50) {
     message(paste0('WARNING: random model has only ', n_random, ' SNPs (matched to the adaptive ',
                    'set). Gradient Forest turnover functions are unstable at this size; the ',
@@ -102,10 +114,11 @@ if (MODEL_TYPE == 'adaptive') {
   # comparison like-for-like.
   run_label <- sub('_(no)?spatial$', '', basename(dirname(OUTPUT)))
   set.seed(42L + sum(utf8ToInt(run_label)))
-  random_cols <- sample(names(lfmm_dt), n_random)
+  random_cols <- sample(random_pool, n_random)
   snp_subset <- lfmm_dt[, ..random_cols]
-  message(paste0('INFO: Using ', ncol(snp_subset), ' random SNPs (size-matched to the ',
-                 n_adaptive, '-SNP adaptive set; run_label "', run_label, '", seed ',
+  message(paste0('INFO: Using ', ncol(snp_subset), ' random SNPs for the ', n_adaptive,
+                 '-SNP adaptive set, drawn from the ', length(random_pool),
+                 ' SNPs outside it (run_label "', run_label, '", seed ',
                  42L + sum(utf8ToInt(run_label)), ')'))
 } else {
   stop(paste0('ERROR: Unknown MODEL_TYPE: ', MODEL_TYPE))

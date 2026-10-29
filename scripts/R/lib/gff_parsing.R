@@ -1,6 +1,6 @@
 # gff_parsing.R — GFF3 loading and attribute parsing helpers
 # Usage: source("/pipeline/scripts/R/lib/gff_parsing.R")
-# Requires: data.table, stringr, tidyr
+# Requires: data.table, stringr
 
 # Extract gene ID from GFF9 attributes string.
 # Prefers Parent= (for exon/CDS/mRNA features); falls back to ID=.
@@ -65,37 +65,53 @@ read_gff <- function(gff_path, feature) {
 
     raw[, gene_id := extract_gene_id(description)]
 
-    # Infer attribute field names from first row
-    sample_desc <- raw$description[1]
-    fields <- unique(as.character(
-        stringr::str_extract_all(sample_desc, "(?<=^|;)[^=;]+(?==)")[[1]]
-    ))
-    fields <- fields[nzchar(fields)]
+    attrs <- .gff_attribute_columns(raw$description)
+    message(paste0("INFO: GFF attribute fields: ", paste(names(attrs), collapse = ", ")))
 
-    message(paste0("INFO: GFF attribute fields: ", paste(fields, collapse = ", ")))
+    # The attribute columns take description's place, gene_id trails them.
+    out <- raw[, .(chr, start, end, strand)]
+    if (ncol(attrs) > 0) out <- cbind(out, attrs)
+    out[, gene_id := raw$gene_id]
+    out
+}
 
-    # separate() splits by POSITION, so a clashing name has to be renamed rather
-    # than dropped. The core GFF3 field keeps the name 'strand'.
-    into <- fields
-    if ("strand" %in% into) {
-        message("INFO: GFF attribute 'strand' shadows core GFF3 field 7; ",
-                "attribute kept as 'strand_attr'")
-        into[into == "strand"] <- "strand_attr"
+# One column per attribute KEY, each row's values matched to its own keys (4de2a0). The names
+# used to come from the FIRST row and every row was split against them by POSITION, so a row
+# that omitted a key shifted the values after it into the wrong columns, and a key the first
+# row lacked was dropped: the d150 transcript table had em_PFAMs empty for 346 of 397 genes
+# and PFAM names under em_EC. Columns come in order of first appearance; a key repeated within
+# a row keeps its first value; a piece with no `key=` is skipped; "NA" and "" read as NA. A key
+# named like a core column (chr, start, end, strand, gene_id) is kept as <key>_attr: it used to
+# overwrite the core column (an Ensembl gene_id= replaced the id every gene join keys on).
+#
+# @param attr  character vector of GFF3 column-9 strings
+# @return data.table, one character column per key, one row per element of attr
+.gff_attribute_columns <- function(attr) {
+    pieces <- strsplit(as.character(attr), ";", fixed = TRUE)
+    long <- data.table::data.table(row   = rep.int(seq_along(pieces), lengths(pieces)),
+                                   piece = unlist(pieces, use.names = FALSE))
+    long[, eq := as.integer(regexpr("=", piece, fixed = TRUE))]
+    long <- long[eq > 1L]
+    long[, `:=`(key   = substr(piece, 1L, eq - 1L),
+                value = substr(piece, eq + 1L, nchar(piece)))]
+    long <- long[!duplicated(long, by = c("row", "key"))]
+
+    keys <- unique(long$key)
+    cols <- lapply(keys, function(k) {
+        hit <- long[key == k]
+        v <- rep(NA_character_, length(attr))
+        v[hit$row] <- hit$value
+        v[v %in% c("NA", "")] <- NA_character_
+        v
+    })
+    out_names <- keys
+    core <- c("chr", "start", "end", "strand", "gene_id")
+    for (k in intersect(keys, core)) {
+        message("INFO: GFF attribute '", k, "' shadows the core column of that name; ",
+                "attribute kept as '", k, "_attr'")
+        out_names[out_names == k] <- paste0(k, "_attr")
     }
-
-    raw2 <- tidyr::separate(
-        raw, col = "description", into = into, sep = ";",
-        fill = "right", extra = "drop"
-    )
-
-    for (f in into) {
-        if (f %in% colnames(raw2)) {
-            raw2[[f]] <- clean_attr_value(raw2[[f]])
-            raw2[[f]][raw2[[f]] == "NA" | raw2[[f]] == ""] <- NA_character_
-        }
-    }
-
-    data.table::as.data.table(raw2)
+    data.table::setDT(stats::setNames(cols, out_names))[]
 }
 
 # Value of one GFF3 attribute key, NA when absent. Anchored at the start of a `key=value` pair

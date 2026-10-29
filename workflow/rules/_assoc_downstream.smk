@@ -122,7 +122,9 @@ if ASSOC_SOURCES:
             clumping_dist  = lambda wc: _src(wc.source, "region_distance"),
             ld_decay_path  = lambda wc: ld_decay_path_param(_src(wc.source, "region_distance_mode")),
             ld_rule        = lambda wc: _src(wc.source, "clumping_ld_rule"),
-            ld_decay_group = lambda wc: _src(wc.source, "ld_decay_group")
+            ld_decay_group = lambda wc: _src(wc.source, "ld_decay_group"),
+            # A single-method combine_method gives SNPs their traits from that method alone.
+            combine_method = lambda wc: _src(wc.source, "combine_method")
         log:
             f"{LOGDIR}{{source}}/create_regions.log"
         shell:
@@ -131,7 +133,7 @@ if ASSOC_SOURCES:
                 {input.selected_snps} {params.clumping_dist} \
                 {output.per_trait} {output.combined} \
                 {params.ld_decay_path} {params.ld_rule} \
-                "{params.ld_decay_group}" {input.trait_pvalues} > {log} 2>&1
+                "{params.ld_decay_group}" {input.trait_pvalues} "{params.combine_method}" > {log} 2>&1
             """
 
     rule assoc_wza:

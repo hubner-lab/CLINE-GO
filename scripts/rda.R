@@ -351,10 +351,12 @@ anova_row <- function(test_name, tbl) {
     present <- old_names %in% colnames(dt)
     setnames(dt, old_names[present], new_names[present])
     has_df <- "df" %in% colnames(dt)
+    # anova.cca's Residual row never has an F, so it is "residual", not "degenerate": it
+    # used to hold n_margin_rows_degenerate at 1 on every healthy run (c425f8).
     dt[, status := {
         f_finite <- is.finite(F)
         ok <- if (has_df) (f_finite & df != 0) else f_finite
-        ifelse(ok, "ok", "degenerate")
+        ifelse(term == "Residual", "residual", ifelse(ok, "ok", "degenerate"))
     }]
     dt
 }

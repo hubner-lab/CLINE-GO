@@ -210,7 +210,8 @@ compare_lines <- function(la, lb, sa, sb, tol) {
         !all(fields_equal(sa[[i]], sb[[i]], tol))
     }, logical(1))
     if (!any(bad)) return(NULL)
-    if (identical(sort(la, method = "radix"), sort(lb, method = "radix"))) {
+    # Same lines in another order: equal counts here, so no line of A without a partner in B.
+    if (only_in(la, lb) == 0L) {
         return(diff_row("changed_rows", "",
                         sprintf("same %d lines in a different order (ragged file)", length(la))))
     }
@@ -263,7 +264,10 @@ compare_table <- function(la, lb, sep, tol) {
     bad <- setNames(lapply(common, function(col) !fields_equal(ma[, col], mb[, col], tol)), common)
     hit <- common[vapply(bad, any, logical(1))]
     if (length(hit)) {
-        if (identical(sort(ka, method = "radix"), sort(kb, method = "radix"))) {
+        # Same rows in another order, tested as multisets through table(): sort(method =
+        # "radix") refuses a non-ASCII string that readLines() leaves unmarked, so an em dash
+        # in a changed table (pregea_recommendations.tsv's notes) stopped the p3 window.
+        if (only_in(ka, kb) == 0L) {
             out <- c(out, list(diff_row("changed_rows", "",
                                         sprintf("same %d rows in a different order", nrow(ma)))))
         } else {

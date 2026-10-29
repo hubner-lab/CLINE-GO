@@ -66,6 +66,25 @@ test_that("distance_for_chr uses the map's maximum for an absent chromosome, wit
     expect_identical(d, c(9000L, 1000L, 9000L))
 })
 
+# f503bd: a map resolved with a genome-wide value carries it, and a chromosome with no
+# LD-decay row gets it, as a chromosome whose own row resolves to nothing does.
+test_that("distance_for_chr gives an absent chromosome the map's genome-wide fallback", {
+    spec <- structure(c("1" = 1000L, "2" = 9000L), genome_wide = 3000L)
+    d <- expect_message(distance_for_chr(spec, c("7", "1", "7")),
+                        "chr '7' not in per-chr distance map; using the genome-wide distance 3000")
+    expect_identical(d, c(3000L, 1000L, 3000L))
+})
+
+test_that("as_distance_spec makes integers and keeps the names and the fallback", {
+    spec <- structure(c("1" = 1000, "2" = 9000.4), genome_wide = 3000L)
+    out <- as_distance_spec(spec)
+    expect_true(is.integer(out))
+    expect_identical(names(out), c("1", "2"))
+    expect_identical(attr(out, "genome_wide"), 3000L)
+    expect_identical(as_distance_spec(500), 500L)
+    expect_null(attributes(as_distance_spec(500)))
+})
+
 # --- cluster_snps_to_regions: boundaries -----------------------------------
 
 test_that("a single SNP yields one region spanning [pos - dist, pos + dist]", {
@@ -228,6 +247,25 @@ test_that("build_per_trait_regions keeps a trait whose name contains a quantifie
     r  <- suppressMessages(build_per_trait_regions(dt, 1000L))
     expect_identical(nrow(r), 1L)
     expect_identical(r$trait, "FT_16C+")
+})
+
+# dfb365: under combine_method EMMAX, selected_snps.tsv holds EMMAX's SNPs, and its LFMM
+# column lists what LFMM called at them. Read as membership, that column gave bio_2 a region
+# EMMAX never called bio_2 for.
+test_that("restrict_to_selecting_method keeps only a single selecting method's column", {
+    dt <- snps("1", c(10000, 900000), EMMAX = c("bio_1", "bio_1"), LFMM = c("bio_2", ""))
+    one <- suppressMessages(restrict_to_selecting_method(dt, "EMMAX"))
+    expect_identical(colnames(one), c("SNPID", "chr", "pos", "min_pvalue", "EMMAX"))
+    for (strategy in c("All", "Overlap", "Cross-method", "Union", "MethodOverlap"))
+        expect_identical(restrict_to_selecting_method(dt, strategy), dt)
+
+    r <- suppressMessages(build_per_trait_regions(one, 1000L))
+    expect_identical(unique(r$trait), "bio_1")
+    expect_identical(unique(r$methods), "EMMAX")
+    expect_identical(unique(r$other_traits), "")
+    # Unrestricted (a strategy), the LFMM call is membership as before.
+    r_all <- suppressMessages(build_per_trait_regions(dt, 1000L))
+    expect_setequal(unique(r_all$trait), c("bio_1", "bio_2"))
 })
 
 test_that("trait_in_cell is exact set membership over the comma-separated cell", {

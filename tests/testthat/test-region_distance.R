@@ -178,6 +178,27 @@ test_that("auto_per_chromosome falls back to the genome-wide distance per chromo
     expect_identical(d[["2"]], 3000L)
 })
 
+test_that("auto_per_chromosome hands its genome-wide value on for chromosomes with no row", {
+    # f503bd: a small contig with no anchor pair has no LD-decay row at all; regions.R's
+    # distance_for_chr() gave it the map's maximum (4000 here), not the genome-wide 3000.
+    path <- write_ld(rbind(
+        ld_row(scope = "genome_wide", critical = 3000),
+        ld_row(scope = "1", critical = 4000),
+        ld_row(scope = "2", critical = 2000)
+    ))
+    d <- suppressMessages(resolve_clumping_distance("auto_per_chromosome", path))
+    expect_identical(attr(d, "genome_wide"), 3000L)
+    expect_identical(suppressMessages(distance_for_chr(d, c("1", "contig_9"))), c(4000L, 3000L))
+    # Through the cross-method agreement, which coerces the spec first.
+    expect_identical(attr(as_distance_spec(d), "genome_wide"), 3000L)
+
+    no_gw <- write_ld(rbind(ld_row(scope = "1", critical = 4000),
+                            ld_row(scope = "2", critical = 2000)))
+    d2 <- suppressMessages(resolve_clumping_distance("auto_per_chromosome", no_gw))
+    expect_null(attr(d2, "genome_wide"))
+    expect_identical(suppressMessages(distance_for_chr(d2, "contig_9")), 4000L)
+})
+
 test_that("auto_per_chromosome errors when a chromosome fails and there is no fallback", {
     path <- write_ld(ld_row(scope = "1", critical = NA_real_))
     expect_error(suppressMessages(resolve_clumping_distance("auto_per_chromosome", path)),

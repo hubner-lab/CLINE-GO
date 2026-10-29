@@ -14,6 +14,7 @@
 # complete, reproducible record.
 
 suppressPackageStartupMessages(library(data.table))
+source("/pipeline/scripts/R/lib/pregea_calibration.R")  # lambda_in_band()
 
 args <- commandArgs(trailingOnly = TRUE)
 ################################################################################
@@ -76,7 +77,7 @@ emmax <- read_or_null(EMMAX_LADDER_TSV)
 if (!is.null(emmax)) {
     pooled <- emmax[trait == "__pooled__"]
     if (nrow(pooled) > 0) {
-        in_range <- pooled[!is.na(lambda_gc) & lambda_gc >= DEFLATION_FLOOR & lambda_gc <= 1 + LAMBDA_TOL]
+        in_range <- pooled[lambda_in_band(lambda_gc, DEFLATION_FLOOR, LAMBDA_TOL)]
         if (nrow(in_range) > 0) {
             in_range <- in_range[order(rung_value_num)]
             best <- in_range[1]
@@ -117,15 +118,26 @@ if (!is.null(rda_ladder)) {
         qualifying <- ok_rows[max_vif < VIF_MAX & n_aliased == 0 &
                               !is.na(anova_full_p) & anova_full_p < AXIS_ALPHA &
                               r2_adj >= r2_max - se]
-        if (nrow(qualifying) == 0) qualifying <- ok_rows[order(-r2_adj)][1]
+        # The fallback rung passed none of the rule's tests, so it gets its own rule text: the
+        # rule string used to claim it passed significance (SIMDATA's pc2, anova p 0.42; 3602c5).
+        rda_rule <- "smallest rung passing VIF/aliasing/significance, R2adj within 1 SE of ladder max"
+        rda_note <- ""
+        if (nrow(qualifying) == 0) {
+            qualifying <- ok_rows[order(-r2_adj)][1]
+            rda_rule <- "max R2adj (no rung passed VIF/aliasing/significance within 1 SE of ladder max)"
+            rda_note <- sprintf(paste0("no rung passed the rule; smallest full-model anova p %.3g ",
+                                       "(axis_alpha %g), smallest max VIF %.3g (vif_max %g)"),
+                                suppressWarnings(min(ok_rows$anova_full_p, na.rm = TRUE)), AXIS_ALPHA,
+                                suppressWarnings(min(ok_rows$max_vif, na.rm = TRUE)), VIF_MAX)
+        }
         qualifying <- qualifying[order(condition_pcs)]
         best <- qualifying[1]
-        add_rec("RDA", "condition_pcs", best$condition_pcs, "int",
-               "smallest rung passing VIF/aliasing/significance, R2adj within 1 SE of ladder max",
+        add_rec("RDA", "condition_pcs", best$condition_pcs, "int", rda_rule,
                "r2_adj", best$r2_adj,
                alternatives = paste(ok_rows$condition_pcs, collapse = ","),
                ladder_table = "PreGEA/tables/rda/rda_condition_ladder.tsv",
-               ladder_plot = "PreGEA/plots/rda/rda_model_comparison.png")
+               ladder_plot = "PreGEA/plots/rda/rda_model_comparison.png",
+               note = rda_note)
         # axis_p_str: per-axis p-values at the recommended rung, from the
         # detailed axis table (RDA_AXIS_TSV) — richer evidence than just the
         # n_axes_sig count already carried by the ladder table itself.

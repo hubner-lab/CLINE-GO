@@ -95,20 +95,57 @@ test_that("read_gff turns literal 'NA' and empty attribute values into NA", {
     expect_true(is.na(g$Note))
 })
 
-test_that("read_gff infers attribute names from the FIRST matching row only", {
-    # Documented behaviour, not a bug to fix here: a GFF with heterogeneous
-    # attribute keys is split against row 1's key list, so row 2's extra key is
-    # never given a column of its own.
+# 4de2a0: attributes are read by KEY. The names used to come from row 1 and every row was
+# split against them by position.
+test_that("read_gff gives a key that only a later row carries its own column", {
     path <- write_gff(c(
         gff_line("1", "gene", 100, 200, "ID=gene1;Name=alpha"),
         gff_line("1", "gene", 300, 400, "ID=gene2;Name=beta;Note=extra")
     ))
     g <- quiet(read_gff(path, "gene"))
-    # separate() expands `description` in place, so the attribute columns land
-    # where it was and gene_id (added before the split) trails them.
+    # The attribute columns take description's place, in order of first appearance, and
+    # gene_id trails them (the column order the positional split had).
     expect_identical(colnames(g),
-                     c("chr", "start", "end", "strand", "ID", "Name", "gene_id"))
-    expect_false("Note" %in% colnames(g))
+                     c("chr", "start", "end", "strand", "ID", "Name", "Note", "gene_id"))
+    expect_identical(g$Note, c(NA, "extra"))
+})
+
+test_that("read_gff matches each value to its own key when a row omits one", {
+    # The d150 transcript table: a row without em_EC had its em_PFAMs value read as em_EC,
+    # and a key row 1 lacked (em_GOs) was dropped.
+    path <- write_gff(c(
+        gff_line("1", "transcript", 100, 200, "ID=g1.t1;em_desc=kinase;em_EC=2.7.11.1;em_PFAMs=Pkinase"),
+        gff_line("1", "transcript", 300, 400, "ID=g2.t1;em_desc=BURP;em_PFAMs=BURP;em_GOs=GO:0005575"),
+        gff_line("1", "transcript", 500, 600, "ID=g3.t1;em_GOs=GO:0008150;em_desc=none")
+    ))
+    g <- quiet(read_gff(path, "transcript"))
+    expect_identical(colnames(g), c("chr", "start", "end", "strand", "ID", "em_desc", "em_EC",
+                                    "em_PFAMs", "em_GOs", "gene_id"))
+    expect_identical(g$em_EC, c("2.7.11.1", NA, NA))
+    expect_identical(g$em_PFAMs, c("Pkinase", "BURP", NA))
+    expect_identical(g$em_GOs, c(NA, "GO:0005575", "GO:0008150"))
+    expect_identical(g$em_desc, c("kinase", "BURP", "none"))
+    expect_identical(g$gene_id, c("g1.t1", "g2.t1", "g3.t1"))
+})
+
+test_that("read_gff keeps a key's first value and skips pieces that are no key=value", {
+    path <- write_gff(gff_line("1", "gene", 100, 200, "ID=gene1;;Note=a=b;Note=second;Flag;=x"))
+    g <- quiet(read_gff(path, "gene"))
+    expect_identical(colnames(g), c("chr", "start", "end", "strand", "ID", "Note", "gene_id"))
+    expect_identical(g$Note, "a=b")
+})
+
+test_that("an attribute named like a core column never overwrites it", {
+    # An Ensembl gene row carries gene_id=; it replaced the id every gene join keys on.
+    path <- write_gff(gff_line("1", "gene", 100, 200,
+                               "ID=gene:ENSG01;gene_id=ENSG01;chr=x;Name=a"))
+    g <- quiet(read_gff(path, "gene"))
+    expect_identical(g$gene_id, "gene:ENSG01")
+    expect_identical(g$chr, "1")
+    expect_identical(g$gene_id_attr, "ENSG01")
+    expect_identical(g$chr_attr, "x")
+    expect_identical(colnames(g), c("chr", "start", "end", "strand", "ID", "gene_id_attr",
+                                    "chr_attr", "Name", "gene_id"))
 })
 
 test_that("read_gff on a missing feature type warns and returns the empty frame", {

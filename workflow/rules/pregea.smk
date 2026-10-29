@@ -424,6 +424,8 @@ if PREGEA_TRANSFER_GUARD:
             emmax_npcs = PREGEA_TG_EMMAX_NPCS,
             seed = PREGEA_SEED,
             plot_dir = f"{MOD_PREGEA}plots/transfer/", inter_dir = INTER,
+            # The band pregea_recommend picked the rungs in; the verdict checks the full set against it.
+            lambda_tol = PREGEA_LAMBDA_TOL, deflation_floor = PREGEA_DEFLATION_FLOOR,
         log: f"{LOGDIR}pregea/transfer_guard.log"
         shell:
             """
@@ -434,5 +436,6 @@ if PREGEA_TRANSFER_GUARD:
                 {params.emmax_vcf_full} {params.emmax_tped_prefix_full} {params.emmax_kinship_full} \
                 {params.emmax_npcs} \
                 {input.pca} {input.samples_order} {input.metadata} {params.seed} \
-                {output.tsv} {params.plot_dir} {params.inter_dir} > {log} 2>&1
+                {output.tsv} {params.plot_dir} {params.inter_dir} \
+                {params.lambda_tol} {params.deflation_floor} > {log} 2>&1
             """

@@ -758,7 +758,9 @@ test_that("the app's default for an auto spec is the pipeline's genome-wide dist
     }
     # the pipeline's per-chromosome map holds several numbers; the app keeps one
     per_chr <- suppressMessages(resolve_clumping_distance("auto_per_chromosome", tbl, "critical", "All"))
-    expect_identical(unname(per_chr), c(5200L, 2300L))
+    expect_identical(as.vector(per_chr), c(5200L, 2300L))
+    # ...and the genome-wide value for a chromosome with no row (f503bd), the app's one number
+    expect_identical(attr(per_chr, "genome_wide"), 3100L)
     expect_identical(clinego.app:::default_clumping_distance(
         list(GEA = list(snp_clumping_distance = "auto_per_chromosome")), "GEA", tbl), 3100L)
 })

@@ -56,8 +56,9 @@ combine_sigsnps_with_traits <- function(sig_snps_list, strategy, clumping_distan
 
 .combine_core <- function(sig_snps_list, strategy, clumping_distance, predictors) {
     strategy        <- .normalise_strategy(strategy)
-    # One scalar, or a named per-chromosome vector (auto_per_chromosome); names kept
-    clumping_distance <- stats::setNames(as.integer(clumping_distance), names(clumping_distance))
+    # One scalar, or a named per-chromosome vector (auto_per_chromosome); names and the
+    # genome-wide fallback kept
+    clumping_distance <- as_distance_spec(clumping_distance)
     methods_vec     <- names(sig_snps_list)
 
     message(paste0("INFO: Combining SNPs. Strategy: ", strategy,

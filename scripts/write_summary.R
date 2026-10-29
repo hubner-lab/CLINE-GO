@@ -404,9 +404,10 @@ if (MODE == 'processing') {
                       imputed_maf_rows('structure', IMP_MAF_REPORT))
 
     if (CLIMATE_SITE != 'NULL') {
-        predictors_list <- str_split(PREDICTORS, ',')[[1]]
-        climate <- fread(CLIMATE_SITE)
-        n_climate_vars <- ncol(climate) - 4  # Subtract site, sample, lat, lon columns
+        # The site table is `sample` plus one column per extracted predictor; it carries no
+        # site/latitude/longitude, so `ncol - 4` came out three short (16 of 19, 2e7ba2).
+        climate <- fread(CLIMATE_SITE, nrows = 0)
+        n_climate_vars <- length(setdiff(names(climate), c('site', 'sample', 'latitude', 'longitude')))
 
         new_rows <- rbind(new_rows,
             row('structure', 'climate_predictors', PREDICTORS),

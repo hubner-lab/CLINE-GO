@@ -9,9 +9,13 @@
 
 # Resolve the distance for each element of a chromosome vector from a scalar or a
 # named per-chromosome integer vector (auto_per_chromosome). A chromosome missing
-# from the map gets the map's maximum, with a warning. One lookup for the three
-# users of the clumping distance: region clumping (below), the agreement between
-# methods (combine_sigsnps.R) and the cross-trait overlap annotation (sig_snps.R).
+# from the map (no LD-decay row, e.g. a small contig with no anchor pair) gets the
+# genome-wide distance the map carries as attribute "genome_wide", the value the
+# resolver gives a chromosome whose own row resolves to nothing (f503bd: it got the
+# map's maximum); only a map without one (LDdecay.scope per_chromosome) falls back to
+# its maximum. Either way with a warning. One lookup for the three users of the
+# clumping distance: region clumping (below), the agreement between methods
+# (combine_sigsnps.R) and the cross-trait overlap annotation (sig_snps.R).
 distance_for_chr <- function(dist_spec, chr) {
     chr <- as.character(chr)
     if (length(dist_spec) == 1 && is.null(names(dist_spec))) {
@@ -20,18 +24,51 @@ distance_for_chr <- function(dist_spec, chr) {
     d <- unname(dist_spec[chr])
     absent <- unique(chr[is.na(d)])
     if (length(absent) > 0) {
-        fallback <- max(dist_spec, na.rm = TRUE)
+        genome_wide <- attr(dist_spec, "genome_wide")
+        fallback <- if (!is.null(genome_wide)) genome_wide else max(dist_spec, na.rm = TRUE)
+        what <- if (!is.null(genome_wide)) "the genome-wide distance " else "the map's maximum "
         for (chr_name in absent) {
-            message(paste0("WARNING: chr '", chr_name, "' not in per-chr distance map; using max=", fallback, " bp"))
+            message(paste0("WARNING: chr '", chr_name, "' not in per-chr distance map; using ",
+                           what, fallback, " bp"))
         }
         d[is.na(d)] <- fallback
     }
     as.integer(d)
 }
 
+# A distance spec as integer bp that keeps what as.integer() drops: a per-chromosome map's
+# names and its "genome_wide" fallback attribute (see distance_for_chr()).
+as_distance_spec <- function(dist_spec) {
+    out <- as.integer(dist_spec)
+    names(out) <- names(dist_spec)
+    attr(out, "genome_wide") <- attr(dist_spec, "genome_wide")
+    out
+}
+
 # Resolve per-chromosome distance from a scalar or named integer vector.
 .get_dist <- function(dist_spec, chr_name) {
     distance_for_chr(dist_spec, chr_name)
+}
+
+# selected_snps.tsv narrowed to the column of the method a single-method combine_method
+# selects by. The table's rows are then that method's SNPs, but every method column still lists
+# the traits ITS method called at them; read as trait membership, the other columns gave
+# regions traits the selecting method never called (dfb365: 32% of the per-trait rows of a
+# combine_method EMMAX run). A strategy (All, Overlap, ...) is no method name: table unchanged.
+#
+# @param sig_snps        wide selected-SNPs table: SNPID, chr, pos, <method_cols>, min_pvalue
+# @param combine_method  the source's combine_method (GEA/GWAS.combine_method)
+# @return sig_snps, holding only the selecting method's column under a single-method
+#         combine_method
+restrict_to_selecting_method <- function(sig_snps, combine_method) {
+    method_cols <- setdiff(colnames(sig_snps), c("SNPID", "chr", "pos", "min_pvalue"))
+    if (length(combine_method) != 1 || !combine_method %in% method_cols) return(sig_snps)
+    other <- setdiff(method_cols, combine_method)
+    if (length(other) > 0)
+        message(paste0("INFO: combine_method ", combine_method, " selects by its own calls; ",
+                       "traits from its column only (", paste(other, collapse = ", "),
+                       " left out)"))
+    sig_snps[, setdiff(colnames(sig_snps), other), with = FALSE]
 }
 
 # Exact trait membership test for a comma-separated trait cell.
