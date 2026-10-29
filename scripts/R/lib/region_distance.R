@@ -60,8 +60,62 @@ resolve_row_distance <- function(row, rule) {
          "): ", why, ". Choose another clumping_ld_rule or set a fixed distance in bp")
 }
 
+# Whether an LD-decay curve can give a clumping distance at all: "reliable" or
+# "unreliable", with the reason. The test is the curve's room to decay, short_r2 over
+# the critical r^2 of unlinked markers. Below `min_ratio` (default 2) the unlinked
+# background lies above half the short-range LD, so the curve reaches noise before it
+# has halved and every distance read off it is set by the background, not by decay.
+# A small sample (unlinked r^2 rises roughly as 1/n) or a few strongly differentiated,
+# inbred lineages compress the ratio. Also unreliable: no curve (too few bins) and no
+# background (a single chromosome), where the ratio cannot be measured.
+# ld_decay_analyze.R writes it as ld_status; .ld_table_status() derives it for a table
+# written before that column.
+ld_reliability <- function(short_r2, background_r2, method, min_ratio = 2) {
+    out <- function(ok, why = "") list(status = if (ok) "reliable" else "unreliable",
+                                       reason = why)
+    if (identical(method, "insufficient_data") || is.na(short_r2)) {
+        return(out(FALSE, "too few distance bins to fit a decay curve"))
+    }
+    if (is.na(background_r2)) {
+        return(out(FALSE, paste0("no critical r2 of unlinked markers (one chromosome), so ",
+                                 "the curve's room to decay cannot be measured")))
+    }
+    ratio <- short_r2 / background_r2
+    if (ratio < min_ratio) {
+        return(out(FALSE, sprintf(paste0(
+            "short-range r2 %.3g is %.2fx the critical r2 of unlinked markers (%.3g), below ",
+            "%g: the unlinked background lies above half the short-range LD, so the curve ",
+            "reaches noise before it halves (typical of a small sample or a few inbred, ",
+            "strongly differentiated lineages)"), short_r2, ratio, background_r2, min_ratio)))
+    }
+    out(TRUE)
+}
+
+# An LD-decay table with ld_status on every row. A table written before the reliability
+# check (3111cab, 2026-10-27) has none, and used to read as reliable (finding 96e4fd): its
+# status is derived from each row's own short_r2, background_r2 and decay_method, at the
+# default ratio of LDdecay.min_signal_ratio, which arrived with the column, so no run that
+# wrote such a table could have set another. common.smk's _ld_auto_refusal() derives it
+# alike. A PopLDdecay-era table (no short_r2) is returned as it is: it has no rule columns,
+# which stop an auto_* distance on their own.
+.ld_table_status <- function(ld_table, path) {
+    if ("ld_status" %in% names(ld_table) ||
+        !all(c("short_r2", "background_r2", "decay_method") %in% names(ld_table))) {
+        return(ld_table)
+    }
+    rel <- Map(ld_reliability, as.numeric(ld_table$short_r2),
+               as.numeric(ld_table$background_r2), as.character(ld_table$decay_method))
+    ld_table[, `:=`(ld_status        = vapply(rel, `[[`, "", "status"),
+                    ld_status_reason = vapply(rel, `[[`, "", "reason"))]
+    message("WARNING: LD decay table ", path, " predates the reliability check (no ld_status ",
+            "column): each row's status is derived from its short_r2 and background_r2 at ",
+            "LDdecay.min_signal_ratio 2; re-run mode=structure to record it")
+    ld_table
+}
+
 # Whether a table row's LD-decay curve can give a distance (ld_status, written by
-# ld_decay_analyze.R). A table written before the check has no ld_status: TRUE.
+# ld_decay_analyze.R or derived by .ld_table_status()). TRUE without the column: only a
+# PopLDdecay-era table, which has no rule column to read a distance from either.
 .row_reliable <- function(row) {
     st <- row[["ld_status"]]
     is.null(st) || is.na(st) || !identical(as.character(st), "unreliable")
@@ -120,10 +174,7 @@ resolve_clumping_distance <- function(spec, ld_decay_path = "NULL",
         stop("LD decay table ", ld_decay_path, " lacks ", paste(missing_cols, collapse = ", "),
              ": it predates the PLINK LD-decay estimator; re-run mode=structure")
     }
-    if (!"ld_status" %in% names(ld_table)) {
-        message("WARNING: LD decay table ", ld_decay_path, " predates the reliability check ",
-                "(no ld_status column); re-run mode=structure to assess it")
-    }
+    ld_table <- .ld_table_status(ld_table, ld_decay_path)
     table_thr <- if ("r2_threshold" %in% names(ld_table)) ld_table$r2_threshold[1] else NA_real_
     rule <- .ld_rule(rule, table_thr)
     if (!want_group %in% ld_table$group) {
@@ -197,9 +248,11 @@ resolve_clumping_distance <- function(spec, ld_decay_path = "NULL",
     dist_map
 }
 
-# Strict variant for the association scripts (find_sig_snps.R, combine_selected_snps.R):
-# a spec that is neither a number of bp nor an auto_* mode is a configuration error,
-# never the silent 1e6 bp fallback resolve_clumping_distance() keeps for old callers.
+# Strict variant, what every pipeline script resolves a distance with (find_sig_snps.R,
+# combine_selected_snps.R, create_regions.R, write_summary.R, build_snp_set.R; finding
+# d5c442): a spec that is neither a number of bp nor an auto_* mode is a configuration
+# error, never the silent 1e6 bp fallback of resolve_clumping_distance(), whose one other
+# caller, the app's filter bar (utils_helpers.R), passes auto_genome_wide only.
 resolve_clumping_distance_strict <- function(spec, ld_decay_path = "NULL",
                                              rule = "critical", group = "All") {
     spec_lower <- tolower(trimws(as.character(spec)))

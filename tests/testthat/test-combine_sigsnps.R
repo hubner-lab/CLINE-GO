@@ -37,13 +37,6 @@ three_methods <- function() {
 
 PREDICTORS <- c("bio_1", "bio_2")
 
-# .empty_combined_snps_dt() builds its method columns with `dt[[m]] <- character()`
-# and then adds min_pvalue with `:=`, which makes data.table emit its "shallow copy
-# was taken" warning. Harmless and internal to the library, but it fires on every
-# empty-path call. Asserted once below, suppressed elsewhere so it does not bury
-# the suite output.
-quiet_empty <- function(expr) suppressWarnings(suppressMessages(expr))
-
 # --- .normalise_strategy ---------------------------------------------------
 
 test_that(".normalise_strategy maps every legacy alias to its canonical name", {
@@ -169,7 +162,7 @@ test_that("combine_sigsnps_with_traits keeps the per-(SNP, trait) minimum the wi
 })
 
 test_that("combine_sigsnps_with_traits returns the empty trait schema when nothing is selected", {
-    r <- quiet_empty(combine_sigsnps_with_traits(three_methods(), "Union", 0L, "bio_77"))
+    r <- quiet(combine_sigsnps_with_traits(three_methods(), "Union", 0L, "bio_77"))
     expect_identical(nrow(r$trait_pvalues), 0L)
     expect_identical(colnames(r$trait_pvalues), c("SNPID", "chr", "pos", "trait", "min_pvalue"))
 })
@@ -187,22 +180,24 @@ test_that("predictors filters out traits that were not requested", {
 
 # --- empty paths -----------------------------------------------------------
 
-test_that("the empty-table constructor warns about a data.table shallow copy", {
+test_that("the empty-table constructor raises no warning", {
+    # It used to build the method columns with `dt[[m]] <- character()` and then add
+    # min_pvalue with `:=`, so data.table warned "shallow copy" on every empty path (6b725e).
     lst <- lapply(three_methods(), function(dt) dt[0])
-    expect_warning(quiet(combine_sigsnps(lst, "Union", 0L, PREDICTORS)),
-                   "shallow copy")
+    expect_no_warning(quiet(combine_sigsnps(lst, "Union", 0L, PREDICTORS)))
+    expect_no_warning(quiet(combine_sigsnps(three_methods(), "Union", 0L, "no_such_trait")))
 })
 
 test_that("no SNPs in any method returns the empty schema keyed by method names", {
     lst <- lapply(three_methods(), function(dt) dt[0])
-    r <- quiet_empty(combine_sigsnps(lst, "Union", 0L, PREDICTORS))
+    r <- quiet(combine_sigsnps(lst, "Union", 0L, PREDICTORS))
     expect_identical(nrow(r), 0L)
     expect_identical(colnames(r),
                      c("SNPID", "chr", "pos", "EMMAX", "LFMM", "RDA", "min_pvalue"))
 })
 
 test_that("no SNP surviving the predictors filter returns the empty schema", {
-    r <- quiet_empty(combine_sigsnps(three_methods(), "Union", 0L, "no_such_trait"))
+    r <- quiet(combine_sigsnps(three_methods(), "Union", 0L, "no_such_trait"))
     expect_identical(nrow(r), 0L)
 })
 
@@ -211,7 +206,7 @@ test_that("a strategy that matches nothing returns the empty schema, not NULL", 
     lst <- three_methods()
     lst$LFMM <- lst$LFMM[0]
     lst$RDA  <- lst$RDA[0]
-    r <- quiet_empty(combine_sigsnps(lst, "Cross-method", 0L, PREDICTORS))
+    r <- quiet(combine_sigsnps(lst, "Cross-method", 0L, PREDICTORS))
     expect_identical(nrow(r), 0L)
     expect_true(data.table::is.data.table(r))
 })

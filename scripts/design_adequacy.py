@@ -253,14 +253,9 @@ def main(argv):
         "n_sites - 1. This, not n_samples - 1, bounds any site-level "
         "climate/geography model (varpart, dbMEM, RDA constrained rank)")
 
-    resid_df = s - p - 1
-    add("site_level_residual_df", resid_df,
-        "FAIL" if resid_df <= 0 else ("WARN" if resid_df < 3 else ""),
-        "n_sites - n_predictors - 1. <= 0 means the predictor block saturates the "
-        "site-level design: a site-level model fits it exactly and every adjusted "
-        "R^2 / variance partition on it is meaningless")
-
-    # Screen out zero-variance predictors BEFORE the spectrum. corr_matrix gives an
+    # Screen out zero-variance predictors BEFORE the residual d.f. and the spectrum.
+    # A predictor constant across sites is aliased with the intercept of a site-level
+    # model and spends no degree of freedom (finding a44567). corr_matrix gives an
     # invariant column a synthetic identity row (sd == 0 => 1 on the diagonal, 0
     # off it), which contributes an eigenvalue of exactly 1 — so an invariant
     # predictor would silently ADD to numerical_rank and to effective
@@ -269,12 +264,22 @@ def main(argv):
     cols_all = [[site_vals[k][j] for k in sites] for j in range(p)]
     _, sd_all = corr_matrix(cols_all) if (s >= 2 and p >= 1) else ([], [0.0] * p)
     invariant = [predictors[j] for j in range(p) if sd_all[j] == 0.0]
+    active_j = [j for j in range(p) if sd_all[j] != 0.0]
+    p_act = len(active_j)
+
+    resid_df = s - p_act - 1
+    add("site_level_residual_df", resid_df,
+        "FAIL" if resid_df <= 0 else ("WARN" if resid_df < 3 else ""),
+        "n_sites - n_predictors - 1. <= 0 means the predictor block saturates the "
+        "site-level design: a site-level model fits it exactly and every adjusted "
+        "R^2 / variance partition on it is meaningless"
+        + (f"; the {len(invariant)} invariant predictor(s) below are not counted"
+           if invariant else ""))
+
     add("n_invariant_predictors", len(invariant),
         "FAIL" if invariant else "",
         "zero variance across sites: " + (",".join(invariant) if invariant else "none"))
 
-    active_j = [j for j in range(p) if sd_all[j] != 0.0]
-    p_act = len(active_j)
     if p_act != p:
         add("n_predictors_in_spectrum", p_act, "",
             "invariant predictors are excluded from every spectral metric below")

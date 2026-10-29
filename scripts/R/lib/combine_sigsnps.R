@@ -234,13 +234,12 @@ combine_sigsnps_with_traits <- function(sig_snps_list, strategy, clumping_distan
     rbind(q1_hits, dt2_hits)
 }
 
+# Every column in one construction: `dt[[m]] <-` copies the table, and the `:=` after it
+# then raised data.table's shallow-copy warning on every empty result (finding 6b725e).
 .empty_combined_snps_dt <- function(methods_vec) {
-    dt <- data.table::data.table(
-        SNPID = character(),
-        chr   = character(),
-        pos   = integer()
-    )
-    for (m in methods_vec) dt[[m]] <- character()
-    dt[, min_pvalue := numeric()]
-    dt
+    data.table::as.data.table(c(
+        list(SNPID = character(), chr = character(), pos = integer()),
+        stats::setNames(rep(list(character()), length(methods_vec)), methods_vec),
+        list(min_pvalue = numeric())
+    ))
 }

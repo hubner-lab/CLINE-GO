@@ -349,10 +349,13 @@ LD_TABLES = {
                  ("C2", "1", 0.24, 0.23, 2159, 7363, 2858, 0.2, "loess_log", "unreliable", WHY),
                  ("C3", "genome_wide", 0.58, 0.23, "", 15874, 27940, 0.2, "loess_log", "reliable", '""'),
                  ("C3", "1", 0.56, 0.23, 22852, 12620, 25508, 0.2, "loess_log", "reliable", '""')),
-    # written before the reliability check: no ld_status column, rows read as reliable
+    # written before the reliability check: no ld_status column, so each row's status is
+    # derived from short_r2 / background_r2 (96e4fd): All 4.9x reliable, C2 1.39x not.
     "no_status": tsv(LD_HEADER[:9],
                      ("All", "genome_wide", 0.44, 0.09, 33036, 13141, 14974, 0.2, "loess_log"),
-                     ("All", "1", 0.45, 0.09, "", 9320, 10202, 0.2, "loess_log")),
+                     ("All", "1", 0.45, 0.09, "", 9320, 10202, 0.2, "loess_log"),
+                     ("C2", "genome_wide", 0.32, 0.23, 2407, 11571, 3382, 0.2, "loess_log"),
+                     ("C2", "1", 0.24, 0.23, 2159, 7363, 2858, 0.2, "loess_log")),
     "empty": tsv(LD_HEADER),
     # the PopLDdecay-era table: no rule columns
     "old": tsv(("group", "scope", "half_decay_bp"), ("All", "genome_wide", 1500)),
@@ -446,6 +449,14 @@ class TestLdRuleRefusal(unittest.TestCase):     # 8dbf84
         ns = load(project_name="cc_ld_fresh", GEA__snp_clumping_distance="auto_genome_wide",
                   GEA__ld_decay_group="C2")
         H.targets(ns, "gea")
+
+    def test_a_table_without_ld_status_is_judged_on_its_own_curve(self):    # 96e4fd
+        # It used to read as reliable; C2's 0.32 / 0.23 is refused like a written status.
+        with self.assertRaisesRegex(ValueError, r"unreliable: short-range r2 0.32 is 1.39x"):
+            self.targets("cc_ld_legacy", "gea", table="no_status",
+                         GEA__snp_clumping_distance="auto_genome_wide", GEA__ld_decay_group="C2")
+        self.targets("cc_ld_legacy_ok", "gea", table="no_status",
+                     GEA__snp_clumping_distance="auto_genome_wide")
 
 
 class TestSaturatedSpatialGF(unittest.TestCase):    # 895bac

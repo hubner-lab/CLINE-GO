@@ -231,19 +231,6 @@ test_that("ld_decay_analyze.R marks a curve with no room to decay unreliable", {
     expect_false(is.na(tab$decay_critical_bp))
 })
 
-test_that("ld_reliability: each branch", {
-    expect_identical(ld_reliability(0.5, 0.05, "loess_log")$status, "reliable")
-    expect_identical(ld_reliability(0.5, 0.05, "loess_log")$reason, "")
-    r <- ld_reliability(0.464, 0.26936, "loess_log")          # Trifolium, ratio 1.72
-    expect_identical(r$status, "unreliable")
-    expect_match(r$reason, "1\\.72x")
-    expect_identical(ld_reliability(0.4, 0.2, "loess_log")$status, "reliable")   # ratio = 2
-    expect_identical(ld_reliability(0.4, 0.2, "loess_log", min_ratio = 3)$status, "unreliable")
-    expect_match(ld_reliability(NA, 0.1, "insufficient_data")$reason, "too few distance bins")
-    expect_match(ld_reliability(0.5, NA, "loess_log")$reason, "one chromosome")
-    expect_identical(ld_reliability(0.8, 1, "loess_log")$status, "unreliable")   # starts below
-})
-
 test_that("ld_excluded_contigs matches LDdecay.exclude_chromosomes to the VCF's contigs", {
     chrs <- c("1", "2", "X", "MT", "Pt", "Y")
     expect_identical(ld_excluded_contigs(chrs, "NULL"), character(0))

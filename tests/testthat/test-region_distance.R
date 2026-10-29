@@ -234,8 +234,12 @@ test_that("an unreliable chromosome with an unreliable genome-wide curve stops",
                  "chromosome 2, with no reliable genome-wide value")
 })
 
-test_that("a table without ld_status (before the check) resolves as before, with a notice", {
-    path <- write_ld(ld_row()[, !c("ld_status", "ld_status_reason")])
+# A table written before the check (no ld_status) used to read as reliable, whatever its
+# curve (96e4fd). Its status is now derived from the row's own short_r2 and background_r2
+# under ld_reliability(), the rule ld_decay_analyze.R writes it with.
+
+test_that("a table without ld_status: a reliable curve resolves, saying its status was derived", {
+    path <- write_ld(ld_row()[, !c("ld_status", "ld_status_reason")])   # 0.45 / 0.06 = 7.5x
     msgs <- character(0)
     d <- withCallingHandlers(resolve_clumping_distance("auto_genome_wide", path),
                              message = function(m) {
@@ -243,7 +247,35 @@ test_that("a table without ld_status (before the check) resolves as before, with
                                  invokeRestart("muffleMessage")
                              })
     expect_identical(d, 3100L)
-    expect_true(any(grepl("predates the reliability check", msgs)))
+    expect_true(any(grepl("predates the reliability check.*derived", msgs)))
+})
+
+test_that("a table without ld_status: an unreliable curve stops as a written status does", {
+    legacy <- ld_row()[, !c("ld_status", "ld_status_reason")]
+    legacy[, background_r2 := 0.3]                                       # 0.45 / 0.3 = 1.5x
+    path <- write_ld(legacy)
+    expect_error(suppressMessages(resolve_clumping_distance("auto_genome_wide", path)),
+                 "is unreliable: short-range r2 0.45 is 1.50x the critical r2")
+    # per chromosome: an unreliable chromosome falls back to a reliable genome-wide value
+    path <- write_ld(rbind(
+        ld_row(scope = "genome_wide", critical = 3000),
+        ld_row(scope = "2", critical = 900)[, background_r2 := 0.3]
+    )[, !c("ld_status", "ld_status_reason")])
+    d <- suppressMessages(resolve_clumping_distance("auto_per_chromosome", path))
+    expect_identical(d[["2"]], 3000L)
+})
+
+test_that("ld_reliability: each branch", {
+    expect_identical(ld_reliability(0.5, 0.05, "loess_log")$status, "reliable")
+    expect_identical(ld_reliability(0.5, 0.05, "loess_log")$reason, "")
+    r <- ld_reliability(0.464, 0.26936, "loess_log")          # Trifolium, ratio 1.72
+    expect_identical(r$status, "unreliable")
+    expect_match(r$reason, "1\\.72x")
+    expect_identical(ld_reliability(0.4, 0.2, "loess_log")$status, "reliable")   # ratio = 2
+    expect_identical(ld_reliability(0.4, 0.2, "loess_log", min_ratio = 3)$status, "unreliable")
+    expect_match(ld_reliability(NA, 0.1, "insufficient_data")$reason, "too few distance bins")
+    expect_match(ld_reliability(0.5, NA, "loess_log")$reason, "one chromosome")
+    expect_identical(ld_reliability(0.8, 1, "loess_log")$status, "unreliable")   # starts below
 })
 
 # --- resolve_clumping_distance_strict / format_clumping_distance -----------

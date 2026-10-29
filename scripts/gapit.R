@@ -275,7 +275,11 @@ for (model in MODELS) {
     native_model_dir <- file.path(NATIVE_OUTDIR, model)
     dir.create(native_model_dir, recursive = TRUE, showWarnings = FALSE)
 
-    native_files <- list.files(WORKDIR, pattern = paste0("GAPIT.*", model), full.names = TRUE)
+    # GAPIT names a model's files GAPIT.<kind>.<model>.<trait>.<ext>: the model is matched as
+    # a whole dot-delimited field, so MLM's folder no longer takes CMLM's, ECMLM's and MLMM's
+    # files (finding fd5085). Trait names carry no dot (PHENO_TRAIT_RE, bio_<N>).
+    native_files <- list.files(WORKDIR, pattern = paste0("^GAPIT\\..*\\.", model, "\\."),
+                               full.names = TRUE)
     if (length(native_files) > 0) {
         file.copy(native_files, native_model_dir, overwrite = TRUE)
         message("INFO: Copied ", length(native_files), " native GAPIT files to ", native_model_dir)

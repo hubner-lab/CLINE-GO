@@ -2831,6 +2831,27 @@ def _mala_predictors_key():
 _LD_RULE_COLUMNS = {'critical': 'decay_critical_bp', 'half_decay': 'decay_half_bp',
                     'r2_threshold': 'decay_r2thr_bp'}
 
+def _ld_row_status(r):
+    """ld_status of a row from a table written before the reliability check: the rule of
+    ld_reliability() in region_distance.R at min_ratio 2, as .ld_table_status() derives it
+    there (96e4fd). Returns (status, reason)."""
+    def num(key):
+        try:
+            v = float(r.get(key))
+        except (TypeError, ValueError):
+            return None
+        return v if v == v else None
+    s, b = num('short_r2'), num('background_r2')
+    if r.get('decay_method') == 'insufficient_data' or s is None:
+        return 'unreliable', 'too few distance bins to fit a decay curve'
+    if b is None:
+        return 'unreliable', 'no critical r2 of unlinked markers'
+    ratio = s / b if b else float('inf')
+    if ratio < 2:
+        return 'unreliable', (f"short-range r2 {s:.3g} is {ratio:.2f}x the critical r2 of "
+                              f"unlinked markers ({b:.3g}), below 2")
+    return 'reliable', ''
+
 def _ld_auto_refusal(header, rows, spec, ld_rule, group):
     """Why resolve_clumping_distance() (scripts/R/lib/region_distance.R) stops on this
     LD-decay table for an auto_* spec, or None when it gives a distance. Only the
@@ -2843,11 +2864,15 @@ def _ld_auto_refusal(header, rows, spec, ld_rule, group):
     if missing:
         return (f"the LD-decay table lacks {', '.join(missing)}: it predates the PLINK "
                 f"LD-decay estimator; re-run mode=structure")
+    if 'ld_status' not in header and {'short_r2', 'background_r2', 'decay_method'} <= set(header):
+        # written before the reliability check: derived, as in R
+        rows = [dict(r, ld_status=status, ld_status_reason=why)
+                for r in rows for status, why in [_ld_row_status(r)]]
     mine = [r for r in rows if r.get('group') == group]
     if not mine:
         return (f"LD-decay group '{group}' is not in the table: check ld_decay_group, "
                 f"LDdecay.group_by and LDdecay.min_samples")
-    def unreliable(r):   # a table without ld_status reads as reliable, as in R (96e4fd)
+    def unreliable(r):
         return r.get('ld_status') == 'unreliable'
     def reached(r):
         field = r.get(col)

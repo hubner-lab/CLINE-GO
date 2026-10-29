@@ -60,9 +60,9 @@ message("INFO: Building SNP set ", decl$name, " (", decl$source_module, ", origi
         decl$origin, ")")
 gap_spec <- decl$clumping_distance
 if (is.character(gap_spec)) {
-    decl$clumping_distance <- resolve_clumping_distance(gap_spec, decl$ld_decay_table %||% "NULL",
-                                                        decl$clumping_ld_rule %||% "critical",
-                                                        decl$ld_decay_group %||% "All")
+    decl$clumping_distance <- resolve_clumping_distance_strict(gap_spec, decl$ld_decay_table %||% "NULL",
+                                                               decl$clumping_ld_rule %||% "critical",
+                                                               decl$ld_decay_group %||% "All")
     decl$clumping_distance_spec <- gap_spec
 }
 message("INFO: Strategy: ", decl$strategy, "; clumping distance: ", decl$clumping_distance,

@@ -112,3 +112,21 @@ test_that("the per-SNP path is untouched by the WZA callability report", {
     expect_false(grepl("windows called", res$output, fixed = TRUE))
     expect_false(grepl("absence of signal", res$output, fixed = TRUE))
 })
+
+test_that("an auto window on an LD table without ld_status judges the curve as a written status would", {
+    # A table written before the reliability check used to read as reliable, so its curve
+    # set the window however close to the background it sat (96e4fd). 0.45 / 0.3 = 1.5x.
+    d <- withr::local_tempdir()
+    f <- fx_wza_inputs(d)
+    ld <- write_tsv(data.table::data.table(
+        group = "All", scope = "genome_wide", short_r2 = 0.45, background_r2 = 0.3,
+        decay_critical_bp = 50000L, decay_half_bp = 60000L, decay_r2thr_bp = 40000L,
+        r2_threshold = 0.2, decay_method = "loess_log"), file.path(d, "ld.tsv"))
+    out <- file.path(d, "wza.tsv")
+    res <- run_wrapper("compute_wza.R",
+                       c(f$pv, f$maf, ld, "auto_genome_wide", "10000", "All", out))
+
+    expect_identical(res$status, 0L, info = res$output)
+    expect_match(res$output, "predates the reliability check")
+    expect_match(res$output, "is unreliable \\(short-range r2 0.45 is 1.50x[^\n]*Using fallback: 10000 bp")
+})

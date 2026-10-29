@@ -5,7 +5,7 @@
 library(data.table)
 library(dplyr)
 library(stringr)
-source('/pipeline/scripts/R/lib/region_distance.R')   # resolve_clumping_distance()
+source('/pipeline/scripts/R/lib/region_distance.R')   # resolve_clumping_distance_strict()
 
 args = commandArgs(trailingOnly=TRUE)
 ################
@@ -505,8 +505,8 @@ if (MODE == 'processing') {
     if (LD_DECAY_PATH_VAL != 'NULL' && file.exists(LD_DECAY_PATH_VAL) &&
         REGION_DIST_SPEC %in% c('auto_per_chromosome', 'auto_genome_wide', 'auto')) {
         dist <- tryCatch(
-            suppressMessages(resolve_clumping_distance(REGION_DIST_SPEC, LD_DECAY_PATH_VAL,
-                                                       LD_RULE_VAL, LD_DECAY_GROUP_VAL)),
+            suppressMessages(resolve_clumping_distance_strict(REGION_DIST_SPEC, LD_DECAY_PATH_VAL,
+                                                              LD_RULE_VAL, LD_DECAY_GROUP_VAL)),
             error = function(e) {
                 message("WARNING: region distance not resolvable for the summary: ", conditionMessage(e))
                 NULL

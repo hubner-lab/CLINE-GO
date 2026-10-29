@@ -13,7 +13,8 @@
 #   decay_r2thr_bp    -- where it falls to the fixed r^2 R2_THRESHOLD.
 # NA means the curve never reaches that level within the measured distance.
 # ld_status / ld_status_reason: whether the curve can give a distance at all
-# (ld_reliability(): short-range r^2 at least MIN_SIGNAL_RATIO times the critical r^2);
+# (ld_reliability() in region_distance.R: short-range r^2 at least MIN_SIGNAL_RATIO times
+# the critical r^2);
 # an auto_* clumping distance refuses an unreliable row (scripts/R/lib/region_distance.R).
 #
 # .stat.gz layout (tab-separated, with header):
@@ -41,6 +42,7 @@ MIN_SIGNAL_RATIO <- as.numeric(args[13])  # LDdecay.min_signal_ratio
 ################
 stopifnot(length(args) == 13, MIN_SIGNAL_RATIO > 1)
 source("/pipeline/scripts/R/lib/ld_decay.R")
+source("/pipeline/scripts/R/lib/region_distance.R")   # ld_reliability()
 source("/pipeline/scripts/R/utils/theme_clinego.R")
 tmp <- ld_scratch_dir(STAT_GW_DIR, "analyze_tmp")   # fread(cmd = "zcat ...")'s copies
 

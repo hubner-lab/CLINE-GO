@@ -248,6 +248,19 @@ class TestMain(unittest.TestCase):
         self.assertIn("bio_12", t["n_invariant_predictors"][2])
         self.assertEqual(t["n_predictors_in_spectrum"][0], "3")
 
+    def test_an_invariant_predictor_spends_no_residual_df(self):
+        """a44567: on the messy fixture bio_12 is constant over the 5 sites, so the 3
+        predictors that vary leave 5 - 3 - 1 = 1 site-level residual d.f. (WARN), not the
+        5 - 4 - 1 = 0 (FAIL, 'saturates the design') of counting all 4."""
+        meta, clim = _support.make_messy_fixture(self.d)
+        self.assertEqual(self.run_main(["x", meta, clim, "all", self.out]), 0)
+        t = _support.read_table(self.out)
+        self.assertEqual(t["n_predictors"][0], "4")
+        self.assertEqual(t["site_level_residual_df"][0], "1")
+        self.assertEqual(t["site_level_residual_df"][1], "WARN")
+        self.assertIn("1 invariant predictor(s) below are not counted",
+                      t["site_level_residual_df"][2])
+
     def test_output_is_a_four_column_tsv(self):
         meta, clim = _support.make_fixture(self.d, n_sites=8, n_pred=3, per_site=4,
                                            n_latent=3, noise=0.8, seed=5)

@@ -37,7 +37,7 @@ LD_DECAY_GROUP = if (length(args) >= 6) args[6] else "All"
 OUTPUT         = args[7]
 LD_RULE        = if (length(args) >= 8) args[8] else "critical"  # clumping_ld_rule
 ################
-source("/pipeline/scripts/R/lib/region_distance.R")   # LD_RULE_COLUMNS, .ld_rule()
+source("/pipeline/scripts/R/lib/region_distance.R")   # LD_RULE_COLUMNS, .ld_rule(), .ld_table_status()
 
 # No WZA-specific MAF cut. The SNP set is whatever the method tested -- `Filter.maf` on observed
 # calls, then `sNMF.imputed_maf` (default Filter.maf) on the imputed matrix -- and WZA does not
@@ -68,7 +68,8 @@ resolve_window_size <- function(spec, ld_path, group, fallback_bp) {
                            "Using fallback: ", fallback_bp, " bp"))
             return(fallback_bp)
         }
-        ld <- fread(ld_path, colClasses = c(group = "character", scope = "character"))
+        ld <- .ld_table_status(fread(ld_path, colClasses = c(group = "character",
+                                                             scope = "character")), ld_path)
         row <- ld[group == LD_DECAY_GROUP & scope == "genome_wide"]
         if (nrow(row) == 0) {
             message(paste0("WARNING: No genome-wide LD decay row for group='", LD_DECAY_GROUP,

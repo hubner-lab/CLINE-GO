@@ -477,20 +477,16 @@ test_that("the pipeline's gene_id extraction handles all three attribute shapes"
 # one row per (SNPID, method, trait) (lib/snp_set_select.R:114-118). So membership is
 # compared first and min_pvalue separately.
 
-# suppressWarnings, not just quiet(), on BOTH sides. When a strategy selects
-# NOTHING, each implementation's rbindlist over an empty list produces a table
-# that data.table then flags with its "shallow copy ... := can add or remove
-# columns by reference" notice. The wart is symmetric — pipeline
-# combine_sigsnps.R:166 and app lib/snp_set_select.R:104 — belongs to the empty path
-# rather than to anything these blocks measure, and this suite's warning
-# baseline is zero, so letting it through would leave standing noise for the
-# next real warning to hide in.
+# quiet() only: no warning is suppressed. The empty-result path used to raise
+# data.table's "shallow copy" notice on the pipeline side (.empty_combined_snps_dt(),
+# finding 6b725e) and was muted here; with it fixed, a warning from either side is a
+# real one, and this suite's warning baseline is zero.
 app_combine <- function(sig_list, strategy, gap) {
-    suppressWarnings(quiet(clinego.app:::combine_sigsnps(sig_list, strategy, gap)))
+    quiet(clinego.app:::combine_sigsnps(sig_list, strategy, gap))
 }
 
 pipe_combine <- function(sig_list, strategy, distance, predictors = PREDICTORS) {
-    suppressWarnings(quiet(combine_sigsnps(sig_list, strategy, distance, predictors)))
+    quiet(combine_sigsnps(sig_list, strategy, distance, predictors))
 }
 
 test_that("the strategy alias tables are identical on both sides", {
@@ -579,14 +575,12 @@ test_that("both sides return an empty result for no significant SNPs", {
     empty <- list(EMMAX = sig_long(character(), character(), integer(),
                                    character(), character(), numeric()))
     a <- app_combine(empty, "All", 200L)
-    # suppressWarnings: on an empty table combine_sigsnps.R:110 assigns a method
-    # column with `result[[m]] <- NA_character_`, which data.table flags as a
-    # shallow copy. That is the pipeline's own code path, not something this test
-    # controls — kept quiet so the suite stays warning-free.
-    p <- suppressWarnings(quiet(combine_sigsnps(
+    # No suppressWarnings: this is the empty path that raised the shallow-copy
+    # warning (6b725e), so a warning here fails the suite's zero-warning baseline.
+    p <- quiet(combine_sigsnps(
         list(EMMAX = sig_long(character(), character(), integer(),
                               character(), character(), numeric())),
-        "Union", 200L, PREDICTORS)))
+        "Union", 200L, PREDICTORS))
     expect_identical(nrow(a), 0L)
     expect_identical(nrow(p), 0L)
 })

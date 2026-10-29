@@ -9,7 +9,7 @@ suppressPackageStartupMessages({
     library(stringr)
 })
 
-source("/pipeline/scripts/R/lib/region_distance.R")
+source("/pipeline/scripts/R/lib/region_distance.R")  # resolve_clumping_distance_strict()
 source("/pipeline/scripts/R/lib/regions.R")
 
 args = commandArgs(trailingOnly = TRUE)
@@ -27,8 +27,8 @@ TRAIT_PVALUES          = if (length(args) >= 8) args[8] else "NULL"   # selected
 
 message('INFO: Creating regions from selected SNPs using single-linkage clustering')
 
-dist_spec <- resolve_clumping_distance(CLUMPING_DISTANCE_SPEC, LD_DECAY_PATH,
-                                        LD_RULE, LD_DECAY_GROUP)
+dist_spec <- resolve_clumping_distance_strict(CLUMPING_DISTANCE_SPEC, LD_DECAY_PATH,
+                                               LD_RULE, LD_DECAY_GROUP)
 
 snps <- fread(SELECTED_SNPS, colClasses = c(chr = "character"))
 

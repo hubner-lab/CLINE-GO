@@ -327,5 +327,24 @@ class TestWiring(unittest.TestCase):
                 self.assertNotRegex(text, r'(?<!")\{params\.ld_decay_group\}')
 
 
+
+class TestEveryScriptResolvesStrictly(unittest.TestCase):    # d5c442
+    """resolve_clumping_distance() turns a spec that is neither bp nor auto_* into 1e6 bp
+    with only a warning; resolve_clumping_distance_strict() stops on it. Every pipeline
+    script resolves a distance through the strict one (create_regions.R, write_summary.R
+    and build_snp_set.R did not)."""
+
+    def test_no_pipeline_script_calls_the_lenient_resolver(self):
+        offenders = []
+        for name in sorted(os.listdir(os.path.join(H.REPO_ROOT, "scripts"))):
+            if not name.endswith(".R"):
+                continue
+            with open(os.path.join(H.REPO_ROOT, "scripts", name)) as handle:
+                for i, line in enumerate(handle, start=1):
+                    if re.search(r"\bresolve_clumping_distance\(", line.split("#", 1)[0]):
+                        offenders.append(f"{name}:{i}")
+        self.assertEqual(offenders, [])
+
+
 if __name__ == "__main__":
     unittest.main()
