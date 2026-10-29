@@ -277,12 +277,13 @@ if (MODE == 'processing') {
     new_rows <- if (length(new_rows) > 0) rbindlist(new_rows) else data.table(step = character(), metric = character(), value = character())
 
 } else if (MODE == 'climate') {
-    # args: MODE OUTPUT invariant_path dbmem_diag_path variance_partition_path confounding_path px_path
+    # args: MODE OUTPUT invariant_path dbmem_diag_path variance_partition_path confounding_path px_path predictors
     INVARIANT_PATH = args[3]
     DBMEM_PATH     = args[4]
     VARPART_PATH   = args[5]
     CONFOUND_PATH  = args[6]
     PX_PATH        = args[7]
+    PREDICTORS     = trimws(strsplit(args[8], ",", fixed = TRUE)[[1]])   # Climate.predictors
 
     read_opt <- function(path) if (identical(path, 'NULL') || !file.exists(path)) NULL else fread(path, sep = '\t', header = TRUE)
 
@@ -300,8 +301,10 @@ if (MODE == 'processing') {
     new_rows <- list()
     add <- function(metric, value) new_rows[[length(new_rows) + 1]] <<- row('climate', metric, value)
 
+    # The invariant table covers every predictor the app offers (19 WorldClim layers);
+    # the count is over the selected ones, the predictors a run actually fits.
     invariant <- read_opt(INVARIANT_PATH)
-    if (!is.null(invariant)) add('n_invariant_predictors', nrow(invariant))
+    if (!is.null(invariant)) add('n_invariant_predictors', sum(invariant$predictor %in% PREDICTORS))
 
     dbmem <- read_opt(DBMEM_PATH)
     if (!is.null(dbmem)) {

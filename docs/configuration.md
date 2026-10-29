@@ -110,7 +110,7 @@ Map:
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `Map.climate_extent` | Geographic extent: `"auto"` (from sample coords) or `[min_lon, max_lon, min_lat, max_lat]` | `"auto"` |
+| `Map.climate_extent` | Geographic extent: `"auto"` (from sample coords) or one string `"min_lon,max_lon,min_lat,max_lat"` (not a YAML list) | `"auto"` |
 | `Map.gap` | Buffer around samples (degrees) | `0.5` |
 | `Map.resolution` | WorldClim resolution (arc-minutes: 0.5, 2.5, 5, 10) | `0.5` |
 | `Map.zoom_extent` | Zoom coordinates: `"xmin,xmax,ymin,ymax"` or `"NULL"` | `"NULL"` |

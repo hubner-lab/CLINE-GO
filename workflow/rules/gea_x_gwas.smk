@@ -1,7 +1,7 @@
 #=============================================================================
 # MODULE 4C: OVERLAPPING REGIONS (GEA + GWAS COMBINED)
 #=============================================================================
-if GWAS_CONFIGS and GEA_CONFIGS:
+if GWAS_CONFIGS and GEA_RUNS:
 
     rule miami_plot:
       """Static Miami plot combining GEA (top) and GWAS (bottom)."""
@@ -36,20 +36,20 @@ if GWAS_CONFIGS and GEA_CONFIGS:
           """
 
 # Pairwise trait overlap — works with GEA-only, GWAS-only, or both
-if GEA_CONFIGS or GWAS_CONFIGS:
+if GEA_RUNS or GWAS_CONFIGS:
 
     rule compute_pairwise_overlaps:
       """Compute all pairwise trait overlaps from method-collapsed sig SNPs."""
       input:
           selected = [f for f in [
-              O.get('selected_snps')      if GEA_CONFIGS      else None,
+              O.get('selected_snps')      if GEA_RUNS     else None,
               O.get('pheno_selected_snps') if GWAS_CONFIGS else None,
           ] if f is not None]
       output:
           collapsed = O['pairwise_collapsed_snps'],
           pairwise  = O['pairwise_overlap_table']
       params:
-          gea_snps  = O.get('selected_snps',       'NULL') if GEA_CONFIGS      else 'NULL',
+          gea_snps  = O.get('selected_snps',       'NULL') if GEA_RUNS     else 'NULL',
           gwas_snps = O.get('pheno_selected_snps',  'NULL') if GWAS_CONFIGS else 'NULL',
           window    = PAIRWISE_WINDOW_SIZE,
           min_snps  = PAIRWISE_MIN_SNPS

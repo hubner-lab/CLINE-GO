@@ -21,10 +21,11 @@
 # =============================================================================
 
 rule check_climate_variance:
-    """Detect invariant (zero-variance or all-NA) bioclimatic predictors at sample sites."""
+    """Detect invariant (zero-variance, one-value or all-NA) climate predictors at sample
+    sites, over the whole predictor universe: the app strikes invariant chips from it."""
     input:  site = O['climate_site']
     output: O['climate_invariant']
-    params: columns = "bio"
+    params: columns = ALL_BIO_STR
     log:    f"{LOGDIR}climate/check_climate_variance.log"
     shell:
         """

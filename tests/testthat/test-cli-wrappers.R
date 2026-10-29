@@ -43,10 +43,10 @@ WRAPPERS <- list(
         fails_without_input = TRUE
     ),
     list(
-        label   = "check_climate_variance.R (bio)",
+        label   = "check_climate_variance.R (named predictors)",
         script  = "check_climate_variance.R",
         build   = function(d) fx_climate_site(d),
-        args    = function(d, site) c(site, file.path(d, "invariant.tsv"), "bio"),
+        args    = function(d, site) c(site, file.path(d, "invariant.tsv"), "bio_1,bio_2,bio_12"),
         outputs = function(d) file.path(d, "invariant.tsv")
     ),
     list(
@@ -434,7 +434,7 @@ WRAPPERS <- list(
             c(inv, fx_dbmem_diag(d), fx_varpart(d), conf, px)
         },
         args    = function(d, f) c("climate", file.path(d, "pipeline_summary.tsv"),
-                                   f[1], f[2], f[3], f[4], f[5]),
+                                   f[1], f[2], f[3], f[4], f[5], "bio_1,bio_12"),
         outputs = function(d) file.path(d, "pipeline_summary.tsv"),
         # read_opt() (:261) returns NULL for a declared-but-missing input and the
         # guarded block is skipped: exit 0 with a thinner table. Filed and

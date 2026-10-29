@@ -98,13 +98,16 @@ elif MODE == 'climate':
             confound   = O['climate_vp_confound'],
             px         = O['climate_vp_px'],
         output: W['summary_done']
-        params: summary_tsv = O['summary']
+        params:
+            summary_tsv = O['summary'],
+            predictors  = ",".join(get_predictors_list())
         log: f"{LOGDIR}climate/write_summary.log"
         shell:
             """
             Rscript /pipeline/scripts/write_summary.R \
                 climate {params.summary_tsv} \
-                {input.invariant} {input.dbmem_diag} {input.varpart} {input.confound} {input.px} > {log} 2>&1
+                {input.invariant} {input.dbmem_diag} {input.varpart} {input.confound} {input.px} \
+                {params.predictors} > {log} 2>&1
             touch {output}
             """
 
@@ -274,8 +277,8 @@ elif MODE == 'gea_x_gwas':
     rule write_summary:
         """Overlapping mode: region analysis is fully interactive (Shiny). Just mark done."""
         input:
-            [O['overlap_miami']] if (GEA_CONFIGS and GWAS_CONFIGS) else [],
-            [O['pairwise_overlap_table']] if (GEA_CONFIGS or GWAS_CONFIGS) else [],
+            [O['overlap_miami']] if (GEA_RUNS and GWAS_CONFIGS) else [],
+            [O['pairwise_overlap_table']] if (GEA_RUNS or GWAS_CONFIGS) else [],
         output: W['summary_done']
         shell: "touch {output}"
 

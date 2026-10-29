@@ -21,15 +21,67 @@ from methods.maladaptation import MALADAPTATION_METHODS
 #=============================================================================
 # HELPER FUNCTIONS
 #=============================================================================
-def check_numeric(value, name, allow_null=False):
-    if allow_null and value is None: return True
-    try: int(value); return True
-    except: raise ValueError(f"{name} must be numeric, got: {value}")
+# Counts are parsed as int, never left as whatever spelling the YAML used.
+# The Shiny sidebar round-trips every numeric field through R's as.numeric(), so
+# yaml::write_yaml() used to store counts as doubles ("k_end: 7.0", "window: 100.0").
+# Several of these are interpolated straight into output PATHS below (FILT_TAG,
+# LD_TAG, cross_entropy_K{K_START}-{K_END}.png), so the same parameter value spelled
+# two ways produced two different files/directories -- e.g. cross_entropy_K2-7.0.png
+# beside cross_entropy_K2-6.png, with nothing on disk saying which is current, and a
+# whole second _work/ tree for a run with identical parameters. Casting here (rather
+# than at each interpolation site) means a future path tag cannot forget to do it.
+# Genuinely fractional values (MAF, MISS, LD_R2, HET_OUTLIER_SD, PI_HAT) stay float:
+# Python's float repr is shortest-round-trip, so those never had the problem.
+def _as_int(value, name):
+    """Cast a semantically-integer config value to int, preserving None.
 
-def check_float(value, name, allow_null=False):
+    An integral float or numeric string passes ("7.0", 7.0); a fraction or a boolean
+    is an error, never truncated: int() alone turned cpu: 0.5 into 0 and
+    sNMF.repeats: 2.9 into 2."""
+    if value is None: return None
+    try:
+        if isinstance(value, bool): raise TypeError
+        number = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{name} must be an integer, got: {value!r}")
+    if not number.is_integer():
+        raise ValueError(f"{name} must be an integer, got: {value!r}")
+    return int(number)
+
+def check_numeric(value, name, allow_null=False):
+    """An integer (see _as_int); the value itself is left as written."""
+    if value is None:
+        if allow_null: return True
+        raise ValueError(f"{name} must be numeric, got: None")
+    _as_int(value, name); return True
+
+def check_float(value, name, allow_null=False, low=None, high=None):
+    """A number, and with low/high one inside [low, high]. The value itself is left as
+    written: MAF, MISS, SAMPLE_MISS, LD_R2 and PI_HAT reach path tags verbatim."""
     if allow_null and value is None: return True
-    try: float(value); return True
-    except: raise ValueError(f"{name} must be float, got: {value}")
+    try:
+        if isinstance(value, bool): raise TypeError
+        number = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{name} must be float, got: {value}")
+    if number != number or (low is not None and number < low) \
+            or (high is not None and number > high):
+        raise ValueError(f"{name} must be a number in [{low}, {high}], got: {value}")
+    return True
+
+# A boolean is a YAML bool, 0/1 or one of these words. Until 2026-10-29 any string
+# outside the false words read as True, so Climate.enabled: 'off' enabled climate.
+_TRUE_WORDS  = ('true', 't', 'yes', 'y', 'on', '1')
+_FALSE_WORDS = ('false', 'f', 'no', 'n', 'off', '0', '')
+
+def _parse_bool(value, name):
+    if isinstance(value, bool): return value
+    if isinstance(value, int) and value in (0, 1): return bool(value)
+    if isinstance(value, str):
+        word = value.strip().lower()
+        if word in _TRUE_WORDS: return True
+        if word in _FALSE_WORDS: return False
+    raise ValueError(f"{name} must be true or false (yes/no, on/off, 1/0), got: {value!r}")
 
 def check_in_list(value, allowed, name):
     if value not in allowed:
@@ -104,11 +156,10 @@ def _cfg(group, key, default=None):
     return config.get(group, {}).get(key, default)
 
 def _cfg_bool(group, key, default=False):
-    """Read a boolean config value, handling YAML string representations ('false'/'true')."""
+    """Read a boolean config value (see _parse_bool). A key present but null reads as
+    false, like an empty string."""
     val = _cfg(group, key, default)
-    if isinstance(val, bool): return val
-    if isinstance(val, str): return val.strip().lower() not in ('false', 'f', '0', 'no', '')
-    return bool(val)
+    return False if val is None else _parse_bool(val, f"{group}.{key}")
 
 # INPUT parameters
 INDIR = '/pipeline/' + config['Input']['dir']
@@ -117,35 +168,23 @@ OUTDIR = f'/pipeline/{PROJECT}_results/'
 LOGDIR = f'/pipeline/{PROJECT}_logs/'
 
 CPU = config.get('cpu', max(1, os.cpu_count() - 2)); check_numeric(CPU, 'cpu')
+if _as_int(CPU, 'cpu') < 1: raise ValueError(f"cpu must be >= 1, got: {CPU}")
 VCF_RAW = config['Input']['vcf']; check_file_exists(INDIR, VCF_RAW, 'input.vcf')
 SAMPLES = config['Input']['metadata']; check_file_exists(INDIR, SAMPLES, 'input.metadata')
 VCF_BASE = get_vcf_basename(VCF_RAW)
 
 # FILTER parameters
-MAF = config['Filter']['maf']; check_float(MAF, 'filter.maf')
-MISS = config['Filter']['snp_miss']; check_float(MISS, 'filter.snp_miss')
-SAMPLE_MISS = _cfg('Filter', 'sample_miss', 0.5); check_float(SAMPLE_MISS, 'filter.sample_miss')
-# Counts are parsed as int, never left as whatever spelling the YAML used.
-# The Shiny sidebar round-trips every numeric field through R's as.numeric(), so
-# yaml::write_yaml() used to store counts as doubles ("k_end: 7.0", "window: 100.0").
-# Several of these are interpolated straight into output PATHS below (FILT_TAG,
-# LD_TAG, cross_entropy_K{K_START}-{K_END}.png), so the same parameter value spelled
-# two ways produced two different files/directories -- e.g. cross_entropy_K2-7.0.png
-# beside cross_entropy_K2-6.png, with nothing on disk saying which is current, and a
-# whole second _work/ tree for a run with identical parameters. Casting here (rather
-# than at each interpolation site) means a future path tag cannot forget to do it.
-# Genuinely fractional values (MAF, MISS, LD_R2, HET_OUTLIER_SD, PI_HAT) stay float:
-# Python's float repr is shortest-round-trip, so those never had the problem.
-def _as_int(value, name):
-    """Cast a semantically-integer config value to int, preserving None."""
-    if value is None: return None
-    try: return int(value)
-    except (TypeError, ValueError): raise ValueError(f"{name} must be an integer, got: {value}")
+# Ranges match the app's sidebar bounds (fct_config_schema.R): plink takes --maf up to
+# 0.5 and --geno/--mind as fractions; a value outside used to parse, and maf = -1 even
+# named the working directory (_work/maf-1_...).
+MAF = config['Filter']['maf']; check_float(MAF, 'filter.maf', low=0, high=0.5)
+MISS = config['Filter']['snp_miss']; check_float(MISS, 'filter.snp_miss', low=0, high=1)
+SAMPLE_MISS = _cfg('Filter', 'sample_miss', 0.5); check_float(SAMPLE_MISS, 'filter.sample_miss', low=0, high=1)
 
 MIN_DEPTH    = _as_int(_cfg('Filter', 'min_depth', None), 'filter.min_depth')
 MAX_DEPTH    = _as_int(_cfg('Filter', 'max_depth', None), 'filter.max_depth')
 HET_OUTLIER_SD = _cfg('Filter', 'het_outlier_sd', None)
-PI_HAT = _cfg('Filter', 'relatedness', None); check_float(PI_HAT, 'filter.relatedness', allow_null=True)
+PI_HAT = _cfg('Filter', 'relatedness', None); check_float(PI_HAT, 'filter.relatedness', allow_null=True, low=0, high=1)
 # relatedness_action gates removal separately from the threshold: 'keep' (default) only
 # colors/counts related pairs in the Processing histogram; 'remove' actually drops samples.
 _relatedness_action_explicit = 'relatedness_action' in config.get('Filter', {})
@@ -172,14 +211,16 @@ except Exception:
 # LD parameters
 LD_WIN = _as_int(config['LD']['window'], 'ld.window')
 LD_STEP = _as_int(config['LD']['step'], 'ld.step')
-LD_R2 = config['LD']['r2']; check_float(LD_R2, 'ld.r2')
+LD_R2 = config['LD']['r2']; check_float(LD_R2, 'ld.r2', low=0, high=1)
 
 # SNMF parameters
 K_START = _as_int(config['sNMF']['k_start'], 'snmf.k_start')
 K_END = _as_int(config['sNMF']['k_end'], 'snmf.k_end')
 PLOIDY = 2  # diploid only
 REPEAT = _as_int(config['sNMF']['repeats'], 'snmf.repeats')
-K_BEST = int(_cfg('sNMF', 'k_best', None)) if _cfg('sNMF', 'k_best', None) is not None else None
+if REPEAT is None or REPEAT < 1:
+    raise ValueError(f"snmf.repeats must be an integer >= 1, got: {config['sNMF']['repeats']!r}")
+K_BEST = _as_int(_cfg('sNMF', 'k_best', None), 'snmf.k_best')
 _validate_k_sweep(K_START, K_END, K_BEST)
 SNMF_PROJECT_MODE = 'new'  # LEA project mode: 'new' for fresh runs, 'continue' to resume
 # MAF floor applied to the sNMF-IMPUTED matrices (LD-pruned and full), i.e. the SNP set every
@@ -243,6 +284,39 @@ if CLIMATE_SOURCE == 'custom':
 else:
     ALL_BIO = [f"bio_{i}" for i in range(1, 20)]
 ALL_BIO_STR = ",".join(ALL_BIO)
+
+# Every piemap and GEA rule constrains its {bio} wildcard to bio_\d+, so a custom column
+# named otherwise (tmin_jan) used to pass here and stop mode=structure at DAG build
+# with a MissingRuleException.
+if CLIMATE_ENABLED and CLIMATE_SOURCE == 'custom':
+    if not ALL_BIO:
+        raise ValueError("Climate.source is 'custom' but Climate.custom.columns (or "
+                         "Climate.predictors, its fallback) names no column")
+    _bad_bio = [c for c in ALL_BIO if not re.fullmatch(r'bio_\d+', c)]
+    if _bad_bio:
+        raise ValueError(f"Climate.custom.columns must be named bio_<N> (bio_1, bio_2, ...): "
+                         f"rename {_bad_bio} in the custom climate tables and in the config")
+
+# WorldClim's download (download_climate_present.R, download_climate_future_model.R)
+# knows four resolutions; any other value fell through R's switch() to a bogus
+# wc2.1__bio.zip URL after imputation had run. The extent goes to the same scripts as
+# ONE argv word: a YAML list would expand to four and shift every later positional.
+_WORLDCLIM_RESOLUTIONS = (0.5, 2.5, 5.0, 10.0)
+if CLIMATE_ENABLED and CLIMATE_SOURCE == 'worldclim':
+    check_float(RESOLUTION, 'Map.resolution')
+    if float(RESOLUTION) not in _WORLDCLIM_RESOLUTIONS:
+        raise ValueError(f"Map.resolution must be one of 0.5, 2.5, 5 or 10 (WorldClim "
+                         f"arc-minutes), got: {RESOLUTION}")
+    if str(CLIMATE_EXTENT) not in ('auto', 'world'):
+        _ext = str(CLIMATE_EXTENT).split(',') if isinstance(CLIMATE_EXTENT, str) else []
+        try:
+            _ext = [float(v) for v in _ext]
+        except ValueError:
+            _ext = []
+        if len(_ext) != 4 or not (_ext[0] < _ext[1] and _ext[2] < _ext[3]):
+            raise ValueError(f"Map.climate_extent must be 'auto' or one string "
+                             f"\"min_lon,max_lon,min_lat,max_lat\" with min < max, got: "
+                             f"{CLIMATE_EXTENT!r}")
 
 # TRAITS parameters (mode=traits — phenotypic factor characterization).
 # Runs in BOTH regimes: traits need no coordinates and no climate.
@@ -688,6 +762,8 @@ else:  # 'with'
 _go = _mala_cfg.get('methods', {}).get('geometric_offset', {})
 GO_CANDIDATE_ONLY = _go.get('candidate_only', True)
 _go_k = _go.get('k', '')
+if _go_k is None: _go_k = ''               # an explicit null used to become the string 'None'
+if _go_k != '': _as_int(_go_k, 'Maladaptation.methods.geometric_offset.k')
 GO_K = str(_go_k) if _go_k != '' else ''   # '' → use K_BEST at rule time
 GO_SCALE = str(_go.get('scale', True)).upper()  # 'TRUE'/'FALSE' for R
 
@@ -788,7 +864,7 @@ def _coerce_param(method, name, spec, raw):
         elif ptype == "float":
             val = float(raw)
         elif ptype == "bool":
-            val = raw if isinstance(raw, bool) else str(raw).strip().lower() not in ('false', 'f', '0', 'no', '')
+            val = _parse_bool(raw, name)
         else:  # "str" | "enum"
             val = str(raw)
     except (TypeError, ValueError) as e:
@@ -1020,7 +1096,11 @@ PHENO_REGION_LD_DECAY_GROUP = PHENO_CLUMPING_LD_DECAY_GROUP
 
 # The groups that run: GEA needs the climate regime, and each needs its configs. A
 # gwas_only project never reads GEA's distance, so nothing below speaks of it there.
-_assoc_runs = {'GEA': CLIMATE_ENABLED and bool(GEA_CONFIGS), 'GWAS': bool(GWAS_CONFIGS)}
+# GEA_RUNS gates every rule that would read GEA outputs (gea_x_gwas.smk, summary.smk):
+# config_default.yaml ships GEA.configs, so a gwas_only project made by the app has them,
+# and gating on GEA_CONFIGS alone made mode=gea_x_gwas ask for GEA tables no mode builds.
+GEA_RUNS = CLIMATE_ENABLED and bool(GEA_CONFIGS)
+_assoc_runs = {'GEA': GEA_RUNS, 'GWAS': bool(GWAS_CONFIGS)}
 
 # A group with no snp_clumping_distance, own or inherited, takes the LD-decay distance.
 # Say so once: until 2026-10-26 the default was a fixed 100 kb, and a config written
@@ -1094,14 +1174,24 @@ PAIRWISE_MIN_SNPS    = int(_pairwise.get('min_snps', 2))
 PHENO_TRAITS = []
 PHENO_PREDICTORS = ''
 _meta_path = os.path.join(INDIR, SAMPLES)
+# A file that cannot be read, or one that is not tab-separated, is an error here: it
+# used to read as "no trait columns", and mode=traits blamed the traits.
 try:
     with open(_meta_path) as _f:
         _meta_header = _f.readline().strip().split('\t')
         _meta_rows = [ln.rstrip('\n').split('\t') for ln in _f if ln.strip()]
-    META_HAS_PHENO = len(_meta_header) > 4
-except Exception:
-    _meta_rows = []
-    META_HAS_PHENO = False
+except (OSError, UnicodeDecodeError) as _e:
+    raise ValueError(f"Input.metadata ({_meta_path}) cannot be read: {_e}")
+if _meta_header == ['']:
+    raise ValueError(f"Input.metadata ({_meta_path}) is empty")
+if len(_meta_header) < 4:
+    _sep = next((name for sep, name in ((',', 'comma'), (';', 'semicolon'), (' ', 'space'))
+                 if sep in _meta_header[0]), None)
+    raise ValueError(
+        f"Input.metadata ({_meta_path}) must be tab-separated with at least 4 columns "
+        f"(site, sample, latitude, longitude, then any traits); its header has "
+        f"{len(_meta_header)}" + (f" and looks {_sep}-separated" if _sep else ""))
+META_HAS_PHENO = len(_meta_header) > 4
 
 # Parse-time contract for the metadata `sample` column (column 2): every downstream keep-list
 # (extract_samples, the R keep-list writers) and every join keys on it, and plink --keep drops
@@ -2652,6 +2742,167 @@ if _gw_sets and LD_DECAY_SCOPE == 'per_chromosome':
                      f"the genome-wide LD-decay rows: set LDdecay.scope to genome_wide or both, "
                      f"or give the set's clumping_distance in bp")
 
+#-----------------------------------------------------------------------------
+# Parse-time checks that need a table an earlier mode wrote. get_targets() calls
+# each from the mode that would fail; each skips while its table is not on disk,
+# and the consuming script then still stops at run time, as before.
+#-----------------------------------------------------------------------------
+def _read_tsv(path):
+    """(header, rows as dicts) of a tab-separated table, every field a string."""
+    with open(path) as handle:
+        header = handle.readline().rstrip('\n').split('\t')
+        rows = [dict(zip(header, line.rstrip('\n').split('\t'))) for line in handle if line.strip()]
+    return header, rows
+
+def _invariant_predictors(site_tsv, predictors):
+    """{predictor: reason} for the predictors that do not vary across the samples of
+    climate_present_site.tsv, under check_climate_variance.R's rule: all_na, a
+    single_value (one non-missing value) or zero_variance."""
+    header, rows = _read_tsv(site_tsv)
+    out = {}
+    for p in predictors:
+        if p not in header:
+            continue
+        values = []
+        for row in rows:
+            try:
+                v = float(row.get(p, ''))
+            except ValueError:
+                continue
+            if v == v:
+                values.append(v)
+        if not values:
+            out[p] = 'all_na'
+        elif len(values) == 1:
+            out[p] = 'single_value'
+        elif len(set(values)) == 1:
+            out[p] = 'zero_variance'
+    return out
+
+def _refuse_invariant_predictors(lists):
+    """Refuse, by name, a predictor the mode fits that does not vary across the
+    samples: scaled, it is an all-NA column, on which EMMAX segfaults, LFMM errors and
+    climate_varpart's z-scores turn NaN. `lists` is [(config key, [predictors])]."""
+    site_tsv = O['climate_site']
+    if not os.path.exists(site_tsv):
+        return
+    bad = _invariant_predictors(site_tsv, sorted({p for _, preds in lists for p in preds}))
+    hits = [f"{key}: " + ', '.join(f"{p} ({bad[p]})" for p in preds if p in bad)
+            for key, preds in lists if any(p in bad for p in preds)]
+    if hits:
+        raise ValueError(f"predictors that do not vary across the samples cannot be fitted "
+                         f"({site_tsv}); remove them from the list -- {'; '.join(hits)}")
+
+def _mala_predictors_key():
+    raw = _mala_cfg.get('predictors', 'auto')
+    auto = raw is None or (isinstance(raw, str) and raw.strip() in ('', 'auto'))
+    return 'Climate.predictors' if auto else 'Maladaptation.predictors'
+
+# The LD-decay column each clumping_ld_rule reads (LD_RULE_COLUMNS in region_distance.R).
+_LD_RULE_COLUMNS = {'critical': 'decay_critical_bp', 'half_decay': 'decay_half_bp',
+                    'r2_threshold': 'decay_r2thr_bp'}
+
+def _ld_auto_refusal(header, rows, spec, ld_rule, group):
+    """Why resolve_clumping_distance() (scripts/R/lib/region_distance.R) stops on this
+    LD-decay table for an auto_* spec, or None when it gives a distance. Only the
+    decision is mirrored; R still reads the distance. Change the two together:
+    tests/python/test_config_checks.py runs both on the same tables."""
+    col = _LD_RULE_COLUMNS[ld_rule]
+    if not rows:
+        return "the LD-decay table is empty (no group had LD-decay data)"
+    missing = [c for c in _LD_RULE_COLUMNS.values() if c not in header]
+    if missing:
+        return (f"the LD-decay table lacks {', '.join(missing)}: it predates the PLINK "
+                f"LD-decay estimator; re-run mode=structure")
+    mine = [r for r in rows if r.get('group') == group]
+    if not mine:
+        return (f"LD-decay group '{group}' is not in the table: check ld_decay_group, "
+                f"LDdecay.group_by and LDdecay.min_samples")
+    def unreliable(r):   # a table without ld_status reads as reliable, as in R (96e4fd)
+        return r.get('ld_status') == 'unreliable'
+    def reached(r):
+        field = r.get(col)
+        return field is not None and field.strip() not in ('', 'NA', 'NaN', 'nan')
+    def unreliable_msg(where, r):
+        return (f"LD decay ({where}) is unreliable: {r.get('ld_status_reason', '')}; declare "
+                f"the distance in bp")
+    gw = [r for r in mine if r.get('scope') == 'genome_wide']
+    if spec in ('auto', 'auto_genome_wide'):
+        if not gw:
+            return "no genome-wide LD-decay row: auto_genome_wide needs LDdecay.scope genome_wide or both"
+        if unreliable(gw[0]):
+            return unreliable_msg("genome-wide", gw[0])
+        if not reached(gw[0]):
+            return (f"rule '{ld_rule}' is not reached on the genome-wide curve: choose another "
+                    f"clumping_ld_rule or declare the distance in bp")
+        return None
+    chrom = [r for r in mine if r.get('scope') != 'genome_wide']
+    if not chrom:
+        return "no per-chromosome LD-decay rows: auto_per_chromosome needs LDdecay.scope per_chromosome or both"
+    fallback = bool(gw) and not unreliable(gw[0]) and reached(gw[0])
+    for r in chrom:
+        if (not unreliable(r) and reached(r)) or fallback:
+            continue
+        where = f"chromosome {r.get('scope')}, with no genome-wide value to fall back to"
+        if unreliable(r):
+            return unreliable_msg(where, r)
+        return (f"rule '{ld_rule}' is not reached ({where}): choose another clumping_ld_rule "
+                f"or declare the distance in bp")
+    return None
+
+def _refuse_unreachable_ld_rules(source):
+    """Refuse an auto_* distance the LD-decay table cannot give: it passed
+    snakemake -n and stopped in find_sig_snps / create_regions only after every
+    association job had run. WZA is left out: it keeps its fallback window."""
+    table = O.get('ld_decay_table', '')
+    if not os.path.exists(table):
+        return
+    if source == 'GEA':
+        specs = [('GEA.snp_clumping_distance', CLUMPING_DISTANCE_MODE, CLUMPING_LD_RULE,
+                  CLUMPING_LD_DECAY_GROUP),
+                 ('GEA.region_clumping_distance', REGION_DISTANCE_MODE, REGION_LD_RULE,
+                  REGION_LD_DECAY_GROUP)]
+    else:
+        specs = [('GWAS.snp_clumping_distance', PHENO_CLUMPING_DISTANCE_MODE,
+                  PHENO_CLUMPING_LD_RULE, PHENO_CLUMPING_LD_DECAY_GROUP),
+                 ('GWAS.region_clumping_distance', PHENO_REGION_DISTANCE_MODE,
+                  PHENO_REGION_LD_RULE, PHENO_REGION_LD_DECAY_GROUP)]
+    specs += [(f"{source}.snp_sets {name} clumping_distance", d['clumping_distance'],
+               d['clumping_ld_rule'], d['ld_decay_group'])
+              for name, d in SNP_SET_DECL.items()
+              if d['source_module'] == source and d['clumping_distance'] == 'auto_genome_wide']
+    specs = [s for s in specs if s[1] != 'fixed']
+    if not specs:
+        return
+    header, rows = _read_tsv(table)
+    problems = [f"{key} = {spec} (rule {ld_rule}, group '{group}'): {why}"
+                for key, spec, ld_rule, group in specs
+                for why in [_ld_auto_refusal(header, rows, spec, ld_rule, group)] if why]
+    if problems:
+        raise ValueError(f"an auto_* distance cannot be read from {table} -- " + '; '.join(problems))
+
+def _refuse_saturated_spatial_gf():
+    """Refuse a spatial Gradient Forest no run can fit: with Climate.predictors >=
+    sites - 1, climate_varpart (pregea_varpart.R) has no residual df at site level and
+    selects no dbMEM vector, and the spatial GF then stops (gradient_forest_model.R)
+    after mode=climate exited 0. Sites are counted in metadata_climate_valid.tsv, the
+    table pregea_varpart.R collapses on, or before mode=structure has written it in the
+    metadata, which never has fewer."""
+    if 'gradient_forest' not in ACTIVE_MALA_METHODS or 'spatial' not in ACTIVE_SPATIAL_TAGS:
+        return
+    path = W['metadata_climate_valid']
+    sites = ({r.get('site') for r in _read_tsv(path)[1]} if os.path.exists(path)
+             else {r[0] for r in _meta_rows if r})
+    n_pred = len(get_predictors_list())
+    if n_pred >= len(sites) - 1:
+        raise ValueError(
+            f"Maladaptation.methods.gradient_forest.spatial_correction is "
+            f"'{SPATIAL_CORRECTION}', but {n_pred} Climate.predictors on {len(sites)} sites "
+            f"leave climate_varpart no residual degree of freedom (it needs fewer than "
+            f"sites - 1 predictors), so it selects no dbMEM vector and the spatial Gradient "
+            f"Forest cannot be fitted. Set spatial_correction: without, or fit fewer "
+            f"Climate.predictors.")
+
 def _targets_for_assoc_source(source):
     """Build the shared downstream target list for a GEA or GWAS source."""
     src = ASSOC_SOURCES[source]
@@ -2745,6 +2996,8 @@ def get_targets(mode):
             raise ValueError("PreGEA.predictors (or Climate.predictors as fallback) must be set")
         if not PREGEA_LFMM_KS:
             raise ValueError("PreGEA: empty K range — check PreGEA.k_offset against sNMF.k_best")
+        _refuse_invariant_predictors([('PreGEA.predictors' if _pregea.get('predictors')
+                                       else 'Climate.predictors', PREGEA_PREDICTORS)])
         targets = [
             O['pregea_screeplot'], O['pregea_screeplot_tsv'],
             O['pregea_lfmm_ladder'], O['pregea_lfmm_hist'],
@@ -2772,6 +3025,7 @@ def get_targets(mode):
         if not get_predictors_list():
             raise ValueError("Climate.predictors must be set for climate mode")
         check_numeric(K_BEST, 'K_BEST')
+        _refuse_invariant_predictors([('Climate.predictors', get_predictors_list())])
         targets = [
             O['climate_invariant'], O['climate_design'],
             DENSITY_PLOT_COMBINED, O['corr_heatmap'],
@@ -2844,6 +3098,13 @@ def get_targets(mode):
             raise ValueError("GEA.configs must be set for association mode")
         if GFF:
             check_file_exists(INDIR, GFF, 'GFF')
+        _refuse_invariant_predictors(
+            [('Climate.predictors', get_predictors_list())] +
+            [(f"GEA.configs {m} params.predictor_set",
+              [p.strip() for p in str(GEA_PARAMS[m]['predictor_set']).split(',') if p.strip()])
+             for m in GEA_CONFIGS if GEA_METHODS[m]['engine'] == 'rda'
+             and GEA_PARAMS[m].get('predictor_set', 'auto') != 'auto'])
+        _refuse_unreachable_ld_rules("GEA")
 
         targets = _targets_for_assoc_source("GEA")
         targets.append(W['summary_done'])
@@ -2871,6 +3132,23 @@ def get_targets(mode):
                 "(one future) or Climate.custom.future_tables (a list) when "
                 "Climate.source is 'custom'."
             )
+        # density_plot_future and gf_sensitivity_check read the one future named
+        # DEFAULT_SCENARIO; future_tables names scenarios after their tables, so the
+        # DAG used to stop with a KeyError in stage_custom_climate_future's input.
+        if DEFAULT_SCENARIO not in SCENARIOS:
+            _single = [key for key, on in (
+                ('Maladaptation.emit_plots (density_plot_future)', MALA_EMIT_PLOTS),
+                ('Maladaptation.methods.gradient_forest.sensitivity_check',
+                 GF_SENSITIVITY_CHECK and 'gradient_forest' in ACTIVE_MALA_METHODS)) if on]
+            if _single:
+                raise ValueError(
+                    f"Climate.custom.future_tables gives the scenarios "
+                    f"{', '.join(SCENARIO_NAMES)}, but {' and '.join(_single)} read one "
+                    f"future table only: set them to false, or give one "
+                    f"Climate.custom.future_table instead.")
+        _refuse_invariant_predictors([(_mala_predictors_key(),
+                                       [p for p in MALA_PREDICTORS.split(',') if p])])
+        _refuse_saturated_spatial_gf()
 
         # Future climate (method-agnostic) — one staged future per scenario
         targets = []
@@ -2943,6 +3221,7 @@ def get_targets(mode):
             raise ValueError("GWAS.configs must be set for association_phenotypes mode")
         if GFF:
             check_file_exists(INDIR, GFF, 'GFF')
+        _refuse_unreachable_ld_rules("GWAS")
 
         targets = [O['pheno_missing_summary']] + _targets_for_assoc_source("GWAS")
 
@@ -2958,7 +3237,7 @@ def get_targets(mode):
 
     elif mode == 'gea_x_gwas':
         check_numeric(K_BEST, 'K_BEST')
-        has_gea  = bool(GEA_CONFIGS) and CLIMATE_ENABLED
+        has_gea  = GEA_RUNS
         has_gwas = bool(GWAS_CONFIGS)
         if not has_gea and not has_gwas:
             raise ValueError(

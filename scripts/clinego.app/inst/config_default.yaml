@@ -58,7 +58,7 @@ sNMF:
 # MAP: Geographic extent and resolution for climate data
 #-----------------------------------------------------------------------------
 Map:
-  climate_extent: "auto"           # [min_lon, max_lon, min_lat, max_lat] or "auto"
+  climate_extent: "auto"           # "auto", or one string "min_lon,max_lon,min_lat,max_lat" (not a YAML list)
   gap: 0.5                         # Buffer around samples in degrees (only if auto)
   resolution: 0.5                  # Climate data resolution in arc-minutes (0.5, 2.5, 5, 10)
   zoom_extent: "NULL"              # Optional zoom: "xmin,xmax,ymin,ymax" or "NULL"
