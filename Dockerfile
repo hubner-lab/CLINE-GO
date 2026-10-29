@@ -94,7 +94,11 @@ RUN Rscript -e " \
 
 # qs2 — faster qdata format for large object disk caching (successor to qs).
 # Installed separately to preserve layer cache for the block above.
-RUN Rscript -e "install.packages('qs2', repos = 'https://cloud.r-project.org')"
+# Pinned to 0.2.2, the version in the paper image (93bd6025e77b) and the laptop image
+# (c40b4e3802d7). Unpinned, it came from live CRAN, not the base image's snapshot: on
+# 2026-10-29 the next qs2 needed RcppParallel >= 6.1.1, which needs cmake, so qs2 and then
+# clinego.app (which imports it) were missing and the final check stopped the build.
+RUN Rscript -e "remotes::install_version('qs2', version = '0.2.2', repos = 'https://cloud.r-project.org', upgrade = 'never')"
 
 # Visualization packages
 RUN Rscript -e " \
