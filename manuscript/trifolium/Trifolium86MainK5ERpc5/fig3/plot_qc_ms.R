@@ -188,7 +188,7 @@ p_maf <- ggplot(maf_raw, aes(x = MAF)) +
     ) +
     scale_fill_manual(
         values = c("FALSE" = RETAINED, "TRUE" = REMOVED),              # DERIVED (D23)
-        labels = c("FALSE" = "Retained", "TRUE" = "Removed"),
+        labels = c("FALSE" = "Above threshold", "TRUE" = "Below threshold"),
         name = NULL
     ) +
     geom_vline(xintercept = MAF_THRESH, linetype = "dashed", color = THRESHOLD, linewidth = 0.3) +  # DERIVED (D23)
