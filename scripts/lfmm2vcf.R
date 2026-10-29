@@ -21,7 +21,8 @@ gt[gt == 1] <- "0/1"
 gt[gt == 2] <- "1/1"
 
 gt <- gt %>% as.data.table
-colnames(gt) <- fread(cmd = paste("grep -m1 CHROM",
+# Anchored: an unanchored CHROM first matched any earlier ##contig=<ID=CHROMOSOME_I> line (5f1e90).
+colnames(gt) <- fread(cmd = paste("grep -m1 '^#CHROM'",
                                       VCF,
                                       "| cut -f10- "), header = T) %>% colnames
 snps <- fread(cmd = paste("grep -v \'^##\'",
@@ -39,10 +40,10 @@ if (nrow(gt) != nrow(snps)) {
 vcf.restored <- cbind(snps, gt)
 # Save restored VCF file
 
-# Copy meta header
+# Copy meta header: every leading ## line, however many (`head -1000` cut a long header,
+# e.g. one ##contig line per scaffold, at line 1000; ab75b3's class)
 LFMM_imp_vcf = gsub('.lfmm', '.vcf', LFMM_imp)
-system(paste("head -1000", VCF,
-	     "| grep \'^##\' >", LFMM_imp_vcf))
+system(paste("sed -n '/^##/!q;p'", VCF, ">", LFMM_imp_vcf))
 fwrite(vcf.restored,
        LFMM_imp_vcf,
        append = T,

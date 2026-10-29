@@ -82,7 +82,15 @@ sNMF:
 | `sNMF.repeats` | Number of sNMF repetitions per K | `10` |
 | `sNMF.imputed_maf` | MAF floor on the sNMF-**imputed** matrices (LD-pruned and full), i.e. the SNP set every GEA/GWAS method tests. Blank/`null` = same as `Filter.maf`; `0` = filter off; must be in [0, 0.5) | `null` |
 
-Ploidy is hardcoded to 2 (diploid). The pipeline does not support haploid organisms.
+Ploidy is hardcoded to 2 (diploid; `PLOIDY` in `workflow/rules/common.smk`). There is no config key: a
+`sNMF.ploidy` other than 2 is refused at parse time. Haploid and polyploid organisms are not supported.
+
+**Diploid likelihood on a panel without heterozygotes.** sNMF counts each individual as two independent
+allele draws. On a panel with (almost) no heterozygous calls — complete selfers, inbred lines, or a VCF
+whose heterozygous calls were masked to missing at calling — every homozygote is counted twice, so Q and
+the cross-entropy choice of K come out more confident than the data allow. Nothing in the run warns about
+it: read `Processing/tables/sample_heterozygosity.tsv` (or the het-vs-missingness QC plot) before
+trusting K. (Trifolium86Main has zero heterozygous calls panel-wide.)
 
 **Why a second MAF filter.** `Filter.maf` runs as plink `--maf` on *observed* calls. Imputation then
 fills every missing call, mostly with the major allele, so a SNP whose minor allele sits in one small

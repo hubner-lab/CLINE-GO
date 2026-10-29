@@ -95,7 +95,11 @@ if (n_snps_freq < MIN_SNPS) {
 
 # ── Site-level offsets from both models ─────────────────────────────────────────────────
 samples <- fread(SAMPLES, colClasses = c(site = 'character', sample = 'character'))
-ep <- fread(CLIM_PRESENT); ef <- fread(CLIM_FUTURE)
+# sample stays character (2d4533): read as a number, an id such as 001 matched no samples$sample
+# and the check ended 'not_run'.
+sample_chr <- function(p) if ('sample' %in% names(fread(p, nrows = 0))) c(sample = 'character')
+ep <- fread(CLIM_PRESENT, colClasses = sample_chr(CLIM_PRESENT))
+ef <- fread(CLIM_FUTURE, colClasses = sample_chr(CLIM_FUTURE))
 if (!'sample' %in% names(ep)) fail_out('not_run', 'present climate table has no sample column')
 ep$site <- samples$site[match(ep$sample, samples$sample)]
 ef$site <- samples$site[match(ef$sample, samples$sample)]

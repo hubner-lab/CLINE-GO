@@ -216,7 +216,12 @@ LD_R2 = config['LD']['r2']; check_float(LD_R2, 'ld.r2', low=0, high=1)
 # SNMF parameters
 K_START = _as_int(config['sNMF']['k_start'], 'snmf.k_start')
 K_END = _as_int(config['sNMF']['k_end'], 'snmf.k_end')
-PLOIDY = 2  # diploid only
+# sNMF runs diploid only: PLOIDY is a constant, not a config key (899581). A config naming another
+# sNMF.ploidy would otherwise run diploid without a word, so it is refused.
+PLOIDY = 2
+if _as_int(config['sNMF'].get('ploidy'), 'snmf.ploidy') not in (None, PLOIDY):
+    raise ValueError(f"sNMF.ploidy = {config['sNMF']['ploidy']!r}: the pipeline runs sNMF "
+                     f"diploid only (PLOIDY = 2); remove the key")
 REPEAT = _as_int(config['sNMF']['repeats'], 'snmf.repeats')
 if REPEAT is None or REPEAT < 1:
     raise ValueError(f"snmf.repeats must be an integer >= 1, got: {config['sNMF']['repeats']!r}")
@@ -1173,6 +1178,9 @@ PAIRWISE_MIN_SNPS    = int(_pairwise.get('min_snps', 2))
 # Discover phenotype traits from metadata columns 5+ (for directory creation and wildcards)
 PHENO_TRAITS = []
 PHENO_PREDICTORS = ''
+# What a GWAS trait name may be: the {pheno_trait} wildcard constraint in gwas.smk and the
+# parse-time name check below, one pattern so the two cannot drift apart.
+PHENO_TRAIT_RE = r"[a-zA-Z]\w*"
 _meta_path = os.path.join(INDIR, SAMPLES)
 # A file that cannot be read, or one that is not tab-separated, is an error here: it
 # used to read as "no trait columns", and mode=traits blamed the traits.
@@ -1191,6 +1199,17 @@ if len(_meta_header) < 4:
         f"Input.metadata ({_meta_path}) must be tab-separated with at least 4 columns "
         f"(site, sample, latitude, longitude, then any traits); its header has "
         f"{len(_meta_header)}" + (f" and looks {_sep}-separated" if _sep else ""))
+# Columns 1-4 are read BY NAME downstream (filter_coord_samples.R's latitude/longitude, every
+# colClasses on site and sample) and BY POSITION here, in extract_samples (`$2`) and in the trait
+# slices (PHENO_TRAITS below, prepare_phenotypes.R, the app's trait chips). Nothing checked that the
+# two agree, so a gwas_only file written `site sample t1 t2 t3` ran GWAS on t3 alone (1d4be2).
+META_COLUMNS = ['site', 'sample', 'latitude', 'longitude']
+if _meta_header[:4] != META_COLUMNS:
+    raise ValueError(
+        f"Input.metadata ({_meta_path}) columns 1-4 must be named {', '.join(META_COLUMNS)} "
+        f"(in that order), then one column per trait; its header starts "
+        f"{', '.join(_meta_header[:4])}. A gwas_only project keeps the latitude and longitude "
+        f"columns, empty where a sample has no coordinates")
 META_HAS_PHENO = len(_meta_header) > 4
 
 # Parse-time contract for the metadata `sample` column (column 2): every downstream keep-list
@@ -1229,6 +1248,16 @@ if GWAS_CONFIGS:
         _allowed = [t.strip() for t in str(_pheno_trait_filter).split(',') if t.strip()]
         if _allowed:
             PHENO_TRAITS = [t for t in PHENO_TRAITS if t in _allowed]
+    # A GWAS trait becomes the {pheno_trait} wildcard, a file name, a GAPIT column and a region_id
+    # suffix. The wildcard took only PHENO_TRAIT_RE while parse time took any header, so
+    # 100_seed_weight, plant.height or yield-2020 died at DAG build with MissingRuleException
+    # (634e7c). Refused here by name instead.
+    _bad_traits = [t for t in PHENO_TRAITS if not re.fullmatch(PHENO_TRAIT_RE, t)]
+    if _bad_traits:
+        raise ValueError(
+            f"Input.metadata ({_meta_path}): GWAS trait name(s) {', '.join(map(repr, _bad_traits))} "
+            f"must start with a letter and hold only letters, digits and underscores; rename the "
+            f"column(s), or leave them out with GWAS.traits")
     PHENO_PREDICTORS = ','.join(PHENO_TRAITS)
 
 #=============================================================================
@@ -2255,7 +2284,7 @@ if K_BEST is not None and GWAS_CONFIGS:
         "logdir":          f"{LOGDIR}GWAS/",
         "configs":         GWAS_CONFIGS,
         "method_regex":    GWAS_METHOD_REGEX,
-        "trait_regex":     r"[a-zA-Z]\w*",
+        "trait_regex":     PHENO_TRAIT_RE,
         "predictors":      PHENO_PREDICTORS,
         "combine_predictors": combine_predictors("GWAS"),
         "params":          GWAS_PARAMS,
@@ -2280,7 +2309,7 @@ def _src(source, key):
 SOURCE_REGEX = "|".join(ASSOC_SOURCES.keys()) if ASSOC_SOURCES else "gea"
 # Trait wildcard: union of GEA (bio_\d+) and GWAS (identifier) patterns.
 # {source} in the output path disambiguates which branch a match belongs to.
-TRAIT_REGEX_ANY = r"(?!wza_)(bio_\d+|[a-zA-Z]\w*)"
+TRAIT_REGEX_ANY = rf"(?!wza_)(bio_\d+|{PHENO_TRAIT_RE})"
 
 
 # --- Declared SNP sets: GEA.snp_sets / GWAS.snp_sets ---------------------------

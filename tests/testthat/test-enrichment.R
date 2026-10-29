@@ -64,6 +64,17 @@ write_go_gff <- function(d, feature = "mRNA", go_field = "Ontology",
     p
 }
 
+test_that("trait_from_region_id reads the trait after the last coordinate segment", {
+    # Finding 4fef1f: sub("^[^_]+_\\d+-\\d+_", ...) returned the WHOLE id for a contig with
+    # an underscore or an id without a trait, and sub() never gives NA, so run_enrichment.R's
+    # guard could not fire.
+    ids <- c("1_9391481-11683918_bio_3", "scaffold_1_100-200_bio_1",
+             "5_9900000-11900000_flowering_time", "Chr_Un_12-34_height",
+             "1_100-200", "1_100-200_", NA)
+    expect_identical(trait_from_region_id(ids),
+                     c("bio_3", "bio_1", "flowering_time", "height", NA, NA, NA))
+})
+
 test_that("build_term2gene_from_gff refuses an unset go_field", {
     # Three spellings of "not configured" — all must return NULL rather than
     # building a bogus regex like "(?<==)[^;]+".

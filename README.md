@@ -21,14 +21,16 @@ its environment will demand, and therefore which populations are most at risk.
 
 ## What you provide
 
-- A **VCF** of biallelic SNPs
-- A **metadata TSV** — `site`, `sample`, `latitude`, `longitude`, plus any measured trait
-  columns
+- A **VCF** of biallelic SNPs (multiallelic sites are not removed: the run counts them,
+  `snps_multiallelic_raw` in `pipeline_summary.tsv`, and warns)
+- A **metadata TSV** — columns 1–4 named `site`, `sample`, `latitude`, `longitude`, in that
+  order, plus any measured trait columns (a trait name starts with a letter and holds only
+  letters, digits and underscores)
 - Optionally a **GFF3** for gene annotation and GO enrichment
 
 Everything else ships in one Docker image, and present-day and future climate rasters are
 downloaded for you. Coordinates are needed for the environmental half; a phenotype-only run
-without them is supported.
+without them is supported (keep the `latitude` and `longitude` columns, empty).
 
 ## What it does
 

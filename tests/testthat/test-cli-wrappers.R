@@ -1071,6 +1071,38 @@ test_that("find_genes_around_regions.R actually annotates the overlapping genes"
     expect_true(all(c("region_id", "gene_id", "chr") %in% names(genes)))
 })
 
+test_that("write_summary.R reports the raw VCF's multiallelic sites and warns", {
+    # Finding f832a3 (half): no rule filters to biallelic sites, so the count bcftools stats
+    # already takes is carried into pipeline_summary.tsv with a WARNING instead of nowhere.
+    # SIMDATA has none, so the warning branch runs only here.
+    skip_if_not(dir.exists(SCRIPTS), "scripts/ not mounted")
+    d <- withr::local_tempdir()
+    f <- fx_processing_summary_inputs(d)
+    write(c("SN\t0\tnumber of multiallelic sites:\t3",
+            "SN\t0\tnumber of multiallelic SNP sites:\t2"), f[6], append = TRUE)
+    summ <- file.path(d, "pipeline_summary.tsv")
+    res <- run_wrapper("write_summary.R", c("processing", summ, f, "NULL", "FALSE"))
+    expect_identical(res$status, 0L, info = res$output)
+    s <- data.table::fread(summ, colClasses = "character")
+    expect_identical(s[step == "processing" & metric == "snps_multiallelic_raw", value], "3")
+    expect_match(res$output, "WARNING: 3 multiallelic site\\(s\\) in the raw VCF")
+})
+
+test_that("prepare_phenotypes.R refuses a metadata file whose columns 1-4 are not the named four", {
+    # Finding 1d4be2: `site sample t1 t2 t3` sliced t1 and t2 off as coordinates and ran
+    # GWAS on t3 alone. common.smk refuses it at parse time; the script checks too.
+    skip_if_not(dir.exists(SCRIPTS), "scripts/ not mounted")
+    d <- withr::local_tempdir()
+    meta <- write_tsv(data.table::data.table(site = c("A", "B"), sample = c("s1", "s2"),
+                                             t1 = c(1, 2), t2 = c(3, 4), t3 = c(5, 6)),
+                      file.path(d, "metadata.tsv"))
+    res <- run_wrapper("prepare_phenotypes.R",
+                       c(meta, "MEAN", file.path(d, "pheno"), file.path(d, "missing.tsv")))
+    expect_gt(res$status, 0L)
+    expect_match(res$output, "metadata columns 1-4 must be site, sample, latitude, longitude")
+    expect_false(file.exists(file.path(d, "missing.tsv")))
+})
+
 test_that("an unquoted file list is refused instead of overwriting an input", {
     # Both combine_* wrappers take the whole file list in ONE argv slot. Unquoted,
     # it splits into N entries, every later positional shifts left, and the script

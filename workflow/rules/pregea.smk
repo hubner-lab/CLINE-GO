@@ -60,7 +60,7 @@ rule pregea_subset_vcf_pruned_climate:
     shell:
         """
         awk '{{print $1, "0_"$2}}' {input.samples} > {params.prefix}_keep.tmp
-        plink --vcf {input.vcf} --keep {params.prefix}_keep.tmp --const-fid 0 --allow-extra-chr --output-chr MT \
+        plink --vcf {input.vcf} --keep {params.prefix}_keep.tmp --const-fid 0 --chr-set 95 --allow-extra-chr --output-chr MT \
             --recode vcf --out {params.prefix} > {log} 2>&1
         rm -f {params.prefix}_keep.tmp
         sed -i '/^#CHROM/s/\\t0_0_/\\t/g' {output}
@@ -74,7 +74,7 @@ rule pregea_tped_pruned:
     log:    f"{LOGDIR}pregea/tped_pruned.log"
     shell:
         """
-        plink --vcf {input.vcf} --double-id --allow-extra-chr --output-chr MT --recode12 transpose \
+        plink --vcf {input.vcf} --double-id --chr-set 95 --allow-extra-chr --output-chr MT --recode12 transpose \
             --output-missing-genotype 0 --out {params.prefix} > {log} 2>&1
         """
 

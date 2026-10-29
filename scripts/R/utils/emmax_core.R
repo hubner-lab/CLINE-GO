@@ -35,10 +35,13 @@ read_vcf_snpids <- function(vcf_path) {
         .$SNPID
 }
 
-# Extract sample names from the VCF #CHROM header line (columns 10+).
+# Extract sample names from the VCF #CHROM header line (columns 10+). grep -m1 stops at that
+# line however long the header is (`head -1000` returned no samples once ##contig/##INFO lines
+# pushed #CHROM past line 1000, ab75b3), and colClasses keeps an id such as 001 as written
+# instead of the integer 1.
 read_vcf_samples <- function(vcf_path) {
-    data.table::fread(cmd = paste("head -1000", vcf_path, "| grep '#CHROM' | cut -f10-"),
-                      header = FALSE) %>%
+    data.table::fread(cmd = paste("grep -m1 '^#CHROM'", shQuote(vcf_path), "| cut -f10-"),
+                      header = FALSE, colClasses = "character") %>%
         as.character()
 }
 

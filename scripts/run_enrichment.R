@@ -39,11 +39,12 @@ if (nrow(genes) == 0) {
 
 message(paste0('INFO: Loaded ', nrow(genes), ' region-gene pairs'))
 
-# Extract trait from region_id (format: chr_start-end_trait)
-genes[, trait := sub("^[^_]+_\\d+-\\d+_", "", region_id)]
+# Extract trait from region_id (format: chr_start-end_trait; trait_from_region_id(), enrichment.R)
+genes[, trait := trait_from_region_id(region_id)]
 
-if (all(is.na(genes$trait))) {
-    message('ERROR: Could not extract trait from region_id')
+if (anyNA(genes$trait)) {
+    message('ERROR: Could not extract a trait from region_id ',
+            genes$region_id[is.na(genes$trait)][1], ' (expected <chr>_<start>-<end>_<trait>)')
     quit(save = "no", status = 1)
 }
 

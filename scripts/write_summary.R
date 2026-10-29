@@ -95,24 +95,39 @@ if (MODE == 'processing') {
 
     # Parse raw bcftools stats output (SN/TSTV lines)
     parse_bcftools_stats <- function(path) {
-        if (!file.exists(path) || file.size(path) == 0) return(list(snps=NA, titv=NA))
+        if (!file.exists(path) || file.size(path) == 0)
+            return(list(snps=NA, titv=NA, multiallelic=NA))
         lines <- readLines(path)
-        snps <- NA; titv <- NA
+        snps <- NA; titv <- NA; multiallelic <- NA
         for (ln in lines) {
             if (startsWith(ln, 'SN')) {
                 parts <- strsplit(ln, '\t')[[1]]
                 if (length(parts) >= 4 && grepl('number of SNPs', parts[3]))
                     snps <- trimws(parts[4])
+                if (length(parts) >= 4 && grepl('number of multiallelic sites', parts[3], fixed = TRUE))
+                    multiallelic <- trimws(parts[4])
             } else if (startsWith(ln, 'TSTV')) {
                 parts <- strsplit(ln, '\t')[[1]]
                 if (length(parts) >= 5) titv <- trimws(parts[5])
             }
         }
-        list(snps=snps, titv=titv)
+        list(snps=snps, titv=titv, multiallelic=multiallelic)
     }
     bcf <- parse_bcftools_stats(QC_RAW_SUMMARY)
     n_raw_snps <- bcf$snps
     titv       <- bcf$titv
+    # No rule filters to biallelic sites (f832a3): the count is reported, the sites are not removed.
+    # What plink 1.90b7.2 does with one was measured: it keeps the site's two most frequent alleles
+    # and sets every genotype carrying a third to missing.
+    n_multiallelic <- bcf$multiallelic
+    if (!is.na(n_multiallelic) && as.numeric(n_multiallelic) > 0) {
+        message('WARNING: ', n_multiallelic, ' multiallelic site(s) in the raw VCF (bcftools stats). ',
+                'No biallelic filter is applied: plink keeps the two most frequent alleles of each ',
+                'and sets every genotype carrying another allele to missing, so the site enters the ',
+                'MAF/missingness filters and every analysis as a biallelic SNP with those calls lost. ',
+                'To decide yourself, split or drop them before the run (bcftools norm -m -any, or ',
+                'bcftools view -m2 -M2 -v snps).')
+    }
 
     # Read filtering summary for detailed attrition
     filt_sum <- fread(FILTERING_SUMMARY)
@@ -158,6 +173,7 @@ if (MODE == 'processing') {
         row('processing', 'samples_het_outliers_removed', n_het_removed),
         row('processing', 'samples_removed_relatedness', n_relatedness_removed),
         row('processing', 'snps_raw',                   n_raw_snps),
+        row('processing', 'snps_multiallelic_raw',      n_multiallelic),
         row('processing', 'snps_after_filtering',       n_snps_filtered),
         row('processing', 'snps_after_ld_pruning',      n_snps_ld),
         row('processing', 'titv_ratio',                 titv),

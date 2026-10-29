@@ -112,6 +112,21 @@ get_go_descriptions <- function(go_ids) {
     NULL
 }
 
+# The trait of a per-trait region id, <chr>_<start>-<end>_<trait> (cluster_snps_to_regions()).
+# Matched at the LAST _<start>-<end>_, so a contig with underscores (scaffold_1_100-200_bio_1)
+# parses; a trait holds no "-" (GWAS names are PHENO_TRAIT_RE in common.smk, GEA ones bio_<N>).
+# An id with no trait suffix (a combined region, 1_100-200) is NA, not the whole id (4fef1f).
+#
+# @param region_id  character vector
+# @return character vector, NA where no trait suffix
+trait_from_region_id <- function(region_id) {
+    rx  <- "^.+_[0-9]+-[0-9]+_(.+)$"
+    hit <- grepl(rx, region_id)
+    out <- rep(NA_character_, length(region_id))
+    out[hit] <- sub(rx, "\\1", region_id[hit])
+    out
+}
+
 # Run GO enrichment for a single region.
 #
 # @param region_id        character

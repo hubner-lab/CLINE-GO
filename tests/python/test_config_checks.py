@@ -30,6 +30,10 @@ Pinned, one class per finding:
   * 895bac  a spatial Gradient Forest with Climate.predictors >= sites - 1.
   * 932a8d + e83e54 wiring: the invariance check reads the predictor universe by
             name; the climate summary counts the selected predictors.
+Phase 2b (input formats):
+  * 1d4be2  metadata columns 1-4 are site, sample, latitude, longitude by name.
+  * 634e7c  a GWAS trait the {pheno_trait} wildcard cannot match is refused by name.
+  * 899581  sNMF.ploidy other than 2 is refused (sNMF runs diploid only).
 """
 import os
 import shutil
@@ -496,6 +500,81 @@ class TestInvariantTableWiring(unittest.TestCase):  # 932a8d, e83e54
                        and "climate {params.summary_tsv}" in r["shell"])
         self.assertEqual(summary["params"]["predictors"], "bio_1,bio_12")
         self.assertIn("{params.predictors}", summary["shell"])
+
+
+# ------------------------------------------------------------------ Phase 2b: input formats
+def meta_config(name, content, **overrides):
+    """A config whose Input.metadata is `content` (TestMetadata.config, plus overrides)."""
+    folder = f"cc_meta2b_{name}/"
+    write(f"/pipeline/{folder}x.vcf", "##fileformat=VCFv4.2\n")
+    write(f"/pipeline/{folder}meta.tsv", content)
+    return H.make_config(Input={"dir": folder, "vcf": "x.vcf", "metadata": "meta.tsv",
+                                "gff": "testdata.gff3"}, **overrides)
+
+
+class TestMetadataColumnNames(unittest.TestCase):   # 1d4be2
+    def test_columns_one_to_four_are_checked_by_name(self):
+        # gwasonly is the finding's case: GWAS ran on t3 alone, t1 and t2 sliced off as
+        # "latitude"/"longitude".
+        for name, header in (("gwasonly", "site\tsample\tt1\tt2\tt3"),
+                             ("latlon", "site\tsample\tlat\tlon\theight"),
+                             ("order", "sample\tsite\tlatitude\tlongitude\theight")):
+            with self.subTest(header=header):
+                with self.assertRaisesRegex(
+                        ValueError, "columns 1-4 must be named site, sample, latitude, longitude"):
+                    H.load(meta_config(name, header + "\nA\ts1\t1\t2\t3\n"))
+
+    def test_the_canonical_header_passes_and_traits_follow_it(self):
+        ns = H.load(meta_config("canon", "site\tsample\tlatitude\tlongitude\theight\n"
+                                         "A\ts1\t30\t34\t1.2\n"))
+        self.assertEqual(ns["PHENO_TRAITS"], ["height"])
+
+    def test_empty_coordinates_pass(self):
+        # A gwas_only project keeps the two columns, empty (filter_coord_samples.R reads them by name).
+        ns = H.load(meta_config("nocoord", "site\tsample\tlatitude\tlongitude\theight\n"
+                                           "A\ts1\t\t\t1.2\n"))
+        self.assertEqual(ns["PHENO_TRAITS"], ["height"])
+
+
+class TestGwasTraitNames(unittest.TestCase):        # 634e7c
+    HEADER = "site\tsample\tlatitude\tlongitude\t100_seed_weight\tplant.height\tyield-2020\theight\n"
+    ROW = "A\ts1\t30\t34\t1\t2\t3\t4\n"
+
+    def test_names_the_wildcard_cannot_take_are_refused_at_parse_time(self):
+        cfg = meta_config("badtraits", self.HEADER + self.ROW, GWAS__traits="")
+        with self.assertRaisesRegex(ValueError,
+                                    "'100_seed_weight', 'plant.height', 'yield-2020'"):
+            H.load(cfg)
+
+    def test_traits_left_out_by_gwas_traits_are_not_checked(self):
+        ns = H.load(meta_config("filtered", self.HEADER + self.ROW, GWAS__traits="height"))
+        self.assertEqual(ns["PHENO_TRAITS"], ["height"])
+
+    def test_not_checked_without_gwas(self):
+        ns = H.load(meta_config("nogwas", self.HEADER + self.ROW, GWAS__configs=[]))
+        self.assertEqual(ns["PHENO_TRAITS"], [])
+
+    def test_the_check_and_every_wildcard_share_one_pattern(self):
+        # A constraint spelled out again in gwas.smk could drift from the parse-time check.
+        with open(os.path.join(H.REPO_ROOT, "workflow", "rules", "gwas.smk")) as handle:
+            text = handle.read()
+        self.assertNotIn('pheno_trait = r"', text)
+        self.assertGreater(text.count("pheno_trait = PHENO_TRAIT_RE"), 0)
+        ns = load()
+        self.assertEqual(ns["ASSOC_SOURCES"]["GWAS"]["trait_regex"], ns["PHENO_TRAIT_RE"])
+
+
+class TestPloidy(unittest.TestCase):                 # 899581
+    def test_another_ploidy_is_refused(self):
+        with self.assertRaisesRegex(ValueError, "diploid only"):
+            load(sNMF__ploidy=4)
+        with self.assertRaisesRegex(ValueError, "must be an integer"):
+            load(sNMF__ploidy=2.5)
+
+    def test_absent_or_two_passes(self):
+        for overrides in ({}, {"sNMF__ploidy": 2}, {"sNMF__ploidy": "2.0"}):
+            with self.subTest(overrides=overrides):
+                self.assertEqual(load(**overrides)["PLOIDY"], 2)
 
 
 if __name__ == "__main__":

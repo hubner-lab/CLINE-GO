@@ -38,7 +38,7 @@ rule calculate_sample_missing:
     shell:
         """
         # Calculate per-sample and per-SNP missingness using plink
-        plink --vcf {input.vcf} --const-fid --allow-extra-chr --output-chr MT \
+        plink --vcf {input.vcf} --const-fid --chr-set 95 --allow-extra-chr --output-chr MT \
             --set-missing-var-ids @:# --keep {input.samples} \
             --missing --out {params.prefix} > {log} 2>&1
 
@@ -94,7 +94,7 @@ rule compute_het_raw:
     threads: CPU
     shell:
         """
-        plink --vcf {input.vcf} --const-fid --allow-extra-chr --output-chr MT \
+        plink --vcf {input.vcf} --const-fid --chr-set 95 --allow-extra-chr --output-chr MT \
             --set-missing-var-ids @:# --keep {input.samples} \
             --het --out {params.prefix} > {log} 2>&1
         awk 'NR==1 {{print "FID\tIID\tO_HOM\tE_HOM\tN_NM\tF"; next}} {{print $1"\t"$2"\t"$3"\t"$4"\t"$5"\t"$6}}' \
@@ -164,12 +164,12 @@ rule compute_relatedness:
     threads: CPU
     shell:
         """
-        plink --vcf {input.vcf} --const-fid --allow-extra-chr --output-chr MT \
+        plink --vcf {input.vcf} --const-fid --chr-set 95 --allow-extra-chr --output-chr MT \
             --set-missing-var-ids @:# --keep {input.samples} \
             --indep-pairwise {params.win} {params.step} {params.r2} \
             --out {params.prefix} > {log} 2>&1
 
-        plink --vcf {input.vcf} --const-fid --allow-extra-chr --output-chr MT \
+        plink --vcf {input.vcf} --const-fid --chr-set 95 --allow-extra-chr --output-chr MT \
             --set-missing-var-ids @:# --keep {input.samples} \
             --extract {params.prefix}.prune.in \
             --genome --out {params.prefix} >> {log} 2>&1
@@ -247,7 +247,7 @@ rule compute_snp_freq_raw:
     threads: CPU
     shell:
         """
-        plink --vcf {input.vcf} --const-fid --allow-extra-chr --output-chr MT \
+        plink --vcf {input.vcf} --const-fid --chr-set 95 --allow-extra-chr --output-chr MT \
             --set-missing-var-ids @:# --keep {input.samples} \
             --freq --out {params.prefix} > {log} 2>&1
         awk 'NR==1 {{print "CHR\tSNP\tA1\tA2\tMAF\tNCHROBS"; next}} {{print $1"\t"$2"\t"$3"\t"$4"\t"$5"\t"$6}}' \
@@ -307,19 +307,23 @@ rule filter_vcf:
     threads: CPU
     shell:
         """
-        plink --vcf {input.vcf} --const-fid --allow-extra-chr --output-chr MT \
+        plink --vcf {input.vcf} --const-fid --chr-set 95 --allow-extra-chr --output-chr MT \
             --set-missing-var-ids @:# --keep {input.samples} \
             --maf {params.maf} --geno {params.miss} \
             --recode vcf --out {params.prefix} > {log} 2>&1
         sed -i '/^#CHROM/s/\t0_/\t/g' {output}
 
         # Normalize chromosome names — the pipeline's contract is: `chr` prefix stripped in
-        # ANY case, X/Y/XY/MT kept as letters. plink already strips Chr/CHR/chr from the codes
-        # it recognises and, with --output-chr MT above, writes X/Y/MT as letters instead of
-        # 23/24/26; unrecognised contigs (chr2H, Chr5H) pass through verbatim, so the strip
-        # here must be case-insensitive too. Body lines only, plus the ##contig header IDs so
-        # header and body agree. scripts/normalize_gff.py applies the SAME rule to the GFF
-        # and then compares the two contig sets (audit 2026-09-13 B1).
+        # ANY case, X/Y/XY/MT kept as letters, numbered contigs kept as numbers. Every plink
+        # call passes --chr-set 95: under plink's default human set a contig named 23/24/25/26
+        # IS X/Y/XY/MT (a 26 even merges with a real MT), so a non-human genome with more than
+        # 22 numbered chromosomes was renamed (12f364). With 95 autosomes (plink 1.9's maximum)
+        # they stay numbers; contigs named 96-99 are still X/Y/XY/MT, 100 and up pass verbatim.
+        # plink strips Chr/CHR/chr from the codes it recognises and, with --output-chr MT,
+        # writes X/Y/XY/MT as letters; unrecognised contigs (chr2H, Chr5H) pass through
+        # verbatim, so the strip here must be case-insensitive too. Body lines only, plus the
+        # ##contig header IDs so header and body agree. scripts/normalize_gff.py applies the
+        # SAME rule to the GFF and then compares the two contig sets (audit 2026-09-13 B1).
         sed -E -i '/^#/! s/^[Cc][Hh][Rr]//' {output}
         sed -E -i 's/^(##contig=<ID=)[Cc][Hh][Rr]/\\1/' {output}
 
@@ -335,7 +339,7 @@ rule compute_sample_het:
     threads: CPU
     shell:
         """
-        plink --vcf {input.vcf} --const-fid --allow-extra-chr --output-chr MT \
+        plink --vcf {input.vcf} --const-fid --chr-set 95 --allow-extra-chr --output-chr MT \
             --set-missing-var-ids @:# \
             --het --out {params.prefix} > {log} 2>&1
         awk 'NR==1 {{print "FID\tIID\tO_HOM\tE_HOM\tN_NM\tF"; next}} {{print $1"\t"$2"\t"$3"\t"$4"\t"$5"\t"$6}}' \
@@ -354,7 +358,7 @@ rule compute_snp_freq_filtered:
     threads: CPU
     shell:
         """
-        plink --vcf {input.vcf} --const-fid --allow-extra-chr --output-chr MT \
+        plink --vcf {input.vcf} --const-fid --chr-set 95 --allow-extra-chr --output-chr MT \
             --set-missing-var-ids @:# \
             --freq --make-bed --out {params.prefix} > {log} 2>&1
         awk 'NR==1 {{print "CHR\tSNP\tA1\tA2\tMAF\tNCHROBS"; next}} {{print $1"\t"$2"\t"$3"\t"$4"\t"$5"\t"$6}}' \
@@ -406,12 +410,12 @@ rule ld_prune:
     threads: CPU
     shell:
         """
-        plink --vcf {input.vcf} --const-fid --allow-extra-chr --output-chr MT \
+        plink --vcf {input.vcf} --const-fid --chr-set 95 --allow-extra-chr --output-chr MT \
             --set-missing-var-ids @:# \
             --indep-pairwise {params.win} {params.step} {params.r2} \
             --out {params.prefix} > {log} 2>&1
 
-        plink --vcf {input.vcf} --const-fid --allow-extra-chr --output-chr MT \
+        plink --vcf {input.vcf} --const-fid --chr-set 95 --allow-extra-chr --output-chr MT \
             --set-missing-var-ids @:# --extract {output.prune} \
             --make-bed --recode vcf \
             --out {params.prefix} >> {log} 2>&1
@@ -420,11 +424,13 @@ rule ld_prune:
         """
 
 rule extract_vcf_sample_order:
-    """Get sample order from VCF header for metadata alignment."""
+    """Get sample order from VCF header for metadata alignment.
+    Anchored on ^#CHROM: an unanchored CHROM first matched any earlier header line naming it,
+    e.g. ##contig=<ID=CHROMOSOME_I> (C. elegans), and gave an empty sample order (5f1e90)."""
     input:  vcf = W['vcf_filt']
     output: W['samples_order']
     log:    f"{LOGDIR}processing/extract_vcf_sample_order.log"
-    shell:  "grep -m1 CHROM {input.vcf} | cut -f10- | tr '\t' '\n' > {output} 2> {log}"
+    shell:  "grep -m1 '^#CHROM' {input.vcf} | cut -f10- | tr '\t' '\n' > {output} 2> {log}"
 
 rule align_metadata:
     """Align metadata rows to match VCF sample order."""

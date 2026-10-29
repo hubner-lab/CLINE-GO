@@ -1194,7 +1194,9 @@ render_pheno_chips <- function(input_id, display_val, project) {
                 line <- readLines(con, n = 1)
                 trimws(strsplit(line, "\t")[[1]])
             }, error = function(e) character(0))
-            if (length(hdr) > 4) all_traits <- hdr[5:length(hdr)]
+            # Columns 1-4 by name, the contract common.smk checks at parse time (1d4be2).
+            if (identical(hdr[1:4], c("site", "sample", "latitude", "longitude")))
+                all_traits <- hdr[-(1:4)]
         }
     }
 

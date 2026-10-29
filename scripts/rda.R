@@ -232,10 +232,12 @@ if (nrow(Y_full) != n_samples) {
     stop("RDA: genotype matrix has ", nrow(Y_full), " rows but climate table has ",
          n_samples, " rows — row alignment is broken.")
 }
-if (max(Y_full, na.rm = TRUE) > 2) {
-    stop("RDA: genotype matrix contains values > 2 — this looks like an ",
-         "UNIMPUTED LFMM file (LEA writes 9 for missing). RDA requires an ",
-         "imputed matrix (*_imp*). Check the Snakemake input wiring.")
+# Keyed on LFMM's missing code 9, the value only an unimputed file holds, as in
+# gradient_forest_model.R and geometric_offset.R: one check for all four (616dbf).
+if (any(Y_full == 9, na.rm = TRUE)) {
+    stop("RDA: genotype matrix contains the LFMM missing code 9 — this is an ",
+         "UNIMPUTED LFMM file. RDA requires an imputed matrix (*_imp*). ",
+         "Check the Snakemake input wiring.")
 }
 m_fitted <- ncol(Y_full)
 add_diag("n_markers_fitted_before_variance_filter", m_fitted)

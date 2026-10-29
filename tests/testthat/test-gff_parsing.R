@@ -176,6 +176,80 @@ test_that("read_gff_exons returns an empty table when neither exon nor CDS exist
     expect_identical(nrow(e), 0L)
 })
 
+# Finding 7d89be: exon_snp_count joins exon gene ids to the genes table's gene ids, so every
+# exon id must be one read_gff() produces, for GFF.feature = gene AND for the transcript level.
+# Stripping ".N" off the exon's Parent= only met the gene side when transcript and gene shared
+# a namespace; these are the conventions that do not.
+exon_ids_join <- function(path, features) {
+    e <- quiet(read_gff_exons(path))
+    for (f in features) {
+        g <- quiet(read_gff(path, f))
+        expect_true(all(e$gene_id %in% g$gene_id),
+                    info = paste0("feature = ", f, "; exon ids: ", paste(unique(e$gene_id), collapse = ", ")))
+    }
+    e
+}
+
+test_that("read_gff_exons resolves Ensembl transcript: parents to the gene: id", {
+    path <- write_gff(c(
+        gff_line("1H", "gene", 100, 900, "ID=gene:HORVU.MOREX.r3.1HG0000010;biotype=protein_coding"),
+        gff_line("1H", "mRNA", 100, 900,
+                 "ID=transcript:HORVU.MOREX.r3.1HG0000010.1;Parent=gene:HORVU.MOREX.r3.1HG0000010"),
+        gff_line("1H", "exon", 100, 300,
+                 "Parent=transcript:HORVU.MOREX.r3.1HG0000010.1;Name=HORVU.MOREX.r3.1HG0000010.1.exon1"),
+        gff_line("1H", "exon", 700, 900,
+                 "Parent=transcript:HORVU.MOREX.r3.1HG0000010.1;Name=HORVU.MOREX.r3.1HG0000010.1.exon2")
+    ))
+    e <- exon_ids_join(path, c("gene", "mRNA"))
+    expect_identical(e$gene_id, rep("gene:HORVU.MOREX.r3.1HG0000010", 2L))
+})
+
+test_that("read_gff_exons resolves RefSeq rna- parents to the gene- id", {
+    path <- write_gff(c(
+        gff_line("NC_1", "gene", 100, 900, "ID=gene-LOC123456;Name=LOC123456"),
+        gff_line("NC_1", "mRNA", 100, 900, "ID=rna-XM_045123.1;Parent=gene-LOC123456"),
+        gff_line("NC_1", "exon", 100, 300, "ID=exon-XM_045123.1-1;Parent=rna-XM_045123.1"),
+        gff_line("NC_1", "CDS", 150, 300, "ID=cds-XP_044123.1;Parent=rna-XM_045123.1")
+    ))
+    e <- exon_ids_join(path, c("gene", "mRNA"))
+    expect_identical(e$gene_id, "gene-LOC123456")
+})
+
+test_that("read_gff_exons gives a multi-parent exon one row per parent", {
+    path <- write_gff(c(
+        gff_line("1", "gene", 100, 900, "ID=A"),
+        gff_line("1", "mRNA", 100, 900, "ID=A.1;Parent=A"),
+        gff_line("1", "mRNA", 100, 700, "ID=A.2;Parent=A"),
+        gff_line("1", "exon", 100, 300, "Parent=A.1,A.2")
+    ))
+    e <- exon_ids_join(path, c("gene", "mRNA"))
+    # The ".N" strip on the whole Parent= value used to give "A.1,A", which joins nothing.
+    expect_identical(e$gene_id, c("A", "A"))
+    expect_identical(e$start, c(100L, 100L))
+})
+
+test_that("read_gff_exons keeps the ids of the TAIR, SIMDATA and Trifolium conventions", {
+    tair <- write_gff(c(
+        gff_line("1", "gene", 100, 900, "ID=AT1G01010"),
+        gff_line("1", "mRNA", 100, 900, "ID=AT1G01010.1;Parent=AT1G01010"),
+        gff_line("1", "exon", 100, 300, "Parent=AT1G01010.1")
+    ))
+    expect_identical(exon_ids_join(tair, c("gene", "mRNA"))$gene_id, "AT1G01010")
+
+    simdata <- write_gff(c(   # SIMDATA.gff3: gene > mRNA > CDS, no exon
+        gff_line("1", "gene", 100, 900, "ID=gene001;Name=DRY1"),
+        gff_line("1", "mRNA", 100, 900, "ID=gene001.1;Parent=gene001;Name=DRY1-mRNA"),
+        gff_line("1", "CDS", 120, 880, "ID=gene001.1.cds;Parent=gene001.1")
+    ))
+    expect_identical(exon_ids_join(simdata, c("gene", "mRNA"))$gene_id, "gene001")
+
+    trifolium <- write_gff(c(   # Trifolium_genes_chr1-6.gff3: transcript (no Parent=) > exon
+        gff_line("1", "transcript", 100, 900, "ID=g1.t1;em_desc=x"),
+        gff_line("1", "exon", 100, 300, "Parent=g1.t1")
+    ))
+    expect_identical(exon_ids_join(trifolium, "transcript")$gene_id, "g1.t1")
+})
+
 # --- normalize_chr ---------------------------------------------------------
 
 test_that("normalize_chr matches the pipeline's chromosome-name contract", {

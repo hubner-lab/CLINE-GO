@@ -115,10 +115,10 @@ if (MODEL_TYPE == 'adaptive') {
 # na.action. An unimputed LFMM file encodes a missing call as the literal 9, which would enter the
 # regression forest as a genotype 3.5x further from the reference homozygote than the real
 # alternate homozygote is -- so the forest learns which samples were CALLED, not which carry the
-# allele. Checked on the subset actually passed to the model. Same guard as scripts/rda_offset.R:106.
-# Keyed on the sentinel 9 rather than on `max > 2`, so a legitimately polyploid dataset
-# (sNMF.ploidy > 2, dosages 3,4,...) is not falsely rejected. 9 is LFMM's reserved missing code,
-# so it is never a valid dosage in this format regardless of ploidy.
+# allele. Checked on the subset actually passed to the model. Same guard as scripts/rda_offset.R,
+# scripts/rda.R and scripts/geometric_offset.R. Keyed on the sentinel 9, LFMM's reserved missing
+# code, because that is the condition itself; the pipeline runs sNMF diploid only (PLOIDY = 2 in
+# common.smk, no config key), so an imputed matrix holds 0/1/2 and nothing else (899581).
 subset_mat <- as.matrix(snp_subset)
 if (RESPONSE_UNIT == 'individual' && any(subset_mat == 9, na.rm = TRUE)) {
   frac9 <- mean(subset_mat == 9, na.rm = TRUE)

@@ -286,7 +286,11 @@ samples <- fread(SAMPLES,
                                 'latitude' = 'numeric',
                                 'longitude' = 'numeric'))
 
-clusters <- fread(CLUSTERS, colClasses = c("site" = "character"))
+# sample stays character too (2d4533): the zoomed maps filter clusters by sample, and an id such
+# as 001 read as the number 1 matched none, so the zoom drew no pies.
+cl_classes <- c(site = "character")
+if ("sample" %in% names(fread(CLUSTERS, nrows = 0))) cl_classes["sample"] <- "character"
+clusters <- fread(CLUSTERS, colClasses = cl_classes)
 
 # Load size trait if provided
 if (SIZE_TRAIT != "NULL" && file.exists(SIZE_TRAIT)) {

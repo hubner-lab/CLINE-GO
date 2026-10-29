@@ -43,14 +43,18 @@ message("INFO: K = ", K_BEST, " (filename tag)   n_pcs = ", N_PCS, " (PCA covari
 
 # --- Load GD and GM ---
 message("INFO: Loading GD and GM")
-myGD <- fread(GD_FILE, header = TRUE)
+# Sample ids stay character (CLAUDE.md fread rule; 2d4533): typed as numbers, an id such as 001
+# became 1 and the DROP / climate subsetting below matched no sample against the keep-list.
+myGD <- fread(GD_FILE, header = TRUE, colClasses = c(Taxa = "character"))
 myGM <- fread(GM_FILE, header = TRUE)
 message("INFO: GD: ", nrow(myGD), " samples x ", ncol(myGD) - 1, " SNPs")
 message("INFO: GM: ", nrow(myGM), " SNPs")
 
 # --- Load traits ---
 message("INFO: Loading trait data")
-traits <- fread(TRAIT_FILE, sep = '\t', header = TRUE)
+trait_hdr <- names(fread(TRAIT_FILE, sep = '\t', header = TRUE, nrows = 0))
+traits <- fread(TRAIT_FILE, sep = '\t', header = TRUE,
+                colClasses = if ("sample" %in% trait_hdr) c(sample = "character") else NULL)
 
 # --- Load PCA covariates ---
 message("INFO: Loading PCA projections")

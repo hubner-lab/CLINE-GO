@@ -103,10 +103,12 @@ add_diag("interpretation_note",
 message('INFO: Loading full imputed LFMM matrix')
 lfmm_imp <- as.matrix(fread(LFMM_IMP_FULL))
 message(paste0('INFO: LFMM matrix: ', nrow(lfmm_imp), ' samples x ', ncol(lfmm_imp), ' SNPs'))
-if (max(lfmm_imp, na.rm = TRUE) > 2) {
-    stop("RDA offset: genotype matrix contains values > 2 — this looks like an ",
-         "UNIMPUTED LFMM file (LEA writes 9 for missing). Requires an imputed matrix ",
-         "(*_imp*). Check the Snakemake input wiring.")
+# Keyed on LFMM's missing code 9, the value only an unimputed file holds, as in
+# gradient_forest_model.R and geometric_offset.R: one check for all four (616dbf).
+if (any(lfmm_imp == 9, na.rm = TRUE)) {
+    stop("RDA offset: genotype matrix contains the LFMM missing code 9 — this is an ",
+         "UNIMPUTED LFMM file. Requires an imputed matrix (*_imp*). ",
+         "Check the Snakemake input wiring.")
 }
 
 vcfsnp_dt <- fread(VCFSNP, header = FALSE) %>%

@@ -22,8 +22,15 @@ message(paste0('INFO: Output directory: ', OUTPUT_DIR))
 meta <- fread(METADATA, sep = '\t', colClasses = c("site" = "character", "sample" = "character"))
 message(paste0('INFO: Loaded ', nrow(meta), ' samples, ', ncol(meta), ' columns'))
 
-# Extract trait columns (everything after site, sample, latitude, longitude)
-trait_cols <- colnames(meta)[5:ncol(meta)]
+# Trait columns: everything after site, sample, latitude, longitude, checked by name (1d4be2;
+# common.smk refuses any other header at parse time). [-(1:4)] is empty for a 4-column file,
+# where 5:ncol(meta) was c(5, 4) and named longitude a trait.
+meta_cols <- c('site', 'sample', 'latitude', 'longitude')
+if (!identical(colnames(meta)[1:4], meta_cols)) {
+    stop('ERROR: metadata columns 1-4 must be ', paste(meta_cols, collapse = ', '),
+         '; got ', paste(colnames(meta)[1:4], collapse = ', '))
+}
+trait_cols <- colnames(meta)[-(1:4)]
 if (length(trait_cols) == 0) {
     stop('ERROR: No phenotype columns found (expected columns 5+ after site, sample, latitude, longitude)')
 }
@@ -101,7 +108,7 @@ if (MISSING_STRATEGY %in% c('MEAN', 'MEDIAN')) {
         meta_trait <- meta[keep, ]
         message(paste0('INFO: Trait "', trait, '": ', sum(keep), '/', nrow(meta), ' samples available'))
         if (sum(keep) < nrow(meta)) {
-            message('WARNING: MAF/missingness/biallelic filtering was computed on the full ',
+            message('WARNING: MAF/missingness filtering was computed on the full ',
                     'processing-module cohort BEFORE this per-trait sample drop. Dropping samples for ',
                     'a missing phenotype here can leave those filters inconsistent with the actual GWAS ',
                     'sample set for this trait -- a SNP that passed MAF/missingness genome-wide can ',

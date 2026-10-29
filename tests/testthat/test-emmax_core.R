@@ -135,3 +135,39 @@ test_that("load_pca_covariates accepts a matching row count with no subsetting",
                                                vcf_samples = sprintf("ID%03d", 1:4)))
     expect_identical(nrow(got), 4L)
 })
+
+# --- read_vcf_samples (finding ab75b3) ---------------------------------------
+
+write_vcf_header_only <- function(d, samples, n_meta) {
+    p <- file.path(d, "long_header.vcf")
+    writeLines(c("##fileformat=VCFv4.2",
+                 sprintf("##contig=<ID=scaffold_%d,length=1000>", seq_len(n_meta)),
+                 paste(c("#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO",
+                         "FORMAT", samples), collapse = "\t"),
+                 paste(c("scaffold_1", "100", ".", "A", "G", ".", "PASS", ".", "GT",
+                         rep("0/1", length(samples))), collapse = "\t")), p)
+    p
+}
+
+test_that("read_vcf_samples finds #CHROM past header line 1000", {
+    # head -1000 never reached a #CHROM pushed down by one ##contig line per scaffold,
+    # so the function returned no samples and emmax.R bound phenotypes against nothing.
+    d <- withr::local_tempdir()
+    p <- write_vcf_header_only(d, c("S1", "S2", "S3"), n_meta = 1500)
+    expect_identical(emmax_env$read_vcf_samples(p), c("S1", "S2", "S3"))
+})
+
+test_that("read_vcf_samples keeps numeric-looking ids as written", {
+    d <- withr::local_tempdir()
+    p <- write_vcf_header_only(d, c("001", "002", "010"), n_meta = 2)
+    expect_identical(emmax_env$read_vcf_samples(p), c("001", "002", "010"))
+})
+
+test_that("read_vcf_samples ignores a header line that merely contains CHROM", {
+    d <- withr::local_tempdir()
+    p <- file.path(d, "chromosome_contig.vcf")
+    writeLines(c("##fileformat=VCFv4.2", "##contig=<ID=CHROMOSOME_I,length=1000>",
+                 "##source=#CHROM-like text",
+                 "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tA\tB"), p)
+    expect_identical(emmax_env$read_vcf_samples(p), c("A", "B"))
+})

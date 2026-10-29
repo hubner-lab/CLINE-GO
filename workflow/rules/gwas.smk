@@ -31,7 +31,7 @@ if GWAS_CONFIGS and PHENO_MISSING != 'DROP':
         log: f"{LOGDIR}gwas/tped_pheno.log"
         shell:
             """
-            plink --vcf {input.vcf} --double-id --allow-extra-chr --output-chr MT --recode12 transpose \
+            plink --vcf {input.vcf} --double-id --chr-set 95 --allow-extra-chr --output-chr MT --recode12 transpose \
                 --output-missing-genotype 0 --out {params.prefix} > {log} 2>&1
             """
 
@@ -66,7 +66,7 @@ if GWAS_CONFIGS and PHENO_MISSING != 'DROP':
                 phenotypes = W['pheno_all_phenotypes'],
             output: f"{INTER}gwas_per_trait/EMMAX/{{pheno_trait}}_pvalues_K{K_BEST}.tsv"
             wildcard_constraints:
-                pheno_trait = r"[a-zA-Z]\w*"
+                pheno_trait = PHENO_TRAIT_RE
             params:
                 tped_prefix = f"{WORK_FILT}phenotypes/emmax/{VCF_BASE}",
                 # arg 5 of emmax_phenotypes.R is the NUMBER OF PCA COVARIATES, not the
@@ -112,7 +112,7 @@ if GWAS_CONFIGS and PHENO_MISSING != 'DROP':
                 [f"{INTER}gwas_per_trait/{model}/{{pheno_trait}}_pvalues_K{K_BEST}.tsv"
                  for model in GWAS_GAPIT_CONFIGS]
             wildcard_constraints:
-                pheno_trait = r"[a-zA-Z]\w*"
+                pheno_trait = PHENO_TRAIT_RE
             params:
                 # k is the FILENAME tag only; n_pcs is the PCA covariate count (arg 15).
                 k             = K_BEST,
@@ -174,12 +174,12 @@ if GWAS_CONFIGS and PHENO_MISSING == 'DROP':
             vcf = W['vcf_imp_full'],
             samples = f"{WORK_FILT}phenotypes/{{pheno_trait}}_samples.list"
         output: f"{WORK_FILT}phenotypes/{{pheno_trait}}/{VCF_BASE}_K{K_BEST}imp.vcf"
-        wildcard_constraints: pheno_trait = r"[a-zA-Z]\w*"
+        wildcard_constraints: pheno_trait = PHENO_TRAIT_RE
         params: prefix = f"{WORK_FILT}phenotypes/{{pheno_trait}}/{VCF_BASE}_K{K_BEST}imp"
         log: f"{LOGDIR}gwas/subset_vcf_pheno_{{pheno_trait}}.log"
         shell:
             """
-            plink --vcf {input.vcf} --keep {input.samples} --const-fid 0 --allow-extra-chr --output-chr MT \
+            plink --vcf {input.vcf} --keep {input.samples} --const-fid 0 --chr-set 95 --allow-extra-chr --output-chr MT \
                 --recode vcf --out {params.prefix} > {log} 2>&1
             sed -i '/^#CHROM/s/\\t0_/\\t/g' {output}
             """
@@ -190,12 +190,12 @@ if GWAS_CONFIGS and PHENO_MISSING == 'DROP':
         output:
             tped = f"{WORK_FILT}phenotypes/{{pheno_trait}}/emmax/{VCF_BASE}.tped",
             tfam = f"{WORK_FILT}phenotypes/{{pheno_trait}}/emmax/{VCF_BASE}.tfam"
-        wildcard_constraints: pheno_trait = r"[a-zA-Z]\w*"
+        wildcard_constraints: pheno_trait = PHENO_TRAIT_RE
         params: prefix = f"{WORK_FILT}phenotypes/{{pheno_trait}}/emmax/{VCF_BASE}"
         log: f"{LOGDIR}gwas/tped_pheno_trait_{{pheno_trait}}.log"
         shell:
             """
-            plink --vcf {input.vcf} --double-id --allow-extra-chr --output-chr MT --recode12 transpose \
+            plink --vcf {input.vcf} --double-id --chr-set 95 --allow-extra-chr --output-chr MT --recode12 transpose \
                 --output-missing-genotype 0 --out {params.prefix} > {log} 2>&1
             """
 
@@ -203,7 +203,7 @@ if GWAS_CONFIGS and PHENO_MISSING == 'DROP':
         """Compute BN kinship matrix for per-trait sample set."""
         input: tped = f"{WORK_FILT}phenotypes/{{pheno_trait}}/emmax/{VCF_BASE}.tped"
         output: f"{WORK_FILT}phenotypes/{{pheno_trait}}/emmax/{VCF_BASE}.aBN.kinf"
-        wildcard_constraints: pheno_trait = r"[a-zA-Z]\w*"
+        wildcard_constraints: pheno_trait = PHENO_TRAIT_RE
         params: prefix = f"{WORK_FILT}phenotypes/{{pheno_trait}}/emmax/{VCF_BASE}"
         log: f"{LOGDIR}gwas/kinship_pheno_trait_{{pheno_trait}}.log"
         shell:
@@ -230,7 +230,7 @@ if GWAS_CONFIGS and PHENO_MISSING == 'DROP':
                     pca       = W['pca_projections'],
                     phenotype = f"{WORK_FILT}phenotypes/{{pheno_trait}}_phenotype.tsv",
                 output: _out_path
-                wildcard_constraints: pheno_trait = r"[a-zA-Z]\w*"
+                wildcard_constraints: pheno_trait = PHENO_TRAIT_RE
                 params:
                     tped_prefix   = _tped_pfx,
                     # PCA covariate count, not the filename tag — see Path A above.
@@ -269,7 +269,7 @@ if GWAS_CONFIGS and PHENO_MISSING == 'DROP':
                 samples = f"{WORK_FILT}phenotypes/{{pheno_trait}}_samples.list",
                 metadata = O['metadata']
             output: [f"{MOD_GWAS}tables/methods/{model}/{{pheno_trait}}_pvalues_K{K_BEST}.tsv" for model in GWAS_GAPIT_CONFIGS]
-            wildcard_constraints: pheno_trait = r"[a-zA-Z]\w*"
+            wildcard_constraints: pheno_trait = PHENO_TRAIT_RE
             params:
                 # k is the FILENAME tag only; n_pcs is the PCA covariate count (arg 15).
                 k = K_BEST,
@@ -320,7 +320,7 @@ if GWAS_CONFIGS:
       output:
           png = f"{MOD_GWAS}plots/piemap/phenomap_{{pheno_trait}}.png",
           svg = f"{MOD_GWAS}plots/piemap/phenomap_{{pheno_trait}}.svg"
-      wildcard_constraints: pheno_trait = r"[a-zA-Z]\w*"
+      wildcard_constraints: pheno_trait = PHENO_TRAIT_RE
       params:
           raster_layer = get_predictors_list()[0] if get_predictors_list() else "1",
           pie_alpha = PIEMAP_ALPHA,

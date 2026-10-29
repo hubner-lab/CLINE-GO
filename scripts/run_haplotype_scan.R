@@ -180,13 +180,14 @@ for (i in seq_len(nrow(regions))) {
   # Extract region from LD VCF (imputed, for LD computation)
   extract_region_vcf(ld_vcf, region_ld_vcf, chr, start_pos, end_pos)
 
-  # Compute pairwise LD with plink
+  # Compute pairwise LD with plink. --chr-set 95 as in every pipeline rule (12f364): under the
+  # default human set a region on contig 23-26 is read as X/Y/XY/MT, haploid calls and all.
   ld_prefix <- file.path(tmp_dir, "region_ld")
   cmd_plink <- paste0(
     "plink --vcf ", region_ld_vcf,
     " --const-fid 0",
     " --r2 square --out ", ld_prefix,
-    " --allow-extra-chr 2>&1 | grep -v 'Warning\\|written'"
+    " --chr-set 95 --allow-extra-chr 2>&1 | grep -v 'Warning\\|written'"
   )
   message("Computing LD matrix...")
   system(cmd_plink, ignore.stdout = TRUE, ignore.stderr = TRUE)
