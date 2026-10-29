@@ -760,7 +760,7 @@ invariants table below, which fell from 41 violations to 3 in the same change. B
 **THE APP PACKAGE IN THE IMAGE IS STALE BY DEFAULT — the gate installs it from the mount.**
 `scripts/clinego.app/tests/testthat.R` is `library(clinego.app)` + `test_check("clinego.app")`, and
 Tier 5 reaches the app through `clinego.app:::`. Left alone, both resolve against
-`/usr/local/lib/R/site-library/clinego.app` — the copy baked in at `Dockerfile:176-178` — not
+`/usr/local/lib/R/site-library/clinego.app` — the copy baked in at `Dockerfile:180-182` — not
 against `scripts/clinego.app/R/*.R` on the `-v` mount, so the gate reported on the previous build.
 (Measured 2026-09-23 on a 9-day-old image: 12 of 402 app functions differed from the repo,
 `load_gff_genes` and `compute_method_thresholds` among them.)
@@ -776,7 +776,7 @@ install fails the suite instead of falling back. Three things about it are not f
   SHA1 has not changed, leaving the target lib empty while `find.package()` still points at
   site-library.
 - `docker build -t cline-go .` is still what makes the **image** current (package-mode Shiny
-  uses the image copy). An app change invalidates the COPY at `:176`, so every layer after it rebuilds:
+  uses the image copy). An app change invalidates the COPY at `:180`, so every layer after it rebuilds:
   tens of minutes, not the ~11 a cached rebuild takes. The gate no longer depends on it.
 
 **The quick gate's warning baseline is ZERO**, and that is load-bearing rather than cosmetic: a
