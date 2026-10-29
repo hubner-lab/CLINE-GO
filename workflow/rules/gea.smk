@@ -54,7 +54,7 @@ rule lfmm2vcf_full:
     log:    f"{LOGDIR}gea/lfmm2vcf_full.log"
     shell:
         """
-        Rscript /pipeline/scripts/lfmm2vcf.R {input.lfmm_imp} {input.vcf} {params.blocksize} > {log} 2>&1
+        Rscript /pipeline/scripts/lfmm2vcf.R {input.lfmm_imp} {input.vcf} {params.blocksize} {output} > {log} 2>&1
         """
 
 rule filter_imputed_maf_full:

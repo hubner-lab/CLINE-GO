@@ -4,6 +4,7 @@ library(dplyr)
 library(terra)
 library(stringr)
 library(gradientForest)
+source("/pipeline/scripts/R/lib/climate_cells.R")  # pair_climate_cells()
 args = commandArgs(trailingOnly=TRUE)
 ###############
 # FUTURE_ALL and the three OUTPUT_* args are COMMA-SEPARATED LISTS, one entry per
@@ -139,10 +140,12 @@ for (i in seq_len(n_scen)) {
 
   future_climate_all <- future_tabs[[i]]
   pred.future <- pred_future_all[future_start[i]:future_end[i], , drop = FALSE]
+  # Rows of pred are present_climate_all's, rows of pred.future this scenario's: pair by cell ID
+  cells <- pair_climate_cells(present_climate_all, future_climate_all, PREDICTORS_SELECTED)
 
   # Calculate genetic offset: GO = sqrt(sum((future - present)^2))
   genetic_offset <- sapply(1:ncol(pred.future), function(j) {
-    (pred.future[, j] - pred[, j])^2
+    (pred.future[cells$fut, j] - pred[cells$pres, j])^2
   }) %>%
     rowSums(na.rm = TRUE) %>%
     sqrt()
@@ -154,7 +157,10 @@ for (i in seq_len(n_scen)) {
   # rather than copied from a hoisted template: terra SpatRasters wrap external
   # pointers, so `x <- template; x[i] <- v` risks mutating the template too.
   rast_offset <- clim_present[[PREDICTORS_SELECTED[1]]]
-  rast_offset[present_climate_all$ID] <- genetic_offset
+  # A present cell with no future cell gets no offset, not its predictor value
+  unpaired <- present_climate_all$ID[setdiff(seq_len(nrow(present_climate_all)), cells$pres)]
+  if (length(unpaired) > 0) rast_offset[unpaired] <- NA
+  rast_offset[present_climate_all$ID[cells$pres]] <- genetic_offset
 
   # Save offset raster
   writeRaster(rast_offset,

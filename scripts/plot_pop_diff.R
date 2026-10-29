@@ -18,7 +18,7 @@ INTER_DIR = args[5]
 
 # Derive SVG and QS paths from PNG path
 OUT_SVG <- sub("\\.png$", ".svg", OUT_PNG)
-OUT_QS  <- paste0(INTER_DIR, sub("\\.png$", ".qs", basename(OUT_PNG)))
+OUT_QS  <- file.path(INTER_DIR, sub("\\.png$", ".qs", basename(OUT_PNG)))
 
 # Load SNMF project
 snmf_res <- load.snmfProject(SNMF_PROJECT)

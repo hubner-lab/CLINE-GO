@@ -50,7 +50,11 @@ heavy_build_emmax_inputs <- function(d) {
     vcf    <- heavy_copy_vcf(d)
     prefix <- file.path(d, "emmax_in")
 
-    plink_log <- system2("plink", c("--vcf", shQuote(vcf), "--allow-extra-chr",
+    # Verbatim flags of the tped_* rules (gea.smk tped_gea_climate): --double-id keeps a
+    # sample name such as NEG01_DUP whole as FID and IID. Without it plink split it into
+    # FID NEG01 / IID DUP, which emmax.R's IID lookup (df2fe3) rightly refuses.
+    plink_log <- system2("plink", c("--vcf", shQuote(vcf), "--double-id", "--chr-set", "95",
+                                    "--allow-extra-chr", "--output-chr", "MT",
                                     "--recode12", "transpose",
                                     "--output-missing-genotype", "0",
                                     "--out", shQuote(prefix)),
@@ -59,12 +63,6 @@ heavy_build_emmax_inputs <- function(d) {
     if (!file.exists(tfam)) {
         stop("plink did not write ", tfam, "\n", paste(plink_log, collapse = "\n"))
     }
-    # Mirror gea.smk:71-72's FID/IID collapse, so the TFAM matches production.
-    awk <- paste0("awk '{split($1,a,\"_\"); split($2,b,\"_\"); ",
-                  "if(a[1]==b[1]){$1=a[1];$2=a[1]} print}' ",
-                  shQuote(tfam), " > ", shQuote(paste0(prefix, "_tmp.tfam")))
-    system(awk)
-    file.rename(paste0(prefix, "_tmp.tfam"), tfam)
 
     kin_log <- system2(file.path(SCRIPTS, "emmax_run.sh"),
                        c(shQuote(file.path(SCRIPTS, "emmax-kin-intel64")),
@@ -76,9 +74,13 @@ heavy_build_emmax_inputs <- function(d) {
     }
 
     n <- heavy_vcf_n_samples(vcf)
+    # Keyed on `sample` like climate_present_site_scaled.tsv, and written in REVERSE VCF order:
+    # emmax.R must look each value up by the TFAM's IID, never bind it by row (df2fe3).
+    hdr <- system2("grep", c("-m1", shQuote("^#CHROM"), shQuote(vcf)), stdout = TRUE)
     trait_file <- file.path(d, "trait.tsv")
     data.table::fwrite(
-        data.table::data.table(bio_1 = as.numeric(seq_len(n)) + 0.5),
+        data.table::data.table(sample = rev(strsplit(hdr, "\t")[[1]][-(1:9)]),
+                               bio_1 = rev(as.numeric(seq_len(n)) + 0.5)),
         trait_file, sep = "\t")
 
     # LEA-shaped projections: plain space-separated numerics, one row per sample.

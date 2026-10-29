@@ -238,21 +238,21 @@ if (length(na_rows) > 0) {
     samples <- samples[-na_rows, ]
 }
 
-fwrite(excluded_dt, paste0(TABLES_DIR, 'climate_na_excluded.tsv'), sep = '\t', quote = FALSE)
+fwrite(excluded_dt, file.path(TABLES_DIR, 'climate_na_excluded.tsv'), sep = '\t', quote = FALSE)
 
 # Save raster
 writeRaster(clim_present$RasterStack,
-            filename = paste0(RASTER_DIR, 'climate_present_rasterstack.tif'),
+            filename = file.path(RASTER_DIR, 'climate_present_rasterstack.tif'),
             overwrite = TRUE,
             gdal = c("INTERLEAVE=BAND", "COMPRESS=LZW"))
 
 # Save all values
 clim_present$AllValues %>%
-  fwrite(paste0(TABLES_DIR, 'climate_present_all.tsv'), sep = '\t')
+  fwrite(file.path(TABLES_DIR, 'climate_present_all.tsv'), sep = '\t')
 
 # Save site values (with sample column for traceability)
 cbind(sample = samples$sample, site_values) %>%
-  fwrite(paste0(TABLES_DIR, 'climate_present_site.tsv'), sep = '\t')
+  fwrite(file.path(TABLES_DIR, 'climate_present_site.tsv'), sep = '\t')
 
 # Save site values scaled (with sample column)
 #
@@ -281,4 +281,4 @@ cbind(sample = samples$sample, site_values) %>%
 # not by the duplication — and is now computed over distinct sites there, as is the
 # climate block of plot_correlation_heatmap.R.)
 cbind(sample = samples$sample, site_values %>% dplyr::mutate_all(scale)) %>%
-  fwrite(paste0(TABLES_DIR, 'climate_present_site_scaled.tsv'), sep = '\t')
+  fwrite(file.path(TABLES_DIR, 'climate_present_site_scaled.tsv'), sep = '\t')

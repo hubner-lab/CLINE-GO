@@ -21,9 +21,8 @@ rule lfmm2vcf_ld:
     log:    f"{LOGDIR}structure/lfmm2vcf_ld.log"
     shell:
         """
-        Rscript /pipeline/scripts/lfmm2vcf.R {input.lfmm_imp} {input.vcf} {params.blocksize} > {log} 2>&1
+        Rscript /pipeline/scripts/lfmm2vcf.R {input.lfmm_imp} {input.vcf} {params.blocksize} {output} > {log} 2>&1
         """
-    # NOTE: lfmm2vcf.R already exists, outputs .vcf with same base as .lfmm input
 
 rule filter_imputed_maf_ld:
     """Keep SNPs whose MAF in the sNMF-IMPUTED LD-pruned matrix is >= sNMF.imputed_maf

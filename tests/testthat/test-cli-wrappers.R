@@ -141,8 +141,9 @@ WRAPPERS <- list(
         fails_without_input = TRUE
     ),
     list(
-        # combine_selected_snps.R:31 derives the method name from each file's
-        # PARENT DIRECTORY, so the fixture must live at <d>/<METHOD>/<file>.
+        # combine_selected_snps.R names each method from its table's `method` column;
+        # only an empty table falls back to its folder (caf4df), so the fixture still
+        # lives at <d>/<METHOD>/<file>.
         label   = "combine_selected_snps.R",
         script  = "combine_selected_snps.R",
         build   = function(d) {
@@ -500,7 +501,7 @@ WRAPPERS <- list(
         # The poster child for the cwd sandbox: generate_simdata.R:8 falls back
         # to a RELATIVE "data/" when argv is empty, and data/ is gitignored, so
         # a no-arg run would overwrite the working SIMDATA fixtures invisibly.
-        # Always pass an explicit dir — with a trailing slash (:301,:441 concat).
+        # Always pass an explicit dir (fx_inter_dir: no trailing slash, file.path joins).
         label   = "generate_simdata.R",
         script  = "generate_simdata.R",
         build   = function(d) fx_inter_dir(d, "simdata"),
@@ -649,10 +650,10 @@ WRAPPERS <- list(
     # pinned CRAN packages in the image (Dockerfile:207,123), the same category
     # as ggplot2 — no genomics binary, no VCF, no network.
     #
-    # BOTH rows need argv[5]-argv[7] to carry a TRAILING SLASH: the script builds
-    # every output path with paste0, and only the tables dir is dir.create()d, so
-    # the plot and inter directories must already exist. fx_inter_dir() is the
-    # builder for exactly that. argv[7] (tables dir) carries mantel_statistics.tsv,
+    # argv[5]-argv[7] are directories with NO trailing slash (fx_inter_dir): the
+    # script joins them with file.path (5c8fce), and only the tables dir is
+    # dir.create()d, so the plot and inter directories must already exist, which
+    # fx_inter_dir() also does. argv[7] (tables dir) carries mantel_statistics.tsv,
     # a declared rule output since the variance-pie removal.
     list(
         # The single-site guard (:191-206). It fires BEFORE fread(ENV) and
@@ -1191,6 +1192,39 @@ test_that("combine_selected_snps.R: an auto_* agreement distance equals its reso
     expect_setequal(picked$pos, c(100000L, 102000L))
     wide <- data.table::fread(file.path(d, "wide.tsv"), colClasses = c(chr = "character"))
     expect_setequal(wide$pos, c(100000L, 102000L, 300000L, 305000L))
+})
+
+test_that("combine_selected_snps.R names a method from its table, the folder only for an empty one", {
+    # caf4df: the method came from each file's parent folder, so a file in another
+    # layout relabelled its method's column in selected_snps.tsv.
+    d <- withr::local_tempdir()
+    a <- file.path(d, "first", "sig.tsv"); b <- file.path(d, "second", "sig.tsv")
+    fx_sig_snps(a, "EMMAX"); fx_sig_snps(b, "LFMM")
+    # An empty table names no method: as find_sig_snps writes it, header only.
+    e <- file.path(d, "RDA", "RDA_pvalues_K3_sig_snps_bonf_0.01.tsv")
+    dir.create(dirname(e))
+    write_tsv(data.table::fread(a)[0], e)
+    out <- file.path(d, "selected_snps.tsv")
+    res <- run_wrapper("combine_selected_snps.R",
+                       c(paste(a, b, e), "Union", "10000", "bio_1,bio_2", out))
+    expect_identical(res$status, 0L, info = res$output)
+    expect_identical(names(data.table::fread(out)),
+                     c("SNPID", "chr", "pos", "EMMAX", "LFMM", "RDA", "min_pvalue"))
+
+    # Two files of one method, or one file holding two, stop instead of relabelling.
+    c2 <- file.path(d, "third", "sig.tsv"); fx_sig_snps(c2, "EMMAX")
+    dup <- run_wrapper("combine_selected_snps.R",
+                       c(paste(a, c2), "Union", "10000", "bio_1,bio_2", file.path(d, "dup.tsv")))
+    expect_false(identical(dup$status, 0L), info = dup$output)
+    expect_match(dup$output, "two input files are the same method \\(EMMAX\\)")
+    mixed <- data.table::fread(a)
+    mixed$method[1] <- "LFMM"
+    dir.create(file.path(d, "mixed"))
+    m <- write_tsv(mixed, file.path(d, "mixed", "sig.tsv"))
+    two <- run_wrapper("combine_selected_snps.R",
+                       c(paste(m, b), "Union", "10000", "bio_1,bio_2", file.path(d, "two.tsv")))
+    expect_false(identical(two$status, 0L), info = two$output)
+    expect_match(two$output, "holds more than one method")
 })
 
 # compare_results.R content tests. Each case builds a fresh pair of fixture trees,

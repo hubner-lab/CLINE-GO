@@ -35,8 +35,8 @@ message(paste0("INFO: TPED prefix: ", TPED_PREFIX))
 message(paste0("INFO: Kinship file: ", KINSHIP_FILE))
 message(paste0("INFO: Output: ", OUT_FILE))
 
-# Load trait data
-trait <- fread(TRAIT_FILE, sep = '\t', header = T)
+# Load trait data; its `sample` column binds each value to a TFAM individual (tfam_phenotype)
+trait <- fread(TRAIT_FILE, sep = '\t', header = T, colClasses = c(sample = "character"))
 
 # Load covariates (PCs from LEA projections or PLINK eigenvec).
 # SAMPLES_ORDER + the current VCF's sample list let load_pca_covariates() subset
@@ -45,7 +45,7 @@ covariates <- load_pca_covariates(COVARIATES_FILE, Kbest, SAMPLES_ORDER, read_vc
 
 ################################ Functions
 
-FUN_emmax <- function(VCF, trait, covariates, OUT, TPED_PREFIX, KINSHIP_FILE) {
+FUN_emmax <- function(VCF, trait, traitname, covariates, OUT, TPED_PREFIX, KINSHIP_FILE) {
 
     tfam <- paste0(TPED_PREFIX, '.tfam')
 
@@ -56,15 +56,14 @@ FUN_emmax <- function(VCF, trait, covariates, OUT, TPED_PREFIX, KINSHIP_FILE) {
     SampleName <- read_vcf_samples(VCF)
 
     # FILES produced
-    traitname <- colnames(trait)[1]
-    PHEN <- paste0(OUT, 'EMMAX_phenotype_', traitname, '.tsv')
-    COVAR <- paste0(OUT, 'EMMAX_covariates_', traitname, '.tsv')
-    EMMAXOUT <- paste0(OUT, 'EMMAX_OUT_', traitname)
+    PHEN <- file.path(OUT, paste0('EMMAX_phenotype_', traitname, '.tsv'))
+    COVAR <- file.path(OUT, paste0('EMMAX_covariates_', traitname, '.tsv'))
+    EMMAXOUT <- file.path(OUT, paste0('EMMAX_OUT_', traitname))
 
-    # Prepare phenotype file — use FID/IID from TFAM to ensure exact match
+    # Prepare phenotype file — FID/IID from the TFAM, each trait value looked up by IID
     tfam_ids <- fread(tfam, header = FALSE, select = list(character = 1:2),
                       col.names = c("FAMID", "INDID"))
-    emmax.phen <- cbind(tfam_ids, trait) %T>%
+    emmax.phen <- tfam_phenotype(tfam_ids, trait, traitname) %T>%
         write.table(PHEN, sep = '\t', col.names = F, row.names = F, quote = F)
 
     if (!is.null(covariates)) {
@@ -109,11 +108,8 @@ FUN_emmax <- function(VCF, trait, covariates, OUT, TPED_PREFIX, KINSHIP_FILE) {
 
 ################################ Main
 
-# Select only the single requested trait
-trait <- trait %>% dplyr::select(!!TRAIT)
-
 # Run EMMAX for the single trait
-pval_dt <- FUN_emmax(VCF, trait, covariates, INTER_DIR, TPED_PREFIX, KINSHIP_FILE)
+pval_dt <- FUN_emmax(VCF, trait, TRAIT, covariates, INTER_DIR, TPED_PREFIX, KINSHIP_FILE)
 
 message(pval_dt %>% str)
 

@@ -312,7 +312,7 @@ fx_selected_snps <- function(d, name = "selected_snps.tsv",
 
 # build_snp_set.R inputs: one wide p-value table per method, at
 # <d>/methods/<METHOD>/<METHOD>_pvalues_K3.tsv (the script takes the method from
-# the PARENT directory, as combine_selected_snps.R does), plus the
+# the PARENT directory: a wide p-value table has no method column), plus the
 # declaration.json the snp_set_declare rule writes. Every cell gets the same
 # (type, value) rule. With the default custom 1e-4, bio_1::EMMAX selects 1:100
 # and 2:300 (p = 1e-4 exactly — the inclusive boundary) and the four pairs
@@ -370,15 +370,15 @@ fx_dummy_png <- function(d, name = "placeholder.png") {
     p
 }
 
-# INTER_DIR arguments MUST carry a trailing slash. Several scripts build their
-# intermediate path by string concatenation rather than file.path() — e.g.
-# plot_density.R:19, plot_structure.R:18, plot_correlation_heatmap.R:37 — and
-# work in production only because common.smk defines INTER with a trailing
-# slash. Filed; until fixed, fixtures must honour the convention.
+# A directory argument (INTER_DIR, PLOT_DIR, TABLES_DIR, OUTDIR), returned WITHOUT a
+# trailing slash on purpose. The scripts used to join it by paste0(), so a directory
+# without the slash common.smk gives INTER wrote "<dir>name.qs" beside the directory
+# (5c8fce); they now join with file.path(), and every row built on this fixture
+# exercises that case.
 fx_inter_dir <- function(d, name = "inter") {
     p <- file.path(d, name)
     dir.create(p, recursive = TRUE, showWarnings = FALSE)
-    paste0(p, "/")
+    p
 }
 
 # Climate/varpart summary inputs. write_summary.R's `climate` branch reads five
@@ -720,6 +720,72 @@ fx_compare_trees <- function(d, names = c("FXA", "FXB")) {
         writeLines('{"n_snps": 3}', file.path(res, "GEA", "tables", "coords.json"))
         res
     }, character(1), USE.NAMES = FALSE)
+}
+
+# A small offset world for the three offset engines and gradient_forest_model.R: 4 sites x
+# 3 samples, a 10 x 10 two-layer raster (bio_1, bio_12) for the present and a shifted one for
+# the future, the climate tables exactly as download_climate_present.R / merge_climate_future.R
+# write them (site rows keyed by `sample`, all-cell rows keyed by `ID`, every cell complete),
+# and an imputed genotype matrix whose first 15 SNPs follow bio_1. Seeded. Every table is in
+# the metadata's row order, the pipeline's own alignment, so a test can permute one table
+# and require the output not to move.
+fx_offset_world <- function(d, seed = 3L) {
+    set.seed(seed)
+    site_xy <- data.table::data.table(site = c("A", "B", "C", "D"),
+                                      longitude = c(34.15, 34.45, 34.75, 34.95),
+                                      latitude  = c(31.15, 31.55, 31.85, 31.35))
+    meta <- site_xy[rep(1:4, each = 3)]
+    meta[, sample := sprintf("S%02d", .I)]
+    data.table::setcolorder(meta, c("site", "sample", "latitude", "longitude"))
+
+    grid <- function(shift_t, scale_p) {
+        r <- terra::rast(nrows = 10, ncols = 10, xmin = 34, xmax = 35, ymin = 31, ymax = 32,
+                         nlyrs = 2, crs = "EPSG:4326")
+        xy <- terra::xyFromCell(r, seq_len(terra::ncell(r)))
+        terra::values(r) <- cbind(20 + 3 * (xy[, 2] - 31) + shift_t + 0.5 * (xy[, 1] - 34),
+                                  (300 + 80 * (xy[, 1] - 34)) * scale_p)
+        names(r) <- c("bio_1", "bio_12")
+        r
+    }
+    pres_r <- grid(0, 1); fut_r <- grid(1.5, 0.9)
+    raster <- file.path(d, "present.tif")
+    terra::writeRaster(pres_r, raster, overwrite = TRUE)
+    all_tab <- function(r) data.table::data.table(ID = seq_len(terra::ncell(r)), terra::values(r))
+    site_tab <- function(r) {
+        v <- terra::extract(r, terra::vect(as.data.frame(meta[, .(longitude, latitude)]),
+                                           geom = c("longitude", "latitude"), crs = "EPSG:4326"))[, -1]
+        data.table::data.table(sample = meta$sample, v)
+    }
+    paths <- c(meta = file.path(d, "metadata_climate_valid.tsv"),
+               site_pres = file.path(d, "climate_present_site.tsv"),
+               site_fut = file.path(d, "climate_future_site.tsv"),
+               all_pres = file.path(d, "climate_present_all.tsv"),
+               all_fut = file.path(d, "climate_future_all.tsv"))
+    write_tsv(meta, paths[["meta"]])
+    write_tsv(site_tab(pres_r), paths[["site_pres"]]); write_tsv(site_tab(fut_r), paths[["site_fut"]])
+    write_tsv(all_tab(pres_r), paths[["all_pres"]]);   write_tsv(all_tab(fut_r), paths[["all_fut"]])
+
+    b1 <- as.numeric(scale(site_tab(pres_r)$bio_1))
+    n <- nrow(meta); n_snp <- 30L
+    g <- matrix(stats::rbinom(n * n_snp, 2, 0.4), nrow = n)
+    for (j in 1:15) g[, j] <- pmin(2L, pmax(0L, round(1 + 0.9 * b1 + stats::rnorm(n, 0, 0.35))))
+    for (j in seq_len(n_snp)) if (stats::var(g[, j]) == 0) g[1, j] <- (g[1, j] + 1L) %% 3L
+    lfmm <- file.path(d, "geno_imp.lfmm")
+    writeLines(apply(g, 1, paste, collapse = " "), lfmm)
+    chr <- rep(c("1", "2"), each = 15); pos <- rep(seq_len(15) * 1000L, 2)
+    vcfsnp <- file.path(d, "geno.vcfsnp")
+    writeLines(sprintf("%s %d snp%d A G . . PR GT ", chr, pos, seq_len(n_snp)), vcfsnp)
+    removed <- file.path(d, "geno.removed")
+    file.create(removed)
+    snps <- file.path(d, "selected_snps.tsv")
+    write_tsv(data.table::data.table(SNPID = paste0(chr[1:15], ":", pos[1:15])), snps)
+    c(as.list(paths), list(raster = raster, lfmm = lfmm, vcfsnp = vcfsnp, removed = removed,
+                           snps = snps, n = n))
+}
+
+# Rewrite a TSV with its rows in another order (or a subset), the header kept.
+fx_reorder_rows <- function(path, rows, out = path) {
+    write_tsv(data.table::fread(path, colClasses = "character")[rows], out)
 }
 
 # ------------------------------------------------------------------- runner

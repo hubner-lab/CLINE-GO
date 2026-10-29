@@ -55,10 +55,6 @@ if (length(clash) > 0) {
     stop("Refusing to overwrite an input file: ", paste(clash, collapse = ", "))
 }
 
-# Extract method names from file paths
-methods_vec <- sapply(str_split(sigSNPs_vec, '/'), function(x) x[length(x) - 1])
-sigSNPs_vec <- setNames(sigSNPs_vec, methods_vec)
-
 message(paste0('INFO: Input files: ', paste(sigSNPs_vec, collapse = ', ')))
 
 # Load tables
@@ -69,8 +65,26 @@ sigSNPs_lst <- lapply(sigSNPs_vec, function(x) {
                           pos = integer(), trait = character(),
                           method = character(), pvalue = numeric()))
     }
+    if (!'method' %in% names(dt)) stop("ERROR: ", x, " has no `method` column")
     dt
-}) %>% setNames(methods_vec)
+})
+
+# Each table's method is the one its own `method` column names (find_sig_snps.R writes it),
+# not the folder it sits in (caf4df). A table without rows names none: only then is the
+# folder used, tables/methods/<method>/ as find_sig_snps writes it. Argv order = column order.
+methods_vec <- vapply(seq_along(sigSNPs_lst), function(i) {
+    m <- unique(sigSNPs_lst[[i]]$method)
+    if (length(m) > 1) {
+        stop("ERROR: ", sigSNPs_vec[i], " holds more than one method: ", paste(m, collapse = ", "))
+    }
+    if (length(m) == 1) m else basename(dirname(sigSNPs_vec[i]))
+}, character(1))
+if (anyDuplicated(methods_vec)) {
+    dup <- methods_vec[duplicated(methods_vec)]
+    stop("ERROR: two input files are the same method (", paste(unique(dup), collapse = ", "), "): ",
+         paste(sigSNPs_vec[methods_vec %in% dup], collapse = ", "))
+}
+names(sigSNPs_lst) <- methods_vec
 
 combined <- combine_sigsnps_with_traits(sigSNPs_lst, METHOD, CLUMPING_DISTANCE, PREDICTORS_SELECTED)
 

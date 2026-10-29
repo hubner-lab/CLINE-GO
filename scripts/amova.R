@@ -46,19 +46,19 @@ if (n_sites < 2) {
     Value = c('skipped_single_site', as.character(n_sites),
               rep(NA_character_, 8))
   ) %>%
-    fwrite(paste0(TABLES_DIR, 'amova.tsv'), sep = '\t')
+    fwrite(file.path(TABLES_DIR, 'amova.tsv'), sep = '\t')
 
   skip_plot <- ggplot() +
     annotate("text", x = 0, y = 0, size = 5, colour = "grey50",
              label = paste0("AMOVA unavailable\n(", n_sites,
                             " sampling site, need >= 2)")) +
     theme_void()
-  ggsave(paste0(PLOT_DIR, "amova.png"), skip_plot, width = 7, height = 7, dpi = 150)
-  ggsave(paste0(PLOT_DIR, "amova.svg"), skip_plot, width = 7, height = 7,
+  ggsave(file.path(PLOT_DIR, "amova.png"), skip_plot, width = 7, height = 7, dpi = 150)
+  ggsave(file.path(PLOT_DIR, "amova.svg"), skip_plot, width = 7, height = 7,
          device = svglite::svglite, bg = 'transparent')
   qsave(list(AMOVA = NULL, AMOVAsignif = NULL, status = 'skipped_single_site'),
-        paste0(INTER_DIR, 'amova_result.qs'))
-  qsave(skip_plot, paste0(INTER_DIR, 'amova_plot.qs'))
+        file.path(INTER_DIR, 'amova_result.qs'))
+  qsave(skip_plot, file.path(INTER_DIR, 'amova_plot.qs'))
 
   quit(status = 0)
 }
@@ -81,6 +81,20 @@ my_genlight <- vcfR2genlight(vcf, n.cores = CPU)
 samples.df <- fread(SAMPLES,
                     colClasses = c("site" = "character", 'sample' = 'character')) %>%
   dplyr::select(sample, site)
+
+# Each genind individual gets the site of its own metadata row, found by sample id: the
+# rows were bound by position (52289b). The LD-pruned VCFs keep plink's `0_` family-ID
+# prefix (0_NEG01: ld_prune's `\t0_0_` sed never matches), so when the names do not match
+# as written, one leading `0_` is stripped and then every individual must match.
+ind_ids <- indNames(my_genind)
+if (!all(ind_ids %in% samples.df$sample)) ind_ids <- sub('^0_', '', ind_ids)
+ind_row <- match(ind_ids, samples.df$sample)
+if (anyNA(ind_row)) {
+  stop(paste0('AMOVA: ', sum(is.na(ind_row)), ' VCF sample(s) have no row in ', SAMPLES,
+              ' (e.g. ', paste(head(indNames(my_genind)[is.na(ind_row)], 3), collapse = ', '),
+              '). The VCF and the metadata must describe the same samples.'))
+}
+samples.df <- samples.df[ind_row]
 
 strata(my_genind) = samples.df %>%
   dplyr::mutate(pop = as.character(site)) %>%
@@ -122,7 +136,7 @@ data.table(
             AMOVA$results$Df[2],
             AMOVA$results$Df[3])
 ) %>%
-  fwrite(paste0(TABLES_DIR, 'amova.tsv'), sep = '\t')
+  fwrite(file.path(TABLES_DIR, 'amova.tsv'), sep = '\t')
 
 # Create data frame for the pie chart
 variations <- data.frame(
@@ -157,12 +171,12 @@ pie_chart <- pie_chart +
             position = position_stack(vjust = 0.5))
 
 # Save outputs
-ggsave(paste0(PLOT_DIR, "amova.png"), pie_chart)
-ggsave(paste0(PLOT_DIR, "amova.svg"), pie_chart,
+ggsave(file.path(PLOT_DIR, "amova.png"), pie_chart)
+ggsave(file.path(PLOT_DIR, "amova.svg"), pie_chart,
        device = svglite::svglite, bg = 'transparent')
 
 # Save AMOVA results as qs
 AMOVA_result <- list(AMOVA = AMOVA,
                      AMOVAsignif = AMOVAsignif)
-qsave(AMOVA_result, paste0(INTER_DIR, 'amova_result.qs'))
-qsave(pie_chart, paste0(INTER_DIR, 'amova_plot.qs'))
+qsave(AMOVA_result, file.path(INTER_DIR, 'amova_result.qs'))
+qsave(pie_chart, file.path(INTER_DIR, 'amova_plot.qs'))

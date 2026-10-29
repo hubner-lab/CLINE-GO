@@ -17,9 +17,9 @@ INTER_DIR = args[5]
 
 # Derive SVG and QS paths from PNG paths
 OUT_PCA_SVG <- sub("\\.png$", ".svg", OUT_PCA_PNG)
-OUT_PCA_QS  <- paste0(INTER_DIR, sub("\\.png$", ".qs", basename(OUT_PCA_PNG)))
+OUT_PCA_QS  <- file.path(INTER_DIR, sub("\\.png$", ".qs", basename(OUT_PCA_PNG)))
 OUT_TRACY_SVG <- sub("\\.png$", ".svg", OUT_TRACY_PNG)
-OUT_TRACY_QS  <- paste0(INTER_DIR, sub("\\.png$", ".qs", basename(OUT_TRACY_PNG)))
+OUT_TRACY_QS  <- file.path(INTER_DIR, sub("\\.png$", ".qs", basename(OUT_TRACY_PNG)))
 
 # Load samples info
 samples.df <- fread(SAMPLES,

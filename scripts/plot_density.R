@@ -16,7 +16,7 @@ INTER_DIR = args[4]
 
 # Derive SVG and QS paths from PNG path
 OUT_SVG <- sub("\\.png$", ".svg", OUT_PNG)
-OUT_QS  <- paste0(INTER_DIR, sub("\\.png$", ".qs", basename(OUT_PNG)))
+OUT_QS  <- file.path(INTER_DIR, sub("\\.png$", ".qs", basename(OUT_PNG)))
 
 # Load data
 climate <- fread(CLIMATE)
@@ -63,7 +63,7 @@ for (bio in bio_vars) {
   plot_list[[bio]] <- gDens
 
   # Save individual plot to intermediate for potential reuse
-  qsave(gDens, paste0(INTER_DIR, 'density_plot_', bio, '.qs'))
+  qsave(gDens, file.path(INTER_DIR, paste0('density_plot_', bio, '.qs')))
 }
 
 message(paste0('INFO: Created ', length(plot_list), ' density plots'))

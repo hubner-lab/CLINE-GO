@@ -41,6 +41,7 @@ for (.f in c("utils/pval_threshold.R",
              "lib/genes_in_regions.R",
              "lib/rdadapt.R",
              "lib/invariants.R",
+             "lib/climate_cells.R",
              "utils/theme_clinego.R",
              "lib/enrichment.R",
              "lib/enrichment_plots.R")) {

@@ -314,7 +314,7 @@ climate_mean  <- if (length(site_climate_vals) >= 1) mean(site_climate_vals) els
 has_spatial_variance <- climate_range > max(0.01, abs(climate_mean) * 0.01)
 
 if (!has_spatial_variance) {
-  flag_file <- paste0(PLOT_DIR, OUTPUT_PREFIX, "_no_spatial_variance.flag")
+  flag_file <- file.path(PLOT_DIR, paste0(OUTPUT_PREFIX, "_no_spatial_variance.flag"))
   writeLines(c(
     paste0("variable=", RASTER_LEGEND),
     paste0("range=",    round(climate_range, 6)),
@@ -358,10 +358,10 @@ gPlot <- create_piemap(
 )
 
 # Save outputs (full extent)
-ggsave(paste0(PLOT_DIR, OUTPUT_PREFIX, '.png'), gPlot)
-ggsave(paste0(PLOT_DIR, OUTPUT_PREFIX, '.svg'), gPlot,
+ggsave(file.path(PLOT_DIR, paste0(OUTPUT_PREFIX, '.png')), gPlot)
+ggsave(file.path(PLOT_DIR, paste0(OUTPUT_PREFIX, '.svg')), gPlot,
        device = svglite::svglite, bg = 'transparent', fix_text_size = FALSE)
-qsave(gPlot, paste0(INTER_DIR, OUTPUT_PREFIX, '.qs'))
+qsave(gPlot, file.path(INTER_DIR, paste0(OUTPUT_PREFIX, '.qs')))
 
 message(paste0('INFO: PieMap complete: ', OUTPUT_PREFIX))
 
@@ -437,13 +437,13 @@ if (REGIONMAP_EXTENT != "NULL" && REGIONMAP_EXTENT != "") {
         coords_str <- gsub(",", "_", coords_str)          # Replace , with _
 
         # Save zoomed outputs in coordinate subdirectory
-        zoom_dir <- paste0(PLOT_DIR, "zoom/", coords_str, "/")
+        zoom_dir <- file.path(PLOT_DIR, "zoom", coords_str)
         dir.create(zoom_dir, recursive = TRUE, showWarnings = FALSE)
-        ggsave(paste0(zoom_dir, OUTPUT_PREFIX, '.png'), gPlot_zoom)
-        ggsave(paste0(zoom_dir, OUTPUT_PREFIX, '.svg'), gPlot_zoom,
+        ggsave(file.path(zoom_dir, paste0(OUTPUT_PREFIX, '.png')), gPlot_zoom)
+        ggsave(file.path(zoom_dir, paste0(OUTPUT_PREFIX, '.svg')), gPlot_zoom,
                device = svglite::svglite, bg = 'transparent', fix_text_size = FALSE)
-        qsave(gPlot_zoom, paste0(INTER_DIR, OUTPUT_PREFIX, '_zoom_', coords_str, '.qs'))
+        qsave(gPlot_zoom, file.path(INTER_DIR, paste0(OUTPUT_PREFIX, '_zoom_', coords_str, '.qs')))
 
-        message(paste0('INFO: Zoomed PieMap complete: ', zoom_dir, OUTPUT_PREFIX))
+        message(paste0('INFO: Zoomed PieMap complete: ', file.path(zoom_dir, OUTPUT_PREFIX)))
     }
 }

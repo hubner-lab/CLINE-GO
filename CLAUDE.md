@@ -502,7 +502,7 @@ To add a new output: add to the appropriate dict/function, add to `get_targets()
 - `download_climate_present` (WorldClim) is very slow — always preserve its output
 - Dead `assoc_genes()`/`assoc_genes_collapsed()` template functions referencing undefined `GENE_DISTANCE` were removed — gene finding uses `find_genes_around_regions.R` directly
 - `scattermore` is used via `association.scattermore_threshold` (default 30,000) to downsample non-sig SNPs in Manhattan plots
-- `ld_prune` sed pattern uses `0_0_` while `filter_vcf` and `subset_vcf_pheno` use `0_` — inconsistent but confirmed working; likely because LD pruning goes through an extra plink step that doubles the prefix. Investigate only if errors arise.
+- `ld_prune`'s sed strips `\t0_0_` while `filter_vcf` and `subset_vcf_pheno` strip `0_`. Measured (audit B29, 52289b): ld_prune reads the already-stripped `vcf_filt`, so its one `--const-fid` pass writes a SINGLE `0_` and the sed never matches; `W['vcf_ld']`, `W['vcf_imp']` and the other LD-pruned VCFs keep `0_NEG01`-style names. There is no doubled prefix. Readers of those names handle it explicitly: `amova.R` matches by id after stripping one leading `0_` (2026-10-29), `pregea_subset_vcf_pruned_climate` prefixes its `--keep` list. Do not change the sed: it would rewrite every LD-pruned VCF header those readers expect.
 
 ## Shiny App — golem Package (`scripts/clinego.app/`)
 
@@ -711,9 +711,11 @@ load-bearing and not obvious:
   `expect_wrapper_ok()` asserts it is still empty afterwards. This — not a `git status` check — is
   the containment: `data/` and `*_results/` are both gitignored, so git is blind to exactly the
   writes that matter (`generate_simdata.R:8` defaults `OUTDIR` to a relative `"data/"`).
-- **Every `INTER_DIR` fixture needs a trailing slash.** Seven scripts build their intermediate
-  path with `paste0`, not `file.path`, and work in production only because `common.smk` defines
-  `INTER` with one. `fx_inter_dir()` exists solely for this. Filed.
+- **`fx_inter_dir()` returns a directory WITHOUT a trailing slash, on purpose.** Scripts used to
+  join a directory argument with `paste0` and worked only because `common.smk` gives `INTER` and
+  every plot/table dir a trailing slash; since 2026-10-29 (5c8fce) they join with `file.path`, and
+  every row built on this fixture exercises the no-slash case. A new script must join its
+  directory arguments with `file.path` too.
 
 `add_related_samples.R` and `add_pregea_sites.R` must NEVER get a spec row — they take no argv and
 rewrite the tracked SIMDATA fixtures in place. A denylist test enforces it rather than leaving it

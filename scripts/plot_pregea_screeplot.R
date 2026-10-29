@@ -36,7 +36,7 @@ dir.create(dirname(OUT_TSV), recursive = TRUE, showWarnings = FALSE)
 dir.create(INTER_DIR, recursive = TRUE, showWarnings = FALSE)
 
 OUT_SVG <- sub("\\.png$", ".svg", OUT_PNG)
-OUT_QS  <- paste0(INTER_DIR, sub("\\.png$", ".qs", basename(OUT_PNG)))
+OUT_QS  <- file.path(INTER_DIR, sub("\\.png$", ".qs", basename(OUT_PNG)))
 
 k_range <- as.integer(strsplit(K_RANGE_STR, ",")[[1]])
 

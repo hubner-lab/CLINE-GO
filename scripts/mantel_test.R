@@ -168,17 +168,17 @@ if (n_sites < 2) {
     annotate('text', x = 0, y = 0, size = 5, colour = 'grey50',
              label = sprintf('Mantel test unavailable\n(%d sampling site, need >= 2)', n_sites)) +
     theme_void()
-  ggsave(paste0(PLOT_DIR, 'mantel_test.png'), skip_plot, width = 10, height = 8, dpi = 150, bg = 'white')
-  ggsave(paste0(PLOT_DIR, 'mantel_test.svg'), skip_plot, width = 10, height = 8,
+  ggsave(file.path(PLOT_DIR, 'mantel_test.png'), skip_plot, width = 10, height = 8, dpi = 150, bg = 'white')
+  ggsave(file.path(PLOT_DIR, 'mantel_test.svg'), skip_plot, width = 10, height = 8,
          device = svglite::svglite, bg = 'white', fix_text_size = FALSE)
   qsave(list(status = 'skipped_single_site', n_sites = n_sites),
-        paste0(INTER_DIR, 'mantel_test.qs'))
+        file.path(INTER_DIR, 'mantel_test.qs'))
   # mantel_statistics.tsv is a declared rule output — write the empty shape so the
   # opt-in skip stays a skip instead of failing the rule on a missing file.
   dir.create(TABLES_DIR, recursive = TRUE, showWarnings = FALSE)
   fwrite(data.table(test = character(0), type = character(0), mantel_r = numeric(0),
                     p_value = numeric(0), permutations = numeric(0), n_sites = integer(0)),
-         paste0(TABLES_DIR, 'mantel_statistics.tsv'), sep = '\t')
+         file.path(TABLES_DIR, 'mantel_statistics.tsv'), sep = '\t')
   quit(status = 0)
 }
 
@@ -298,10 +298,10 @@ gMantel <- create_mantel_plot(results)
 # only inside the PNG and the .qs.
 dir.create(TABLES_DIR, recursive = TRUE, showWarnings = FALSE)
 fwrite(cbind(results$statistics, n_sites = n_sites),
-       paste0(TABLES_DIR, 'mantel_statistics.tsv'), sep = '\t')
-ggsave(paste0(PLOT_DIR, 'mantel_test.png'), gMantel, width = 10, height = 6, dpi = 300, bg = "white")
-ggsave(paste0(PLOT_DIR, 'mantel_test.svg'), gMantel,
+       file.path(TABLES_DIR, 'mantel_statistics.tsv'), sep = '\t')
+ggsave(file.path(PLOT_DIR, 'mantel_test.png'), gMantel, width = 10, height = 6, dpi = 300, bg = "white")
+ggsave(file.path(PLOT_DIR, 'mantel_test.svg'), gMantel,
        device = svglite::svglite, bg = 'white', fix_text_size = FALSE)
-qsave(results, paste0(INTER_DIR, 'mantel_test.qs'))
+qsave(results, file.path(INTER_DIR, 'mantel_test.qs'))
 
 message('INFO: Mantel test complete')

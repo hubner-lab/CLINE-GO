@@ -298,7 +298,7 @@ sort_order <- order(match(record_chrs, chromosomes), record_pos)
 vcf_records <- vcf_records[sort_order]
 
 # Write VCF
-vcf_file <- paste0(OUTDIR, "SIMDATA.vcf")
+vcf_file <- file.path(OUTDIR, "SIMDATA.vcf")
 writeLines(c(vcf_header, unlist(vcf_records)), vcf_file)
 message(paste0("INFO: Written VCF with ", length(vcf_records), " SNPs to ", vcf_file))
 
@@ -438,7 +438,7 @@ for (gene in genes) {
 }
 
 # Write GFF
-gff_file <- paste0(OUTDIR, "SIMDATA.gff3")
+gff_file <- file.path(OUTDIR, "SIMDATA.gff3")
 writeLines(c(gff_header, unlist(gff_records)), gff_file)
 message(paste0("INFO: Written GFF with ", length(genes), " genes to ", gff_file))
 

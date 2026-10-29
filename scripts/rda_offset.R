@@ -20,6 +20,7 @@ library(ggplot2)
 
 source("/pipeline/scripts/R/utils/theme_clinego.R")
 source("/pipeline/scripts/R/utils/emmax_core.R")  # load_pca_covariates() — condition_pcs > 0 only
+source("/pipeline/scripts/R/lib/climate_cells.R")  # pair_climate_cells()
 
 args <- commandArgs(trailingOnly = TRUE)
 ################################################################################
@@ -183,7 +184,16 @@ if (ncol(Y_cand) < 3) {
 # 3. Climate predictors — B11: standardize ONCE from the present site matrix,
 #    capture the constants, apply identically to present AND future.
 ################################################################################
-env_site_pres_raw <- fread(ENV_SITE_PRES) %>% dplyr::select(!!PREDICTORS)
+# Keep the table's `sample` column: it is the only key linking these rows, and the offsets
+# computed from them, to a sample identity (the site TSV below is keyed on it, 87eac5).
+env_site_pres_tab <- fread(ENV_SITE_PRES, colClasses = c('sample' = 'character'))
+if (!'sample' %in% names(env_site_pres_tab)) {
+    stop('FATAL: ', ENV_SITE_PRES, ' has no `sample` column (found: ',
+         paste(utils::head(names(env_site_pres_tab), 5), collapse = ', '),
+         '). Expected schema: sample <tab> one column per predictor, one row per sample. ',
+         'This is likely a stale table from an older pipeline version -- re-run mode=structure.')
+}
+env_site_pres_raw <- env_site_pres_tab %>% dplyr::select(!!PREDICTORS)
 env_all_pres  <- fread(ENV_ALL_PRES) %>% dplyr::select(ID, !!PREDICTORS)
 
 n_samples <- nrow(env_site_pres_raw)
@@ -340,31 +350,59 @@ site_ids <- samples[, c('site', 'sample')] %>% unique()
 for (i in seq_len(N_SCEN)) {
     message(paste0('INFO: [', i, '/', N_SCEN, '] scenario ', SCENARIOS[i]))
 
-    env_site_fut_raw <- fread(ENV_SITE_FUT[i]) %>% dplyr::select(!!PREDICTORS)
+    env_site_fut_tab <- fread(ENV_SITE_FUT[i], colClasses = c('sample' = 'character'))
+    if (!'sample' %in% names(env_site_fut_tab)) {
+        stop('FATAL: ', ENV_SITE_FUT[i], ' has no `sample` column (found: ',
+             paste(utils::head(names(env_site_fut_tab), 5), collapse = ', '),
+             '). Expected schema: sample <tab> one column per predictor, one row per sample. ',
+             'This is likely a stale table from an older pipeline version -- re-run mode=structure.')
+    }
+    env_site_fut_raw <- env_site_fut_tab %>% dplyr::select(!!PREDICTORS)
     env_all_fut      <- fread(ENV_ALL_FUT[i])  %>% dplyr::select(ID, !!PREDICTORS)
 
     if (nrow(env_site_fut_raw) != n_samples) {
         stop(paste0('FATAL: Sample-count mismatch -- env_site_pres has ', n_samples,
                     ' rows but ', ENV_SITE_FUT[i], ' has ', nrow(env_site_fut_raw), '.'))
     }
+    # sp_site - sf_site below pairs the two tables row by row: the count check cannot see a
+    # REORDERING, which would give each sample another sample's future (as geometric_offset.R).
+    if (!identical(env_site_pres_tab$sample, env_site_fut_tab$sample)) {
+        mismatched <- which(env_site_pres_tab$sample != env_site_fut_tab$sample)
+        stop('FATAL: ', ENV_SITE_PRES, ' and ', ENV_SITE_FUT[i], ' list the same number of rows ',
+             'but not in the same sample order (', length(mismatched), ' position(s) differ, ',
+             'first at row ', mismatched[1], ': "', env_site_pres_tab$sample[mismatched[1]],
+             '" vs "', env_site_fut_tab$sample[mismatched[1]], '"). Both tables must be written ',
+             'in the row order of metadata_climate_valid.tsv -- re-run mode=structure.')
+    }
 
     # Sites (present/future) — B11 constants applied to BOTH.
     sf_site <- project_scores(env_site_fut_raw, center_env, scale_env)
     offset_site <- sqrt(rowSums(sweep((sp_site - sf_site), 2, w, `*`)^2))
 
-    # Raster cells — B14: identical NA mask across present + future.
-    ok <- complete.cases(env_all_pres[, -1]) & complete.cases(env_all_fut[, -1])
-    env_all_pres_ok <- env_all_pres[ok, ]
-    env_all_fut_ok  <- env_all_fut[ok, ]
-    message(paste0('INFO: Non-NA raster cells: ', sum(ok)))
+    # Raster cells — B14: identical NA mask across present + future, cells paired by ID.
+    cells <- pair_climate_cells(env_all_pres, env_all_fut, PREDICTORS)
+    env_all_pres_ok <- env_all_pres[cells$pres, ]
+    env_all_fut_ok  <- env_all_fut[cells$fut, ]
+    message(paste0('INFO: Non-NA raster cells: ', length(cells$pres)))
 
     sp_land <- project_scores(env_all_pres_ok[, -1], center_env, scale_env)
     sf_land <- project_scores(env_all_fut_ok[,  -1], center_env, scale_env)
     offset_landscape <- sqrt(rowSums(sweep((sp_land - sf_land), 2, w, `*`)^2))
 
     # ---- Write site TSV (byte-compatible with GF/GeoOff output) ----
-    go_site <- site_ids %>%
-        cbind(genetic_offset = offset_site) %>%
+    # Key the offsets on the sample ids of the climate table they were computed from, then
+    # JOIN site from the metadata: a positional cbind() onto the metadata trusted two files
+    # to share a row order, guarded only by row counts (87eac5).
+    go_site <- data.table(sample = env_site_pres_tab$sample, genetic_offset = offset_site)
+    go_site <- merge(go_site, site_ids, by = 'sample', all.x = TRUE, sort = FALSE)
+    if (anyNA(go_site$site)) {
+        stop('FATAL: ', sum(is.na(go_site$site)), ' sample ID(s) from ', ENV_SITE_PRES,
+             ' have no row in ', SAMPLES, ' (e.g. ',
+             paste(utils::head(go_site$sample[is.na(go_site$site)], 3), collapse = ', '),
+             '). The climate table and the metadata must describe the same sample set.')
+    }
+    go_site <- go_site %>%
+        dplyr::select(site, sample, genetic_offset) %>%
         dplyr::arrange(desc(genetic_offset))
     fwrite(go_site, OUT_SITE_TSV[i], sep = '\t')
     message(paste0('INFO: Saved site GO values: ', OUT_SITE_TSV[i]))

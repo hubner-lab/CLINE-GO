@@ -140,9 +140,27 @@ samples <- fread(SAMPLES,
                                 'sample' = 'character',
                                 'latitude' = 'numeric',
                                 'longitude' = 'numeric'))
+# The LFMM rows are the climate-valid samples in VCF order, which is `samples`' order; every
+# block below is bound to them by row position.
+if (nrow(lfmm_dt) != nrow(samples)) {
+  stop(sprintf('gradient_forest_model.R: %s has %d rows but %s lists %d samples -- the genotypes would be bound to the wrong samples',
+               LFMM, nrow(lfmm_dt), SAMPLES, nrow(samples)))
+}
 
-# Load climate predictors
-env.bio <- fread(CLIM_PRESENT_SITE) %>% dplyr::select(!!PREDICTORS_SELECTED)
+# Load climate predictors in `samples` order, matched on the sample id rather than trusting
+# the climate table's own row order (ec0d05), as the dbMEM block below is.
+env_site <- fread(CLIM_PRESENT_SITE, colClasses = c(sample = "character"))
+if (!"sample" %in% names(env_site)) {
+  stop(sprintf('gradient_forest_model.R: %s has no `sample` column, so its rows cannot be matched to the samples',
+               CLIM_PRESENT_SITE))
+}
+env_row <- match(samples$sample, env_site$sample)
+if (anyNA(env_row)) {
+  stop(sprintf('gradient_forest_model.R: %d sample(s) of %s have no row in %s (e.g. %s)',
+               sum(is.na(env_row)), SAMPLES, CLIM_PRESENT_SITE,
+               paste(head(samples$sample[is.na(env_row)], 3), collapse = ', ')))
+}
+env.bio <- env_site[env_row] %>% dplyr::select(!!PREDICTORS_SELECTED)
 
 # ── Site-allele-frequency aggregation (imputation-sensitivity control) ──────────────────
 # Collapse samples to one row per site, with each SNP's value the observed allele frequency
@@ -259,9 +277,11 @@ if (SPATIAL_CORRECTION == 'with') {
     colnames(mem_scores) <- selected_mems
   }
 
+  stopifnot(nrow(env.bio) == nrow(snp_subset), nrow(mem_scores) == nrow(snp_subset))
   input_matrix <- cbind(env.bio, mem_scores, snp_subset)
   predictor_vars <- c(colnames(env.bio), colnames(mem_scores))
 } else {
+  stopifnot(nrow(env.bio) == nrow(snp_subset))
   input_matrix <- cbind(env.bio, snp_subset)
   predictor_vars <- colnames(env.bio)
 }

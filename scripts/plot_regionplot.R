@@ -327,7 +327,7 @@ if (nrow(regions) == 0) {
     # One plot per trait
     for (trait in region_traits) {
       message(paste0('INFO:   Trait: ', trait))
-      filename_base <- paste0(PLOT_DIR, 'regionplot_', region_safe)
+      filename_base <- file.path(PLOT_DIR, paste0('regionplot_', region_safe))
       plot_region_trait(region_str, trait, assoc_list, gff_table, filename_base)
     }
   }
@@ -380,7 +380,7 @@ if (!is.null(CUSTOM_REGION) && CUSTOM_REGION != 'NULL' && CUSTOM_REGION != '') {
     message(paste0('INFO:   Multi-trait mode: ',
       paste(sapply(trait_method_pairs, function(p) paste0(p$trait, '(', paste(p$methods, collapse=','), ')')),
             collapse = ', ')))
-    filename_base <- paste0(PLOT_DIR, 'regionplot_custom_', region_safe)
+    filename_base <- file.path(PLOT_DIR, paste0('regionplot_custom_', region_safe))
     plot_region_multi_trait(region_str, trait_method_pairs, custom_assoc_list, gff_table, filename_base)
   } else {
     # Legacy single-trait path
@@ -388,7 +388,7 @@ if (!is.null(CUSTOM_REGION) && CUSTOM_REGION != 'NULL' && CUSTOM_REGION != '') {
     message(paste0('INFO:   Methods: ', paste(names(custom_assoc_list), collapse = ', ')))
     for (trait in custom_trait_list) {
       message(paste0('INFO:   Custom trait: ', trait))
-      filename_base <- paste0(PLOT_DIR, 'regionplot_custom_', region_safe, '_', trait)
+      filename_base <- file.path(PLOT_DIR, paste0('regionplot_custom_', region_safe, '_', trait))
       plot_region_trait(region_str, trait, custom_assoc_list, gff_table, filename_base)
     }
   }

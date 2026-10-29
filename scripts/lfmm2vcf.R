@@ -1,8 +1,10 @@
 
 args = commandArgs(trailingOnly=TRUE)
+if (length(args) != 4) stop("Usage: lfmm2vcf.R <imputed.lfmm> <vcf> <blocksize> <output.vcf>")
 LFMM_imp = args[1]
 VCF = args[2] # not imputed vcf for restoring information
 BLOCKSIZE = as.numeric(args[3])
+OUT_VCF = args[4] # the rule's {output}; was gsub('.lfmm', '.vcf', LFMM_imp), unanchored (953fac)
 ##########################
 
 library(dplyr)
@@ -42,9 +44,8 @@ vcf.restored <- cbind(snps, gt)
 
 # Copy meta header: every leading ## line, however many (`head -1000` cut a long header,
 # e.g. one ##contig line per scaffold, at line 1000; ab75b3's class)
-LFMM_imp_vcf = gsub('.lfmm', '.vcf', LFMM_imp)
-system(paste("sed -n '/^##/!q;p'", VCF, ">", LFMM_imp_vcf))
+system(paste("sed -n '/^##/!q;p'", VCF, ">", OUT_VCF))
 fwrite(vcf.restored,
-       LFMM_imp_vcf,
+       OUT_VCF,
        append = T,
        col.names = T, row.names = F, sep = '\t', quote = F)

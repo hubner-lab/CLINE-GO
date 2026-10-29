@@ -3,6 +3,7 @@ library(data.table)
 library(dplyr)
 library(terra)
 library(stringr)
+source("/pipeline/scripts/R/lib/climate_cells.R")  # pair_climate_cells()
 
 args <- commandArgs(trailingOnly = TRUE)
 ##############################################################################
@@ -272,11 +273,11 @@ for (i in seq_len(N_SCEN)) {
                     ' rows but ', ENV_SITE_FUT[i], ' has ', nrow(env_site_fut), '.'))
     }
 
-    # Drop raster cells with any NA across present+future predictors
-    ok <- complete.cases(env_all_pres[, -1]) & complete.cases(env_all_fut[, -1])
-    env_all_pres_ok <- env_all_pres[ok, ]
-    env_all_fut_ok  <- env_all_fut[ok, ]
-    message(paste0('INFO: Non-NA raster cells: ', sum(ok)))
+    # Drop raster cells with any NA across present+future predictors; cells paired by ID
+    cells <- pair_climate_cells(env_all_pres, env_all_fut, PREDICTORS)
+    env_all_pres_ok <- env_all_pres[cells$pres, ]
+    env_all_fut_ok  <- env_all_fut[cells$fut, ]
+    message(paste0('INFO: Non-NA raster cells: ', length(cells$pres)))
 
     # Stack: sites first (top n_site rows), then landscape cells
     new.env  <- as.matrix(rbind(env_site_pres, env_all_pres_ok[, -1]))

@@ -34,7 +34,7 @@ TITLE     = if (length(args) >= 5 && nzchar(args[5])) args[5] else "Correlogram 
 
 # Derive SVG and QS paths from PNG path
 OUT_SVG <- sub("\\.png$", ".svg", OUT_PNG)
-OUT_QS  <- paste0(INTER_DIR, sub("\\.png$", ".qs", basename(OUT_PNG)))
+OUT_QS  <- file.path(INTER_DIR, sub("\\.png$", ".qs", basename(OUT_PNG)))
 
 # Plot theme
 plot_theme <-

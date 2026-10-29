@@ -171,3 +171,49 @@ test_that("read_vcf_samples ignores a header line that merely contains CHROM", {
                  "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tA\tB"), p)
     expect_identical(emmax_env$read_vcf_samples(p), c("A", "B"))
 })
+
+# --- tfam_phenotype (finding df2fe3) -----------------------------------------
+# emmax.R used to cbind() the trait column onto the TFAM ids, so a trait table in another
+# sample order gave EMMAX each sample's id with another sample's value, and no error.
+
+tfam_fixture <- function() {
+    data.table::data.table(FAMID = c("S1", "S2", "S3", "S4"),
+                           INDID = c("S1", "S2", "S3", "S4"))
+}
+
+test_that("tfam_phenotype looks each trait value up by IID, whatever the trait table's order", {
+    trait <- data.table::data.table(sample = c("S3", "S1", "S4", "S2"),
+                                    bio_1 = c(30, 10, 40, 20), bio_2 = c(3, 1, 4, 2))
+    got <- emmax_env$tfam_phenotype(tfam_fixture(), trait, "bio_1")
+    expect_identical(names(got), c("FAMID", "INDID", "bio_1"))
+    expect_identical(got$INDID, c("S1", "S2", "S3", "S4"))
+    expect_identical(got$bio_1, c(10, 20, 30, 40))
+})
+
+test_that("tfam_phenotype equals the old positional cbind when the orders agree", {
+    trait <- data.table::data.table(sample = c("S1", "S2", "S3", "S4"),
+                                    bio_1 = c(0.25, NA, -1.5, 2))
+    got <- emmax_env$tfam_phenotype(tfam_fixture(), trait, "bio_1")
+    old <- cbind(tfam_fixture(), trait[, "bio_1"])
+    expect_identical(capture.output(write.table(got, sep = "\t", col.names = FALSE,
+                                                row.names = FALSE, quote = FALSE)),
+                     capture.output(write.table(old, sep = "\t", col.names = FALSE,
+                                                row.names = FALSE, quote = FALSE)))
+})
+
+test_that("tfam_phenotype stops on a TFAM individual the trait table does not list", {
+    trait <- data.table::data.table(sample = c("S1", "S2", "S4", "S5"), bio_1 = 1:4)
+    expect_error(emmax_env$tfam_phenotype(tfam_fixture(), trait, "bio_1"),
+                 "1 TFAM individual\\(s\\) have no row in the trait table \\(e.g. S3\\)")
+})
+
+test_that("tfam_phenotype stops on a duplicated sample id or a missing key column", {
+    dup <- data.table::data.table(sample = c("S1", "S2", "S3", "S4", "S2"), bio_1 = 1:5)
+    expect_error(emmax_env$tfam_phenotype(tfam_fixture(), dup, "bio_1"),
+                 "more than once \\(e.g. S2\\)")
+    nokey <- data.table::data.table(id = c("S1", "S2", "S3", "S4"), bio_1 = 1:4)
+    expect_error(emmax_env$tfam_phenotype(tfam_fixture(), nokey, "bio_1"),
+                 "no `sample` column")
+    expect_error(emmax_env$tfam_phenotype(tfam_fixture(), dup[1:4], "bio_9"),
+                 "trait 'bio_9' is not a column")
+})

@@ -45,6 +45,35 @@ read_vcf_samples <- function(vcf_path) {
         as.character()
 }
 
+# EMMAX phenotype rows in TFAM order: FAMID, INDID and the trait value looked up by sample id
+# (the IID), never by row position. cbind()ing a trait column onto the TFAM hands EMMAX another
+# sample's value under each id as soon as the trait table lists the samples in another order,
+# and EMMAX cannot notice (df2fe3).
+tfam_phenotype <- function(tfam_ids, trait_dt, trait) {
+    if (!"sample" %in% names(trait_dt)) {
+        stop("ERROR: the trait table has no `sample` column (found: ",
+             paste(utils::head(names(trait_dt), 5), collapse = ", "),
+             "), so its rows cannot be matched to the TFAM individuals.")
+    }
+    if (!trait %in% names(trait_dt)) {
+        stop("ERROR: trait '", trait, "' is not a column of the trait table.")
+    }
+    dup <- unique(trait_dt$sample[duplicated(trait_dt$sample)])
+    if (length(dup) > 0) {
+        stop("ERROR: the trait table lists ", length(dup), " sample id(s) more than once (e.g. ",
+             paste(utils::head(dup, 3), collapse = ", "), ").")
+    }
+    idx <- match(tfam_ids$INDID, trait_dt$sample)
+    if (anyNA(idx)) {
+        stop("ERROR: ", sum(is.na(idx)), " TFAM individual(s) have no row in the trait table (e.g. ",
+             paste(utils::head(tfam_ids$INDID[is.na(idx)], 3), collapse = ", "),
+             "). The genotype and trait inputs must describe the same samples.")
+    }
+    out <- data.table::data.table(tfam_ids$FAMID, tfam_ids$INDID, trait_dt[[trait]][idx])
+    data.table::setnames(out, c("FAMID", "INDID", trait))
+    out
+}
+
 # Load PCA projections from a LEA or PLINK eigenvec file.
 # k:                  number of PCs to use as covariates
 # samples_order_path: path to a single-column file listing full sample order (DROP mode)
