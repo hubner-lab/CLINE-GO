@@ -917,6 +917,18 @@ WRAPPERS <- list(
         # (pvalue_out_of_range, chromosome_name_not_normalized) are severity
         # "error" — quit(status = 1) at :272-274 counts only those.
         expect_status = 1L
+    ),
+    list(
+        # A comparator, not a producer: exit 0 means nothing unexpected differs.
+        # The two fixture trees differ only in their project names, and one name
+        # sits inside a cell, so this row also needs the name normalisation. A
+        # missing tree is a usage error (exit 2) that writes no report.
+        label   = "compare_results.R (identical trees under two names)",
+        script  = "compare_results.R",
+        build   = function(d) fx_compare_trees(d),
+        args    = function(d, trees) c(trees, "--out", file.path(d, "report.tsv")),
+        outputs = function(d) file.path(d, "report.tsv"),
+        fails_without_input = TRUE
     )
 )
 
@@ -1147,5 +1159,146 @@ test_that("combine_selected_snps.R: an auto_* agreement distance equals its reso
     expect_setequal(picked$pos, c(100000L, 102000L))
     wide <- data.table::fread(file.path(d, "wide.tsv"), colClasses = c(chr = "character"))
     expect_setequal(wide$pos, c(100000L, 102000L, 300000L, 305000L))
+})
+
+# compare_results.R content tests. Each case builds a fresh pair of fixture trees,
+# edits tree B as text (so nothing else in the file is re-serialised), runs the
+# comparator, and reads its report back.
+compare_case <- function(edit = function(b) NULL, args = character(0), expect = NULL) {
+    d <- withr::local_tempdir(.local_envir = parent.frame())
+    sandbox <- file.path(d, "cwd"); dir.create(sandbox)
+    trees <- fx_compare_trees(d)
+    edit(trees[2])
+    report <- file.path(d, "report.tsv")
+    if (!is.null(expect)) {
+        writeLines(c("path\tkind\tcolumn\tfinding", expect), file.path(d, "expect.tsv"))
+        args <- c(args, "--expect", file.path(d, "expect.tsv"))
+    }
+    res <- run_wrapper("compare_results.R", c(trees, "--out", report, args), wd = sandbox)
+    expect_identical(list.files(sandbox, all.files = TRUE, no.. = TRUE), character(0))
+    # na.strings = NULL: a blank column or finding cell must read back as "", not NA.
+    list(status = res$status, output = res$output,
+         report = if (file.exists(report)) data.table::fread(report, sep = "\t", colClasses = "character",
+                                                             na.strings = NULL))
+}
+
+edit_lines <- function(path, from, to) {
+    x <- readLines(path)
+    writeLines(sub(from, to, x, fixed = TRUE), path)
+}
+
+pvalues_of <- function(tree) file.path(tree, "GEA", "tables", "pvalues.tsv")
+
+test_that("compare_results.R: identical trees pass, and only because the names are normalised", {
+    skip_if_not(dir.exists(SCRIPTS), "scripts/ not mounted")
+    # A hidden path component in B only (.snakemake/ metadata) is never compared.
+    hidden <- function(b) {
+        dir.create(file.path(b, ".snakemake", "metadata"), recursive = TRUE)
+        writeLines("x", file.path(b, ".snakemake", "metadata", "abc"))
+    }
+    same <- compare_case(hidden)
+    expect_identical(same$status, 0L, info = same$output)
+    expect_identical(nrow(same$report), 0L)
+
+    # Without normalisation the manifest's results path is the one difference.
+    raw <- compare_case(args = c("--name-a", "", "--name-b", ""))
+    expect_identical(raw$status, 1L, info = raw$output)
+    expect_identical(raw$report$path, "_intermediate/manifest.tsv")
+    expect_identical(raw$report$kind, "changed_values")
+    expect_identical(raw$report$column, "list_file")
+})
+
+test_that("compare_results.R: an unlisted change fails, a listed one passes", {
+    skip_if_not(dir.exists(SCRIPTS), "scripts/ not mounted")
+    bump <- function(b) edit_lines(pvalues_of(b), "\t0.25\t", "\t0.26\t")
+
+    unlisted <- compare_case(bump)
+    expect_identical(unlisted$status, 1L, info = unlisted$output)
+    r <- unlisted$report
+    expect_identical(r$status, "unexpected")
+    expect_identical(r$kind, "changed_values")
+    expect_identical(r$path, "GEA/tables/pvalues.tsv")
+    expect_identical(r$column, "bio_1")
+    expect_match(r$detail, "^1 of 3 rows differ.*first at line 3: '0.25' vs '0.26'")
+    expect_match(unlisted$output, "UNEXPECTED: changed_values GEA/tables/pvalues.tsv \\[bio_1\\]")
+
+    listed <- compare_case(bump, expect = "GEA/tables/pvalues.tsv\tchanged_values\tbio_1\tX1")
+    expect_identical(listed$status, 0L, info = listed$output)
+    expect_identical(listed$report$status, "expected")
+    expect_identical(listed$report$finding, "X1")
+
+    # A glob path with a blank column covers every column below it.
+    globbed <- compare_case(bump, expect = "GEA/*\tchanged_values\t\tX2")
+    expect_identical(globbed$status, 0L, info = globbed$output)
+    expect_identical(globbed$report$finding, "X2")
+
+    # Listing the wrong column does not cover the change.
+    wrong <- compare_case(bump, expect = "GEA/tables/pvalues.tsv\tchanged_values\tpos\tX3")
+    expect_identical(wrong$status, 1L, info = wrong$output)
+    expect_setequal(wrong$report$status, c("unexpected", "expected_not_seen"))
+})
+
+test_that("compare_results.R: an expectation that never happens does not fail the run", {
+    skip_if_not(dir.exists(SCRIPTS), "scripts/ not mounted")
+    res <- compare_case(expect = "GEA/tables/pvalues.tsv\tnew_column\tlambda_gc\tX4")
+    expect_identical(res$status, 0L, info = res$output)
+    expect_identical(res$report$status, "expected_not_seen")
+    expect_identical(res$report$finding, "X4")
+})
+
+test_that("compare_results.R: row order, tolerance, columns, files and grids", {
+    skip_if_not(dir.exists(SCRIPTS), "scripts/ not mounted")
+
+    # The same rows in another order are a difference, named as such.
+    swap <- function(b) {
+        x <- readLines(pvalues_of(b))
+        writeLines(x[c(1, 2, 4, 3)], pvalues_of(b))
+    }
+    order <- compare_case(swap)
+    expect_identical(order$status, 1L, info = order$output)
+    expect_identical(order$report$kind, "changed_rows")
+    expect_match(order$report$detail, "same 3 rows in a different order")
+
+    # A relative difference of 4e-10 is exact-unequal but inside --tol 1e-9.
+    nudge <- function(b) edit_lines(pvalues_of(b), "\t0.25\t", "\t0.2500000001\t")
+    expect_identical(compare_case(nudge)$status, 1L)
+    within <- compare_case(nudge, args = c("--tol", "1e-9"))
+    expect_identical(within$status, 0L, info = within$output)
+    expect_identical(nrow(within$report), 0L)
+
+    # A new column and a new file are both reported; neither is a value change.
+    grow <- function(b) {
+        x <- readLines(pvalues_of(b))
+        writeLines(paste0(x, "\t", c("lambda_gc", "1.01", "1.01", "1.01")), pvalues_of(b))
+        writeLines("x", file.path(b, "GEA", "tables", "extra.tsv"))
+    }
+    grown <- compare_case(grow)
+    expect_identical(grown$status, 1L, info = grown$output)
+    expect_setequal(paste(grown$report$kind, grown$report$column),
+                    c("new_column lambda_gc", "new_file "))
+
+    # A header-less grid is compared by position: its columns are V1..Vn.
+    cell <- function(b) edit_lines(file.path(b, "Maladaptation", "tables", "genetic_offset_map.tsv"),
+                                   "0.3\t0.4", "0.3\t0.9")
+    grid <- compare_case(cell)
+    expect_identical(grid$status, 1L, info = grid$output)
+    expect_identical(grid$report$column, "V2")
+    expect_match(grid$report$detail, "first at line 2: '0.4' vs '0.9'")
+
+    # A changed non-table file is reported but never gates.
+    json <- compare_case(function(b) writeLines('{"n_snps": 4}', file.path(b, "GEA", "tables", "coords.json")))
+    expect_identical(json$status, 0L, info = json$output)
+    expect_identical(json$report$status, "info")
+    expect_identical(json$report$kind, "changed_bytes")
+})
+
+test_that("compare_results.R: a usage error exits 2 and writes no report", {
+    skip_if_not(dir.exists(SCRIPTS), "scripts/ not mounted")
+    bad_tol <- compare_case(args = c("--tol", "-1"))
+    expect_identical(bad_tol$status, 2L, info = bad_tol$output)
+    expect_null(bad_tol$report)
+    bad_kind <- compare_case(expect = "GEA/tables/pvalues.tsv\tchanged_value\tbio_1\tX5")
+    expect_identical(bad_kind$status, 2L, info = bad_kind$output)
+    expect_match(bad_kind$output, "unknown kind")
 })
 

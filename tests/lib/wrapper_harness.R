@@ -694,6 +694,34 @@ fx_results_tree <- function(d, project = "FX", violations = FALSE) {
     res
 }
 
+# Two results trees for compare_results.R that differ ONLY in their project names
+# (FXA / FXB). The name also sits inside a cell, as an absolute results path the
+# way the LD-decay sample-list manifest writes it, so two trees compare equal only
+# when the name normalisation works. Each tree holds a headed table, that manifest,
+# a header-less grid shaped like genetic_offset_map.tsv, and a JSON that is
+# compared by md5 alone. Returns the two results directories, A first.
+fx_compare_trees <- function(d, names = c("FXA", "FXB")) {
+    vapply(names, function(name) {
+        res <- file.path(d, paste0(name, "_results"))
+        for (sub in c("GEA/tables", "_intermediate", "Maladaptation/tables")) {
+            dir.create(file.path(res, sub), recursive = TRUE, showWarnings = FALSE)
+        }
+        write_tsv(data.table::data.table(
+            SNPID = c("1:100", "1:200", "2:100"), chr = c("1", "1", "2"),
+            pos = c(100L, 200L, 100L), bio_1 = c(1e-8, 0.25, 0.5), trait = "bio_1"),
+            file.path(res, "GEA", "tables", "pvalues.tsv"))
+        write_tsv(data.table::data.table(
+            group = c("All", "C1"), n_samples = c(12L, 6L),
+            list_file = file.path("/pipeline", paste0(name, "_results"), "_intermediate",
+                                  c("All.txt", "C1.txt"))),
+            file.path(res, "_intermediate", "manifest.tsv"))
+        writeLines(c("0.1\t0.2\tNA", "0.3\t0.4\t0.5"),
+                   file.path(res, "Maladaptation", "tables", "genetic_offset_map.tsv"))
+        writeLines('{"n_snps": 3}', file.path(res, "GEA", "tables", "coords.json"))
+        res
+    }, character(1), USE.NAMES = FALSE)
+}
+
 # ------------------------------------------------------------------- runner
 
 # Invoked exactly as the Snakefile does: `Rscript /pipeline/scripts/<name>.R ...`.

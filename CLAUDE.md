@@ -365,8 +365,10 @@ The trigger is any of:
 - **An output is misleading, stale, or contradicts a sibling output** in the same directory.
 - **You needed a number to make a decision and no table contained it** — especially a dispersion
   or uncertainty measure that turns "the minimum is at X" into "the minimum is inside the noise".
-- **Cross-run / cross-project comparison** — nothing in the pipeline compares two `_results/`
-  dirs, so every multi-arm design re-invents this.
+- **Cross-run / cross-project comparison** beyond what `scripts/compare_results.R` does. Since
+  2026-10-28 it compares two `_results/` trees file by file and cell by cell (project names
+  normalised, `--tol`, exit 1 on any difference not listed in an `--expect` file; header in the
+  script). A multi-arm design that needs more (a metric across arms, a rank comparison) is still a gap.
 
 **Entry format:** what happened → why it cost something → what would fix it. Cite `file:line` when
 known. Tag `[workaround]` and name the script when a script was written — those are the strongest
