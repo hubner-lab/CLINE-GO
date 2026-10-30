@@ -108,6 +108,25 @@ rule density_plot_future:
             {input.climate} {params.predictors} {output} {params.inter_dir} > {log} 2>&1
         """
 
+rule snp_sets_summary:
+    """Every SNP set in the store: its record (origin, source module, strategy, resolved
+    clumping distance), the SNPs it holds, and whether this run fits offsets on it or why not
+    (922fa9). A run: rule like assoc_method_params: the text is a param built with the count
+    resolve_active_snp_sets() filters on, so a changed set list or record rewrites the file;
+    the set files are inputs for order and their mtime trigger. The input and param functions
+    read the store, so they run only when mode=maladaptation asks for this file."""
+    input:
+        sets = lambda wc: [snp_set_file(n) for n in stored_snp_sets()]
+    output:
+        O['mala_snp_sets_summary']
+    params:
+        table = lambda wc: snp_sets_summary_tsv(
+            resolve_active_snp_sets(),
+            {n: (read_snp_set_record(n), snp_set_snp_count(n)) for n in stored_snp_sets()})
+    run:
+        with open(output[0], "w") as handle:
+            handle.write(params.table)
+
 # Gradient Forest - adaptive model
 # sigsnps is an ancestor-less source file produced by the Shiny GEA tab.
 # {run_label} = saved SNP-set name; {spatial_tag} = spatial|nospatial.

@@ -1,4 +1,4 @@
-# pregea_calibration.R — the lambda_GC calibration band preGEA picks and checks rungs with
+# pregea_calibration.R — lambda_GC, and the calibration band preGEA picks and checks rungs with
 # Usage: source("/pipeline/scripts/R/lib/pregea_calibration.R")
 # Requires: base R only
 #
@@ -6,6 +6,17 @@
 # common.smk, passed to both scripts that use it. pregea_recommend.R takes the smallest EMMAX
 # n_pcs whose LD-pruned lambda falls inside it; pregea_transfer_guard.R measures lambda again on
 # the full marker set at the recommended values and says whether the calibration carried over.
+
+# lambda_GC — the genomic inflation factor: the median 1-df chi-square statistic of the
+# p-values over the null median, qchisq(0.5, 1); NA below 3 tested p-values. The same formula
+# pregea_ladder_stats.R computes inline (it also needs the statistics for its genomic-control
+# step). pregea_transfer_guard.R and assoc_lambda.R (the GEA/GWAS lambda tables) call this one.
+lambda_gc <- function(pvals) {
+    pv <- pvals[!is.na(pvals)]
+    if (length(pv) < 3) return(NA_real_)
+    chisq1 <- suppressWarnings(qchisq(pv, df = 1, lower.tail = FALSE))
+    stats::median(chisq1, na.rm = TRUE) / qchisq(0.5, df = 1)
+}
 
 # TRUE where lambda lies inside the band; a missing lambda is outside it.
 lambda_in_band <- function(lambda, deflation_floor, lambda_tol) {

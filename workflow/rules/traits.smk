@@ -42,6 +42,19 @@ rule trait_correlogram:
             '{params.title}' > {log} 2>&1
         """
 
+rule trait_correlation_table:
+    """The matrix trait_correlogram draws, as a pair table (bffcfc). Its own rule: the
+    correlogram is an input of write_summary, so a new output there would rerun both."""
+    input:  meta = O['metadata']
+    output: O['trait_corr_table']
+    params: second = 'NULL'
+    log:    f"{LOGDIR}traits/trait_correlation_table.log"
+    shell:
+        """
+        Rscript /pipeline/scripts/correlation_table.R \
+            {input.meta} {params.second} {output} > {log} 2>&1
+        """
+
 if CLIMATE_ENABLED:
     rule trait_correlogram_climate:
         """Correlogram of traits AND climate predictors together — how much of
@@ -59,6 +72,20 @@ if CLIMATE_ENABLED:
             Rscript /pipeline/scripts/plot_correlation_heatmap.R \
                 {input.meta} {input.climate} {output} {params.inter_dir} \
                 '{params.title}' > {log} 2>&1
+            """
+
+    rule trait_climate_correlation_table:
+        """The matrix trait_correlogram_climate draws, as a pair table (bffcfc), from the
+        same two tables joined on `sample`."""
+        input:
+            meta    = W['metadata_climate_valid'],
+            climate = O['climate_site'],
+        output: O['trait_corr_climate_table']
+        log:    f"{LOGDIR}traits/trait_climate_correlation_table.log"
+        shell:
+            """
+            Rscript /pipeline/scripts/correlation_table.R \
+                {input.meta} {input.climate} {output} > {log} 2>&1
             """
 
 rule trait_pairs:

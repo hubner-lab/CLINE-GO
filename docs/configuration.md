@@ -597,15 +597,16 @@ Set `GFF.go_field: "NULL"` to skip enrichment.
 ├── PreStructure/
 │   ├── plots/                             # pca.png, tracy_widom.png, cross_entropy_K{s}-{e}.png
 │   │   └── K{k}/                          # structure_K{k}.png, pca_structure_K{k}.png
-│   └── tables/
+│   └── tables/                            # tracy_widom.tsv, cross_entropy_K{s}-{e}.tsv (the two plots' numbers)
 │       └── K{k}/                          # clusters_K{k}.tsv (Q-matrices)
 │
 ├── climate/
 │   ├── plots/                             # density_plot_present, correlation_heatmap, density_plot_future_*
 │   ├── plots/{spatial,varpart}/           # dbmem_screeplot, varpart_venn, px_barplot (mode=climate)
 │   ├── tables/present/                    # climate_present_{all,site,site_scaled}.tsv, climate_invariant_predictors.tsv
+│   │                                      # (written by mode=structure as well), climate_correlation.tsv
 │   ├── tables/spatial/                    # dbmem_vectors, dbmem_diagnostics (mode=climate)
-│   ├── tables/varpart/                    # variance_partition (unit/n_units/df_env), climate_confounding (joint_p/n_sites), px_per_variable, dbmem_selected (mode=climate; fitted on one row per SITE since 2026-09-13)
+│   ├── tables/varpart/                    # variance_partition (unit/n_units/df_env), climate_confounding (joint_p/n_sites), px_per_variable, dbmem_selected (mode=climate; fitted on one row per SITE since 2026-09-13), dbmem_selection_path
 │   ├── tables/future/                     # climate_future_year{Y}_ssp{S}_{site,all}.tsv
 │   └── rasters/{present,future}/          # WorldClim .tif rasters
 │
@@ -624,7 +625,8 @@ Set `GFF.go_field: "NULL"` to skip enrichment.
 │   │   └── combined/                      # manhattan_combined_K{k}.png/svg
 │   ├── plots/enrichment/{trait}/          # region_{id}_dotplot/emapplot/cnetplot (Shiny on-demand)
 │   └── tables/
-│       ├── methods/{method}/              # {method}_pvalues_K{k}.tsv, _sig_snps_{adjust}.tsv, {method}_params_K{k}.tsv
+│       ├── methods/{method}/              # {method}_pvalues_K{k}.tsv, _sig_snps_{adjust}.tsv, {method}_params_K{k}.tsv,
+│       │                                  # {method}_lambda_K{k}.tsv, {method}_thresholds_K{k}.tsv
 │       ├── selected_snps.tsv, selected_snps_per_trait.tsv, regions_per_trait.tsv, regions_combined.tsv
 │       ├── genes_per_region.tsv, genes_per_region_collapsed.tsv, genes_combined.tsv
 │       └── enrichment/{trait}/            # GO enrichment TSVs (Shiny on-demand)
@@ -639,8 +641,9 @@ Set `GFF.go_field: "NULL"` to skip enrichment.
 ├── Maladaptation/
 │   ├── plots/gradient_forest/{run_label}_{spatial_tag}/
 │   │   └── cumulative_importance, overall_importance, genetic_offset_piemap[_{tajima_d,pi_diversity}]
-│   └── tables/gradient_forest/{run_label}_{spatial_tag}/
-│       └── genetic_offset_{map,site}.tsv
+│   ├── tables/gradient_forest/{run_label}_{spatial_tag}/
+│   │   └── genetic_offset_{map,site}.tsv
+│   └── tables/snp_sets_summary.tsv        # every stored SNP set and whether this run used it
 │
 ├── pipeline_summary.tsv                   # all modes append here
 │
@@ -671,6 +674,34 @@ method's `GEA.configs` / `GWAS.configs` entry as the pipeline resolved it: one r
 (LFMM `K`, EMMAX and GAPIT `n_pcs`, RDA `condition_pcs` and its resolved `predictor_set`, the
 significance rule, GWAS `missing_strategy`), each with `set_by` (`config`, `default`,
 `sNMF.k_best`, `Climate.predictors` or `registry`).
+
+**Tables beside the plots** (since 2026-10-30). Numbers that used to live only in a figure or a log:
+
+- `{method}_lambda_K{k}.tsv` — the genomic inflation factor of every trait column of the method's
+  p-value table (median 1-df chi-square over its null median), with `n_tests` and `correction`:
+  `genomic_control` (LFMM with `genomic_control: true`) and `rdadapt_gif` (RDA) mean the method
+  already divided its statistics by an inflation factor, so a lambda near 1 is by construction;
+  `none` (EMMAX, GAPIT) means the lambda is the scan's own.
+- `{method}_thresholds_K{k}.tsv` — per trait column: the rule and value, the threshold it gave,
+  `n_tested` (the non-NA p-values: Bonferroni's family, counted per trait column), `n_na_dropped`
+  and `n_significant` (the trait's rows in the sig-SNP table). The name carries no rule, so a changed
+  adjust rewrites it.
+- `PreStructure/tables/tracy_widom.tsv` — LEA's Tracy-Widom test of every PCA axis (eigenvalue,
+  statistic, p-value, effective number of markers, the axis's share of the summed eigenvalues as a
+  fraction).
+- `PreStructure/tables/cross_entropy_K{s}-{e}.tsv` — sNMF's cross-entropy for every K and run;
+  `best_run` marks the run each K's Q-matrix comes from and the point the plot draws.
+- `climate/tables/present/climate_correlation.tsv`, `Traits/tables/trait_correlation.tsv`,
+  `Traits/tables/trait_climate_correlation.tsv` — each correlogram's matrix as pairs (`r`, `n_obs`,
+  and `basis`: `sites` when both factors are constant within every site and were correlated over
+  one row per site, else `samples`).
+- `climate/tables/varpart/dbmem_selected.tsv` and `dbmem_selection_path.tsv` — `selection` says how
+  each MEM's flag was decided: `forward_selection`, `fallback_best_marginal_r2` (forward selection
+  chose none and the best single axis was kept), `not_selected` or `skipped_insufficient_sites`.
+- `Maladaptation/tables/snp_sets_summary.tsv` — every set in the SNP-set store: origin, source
+  module, strategy, clumping distance, `n_snps` (counted from its `selected_snps.tsv`),
+  `usable_for_offset` (at least 3 SNPs), `used` and `reason` (`used`, `below_min_offset_snps`,
+  `not_listed`).
 
 ### Run records
 

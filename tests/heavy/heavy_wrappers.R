@@ -160,7 +160,39 @@ heavy_ld_expected <- function(fx, max_dist, rows = seq_len(nrow(fx$X))) {
     data.table::rbindlist(out)[, .(sum_r2 = sum(r2), n_pairs = .N), keyby = dist_bp]
 }
 
+# A small sNMF project as snmf.R writes it (t.snmfProject beside t.geno): a random
+# 24 x 60 .geno, K 2-3, 2 repetitions, seed 42 inside snmf.R. For the scripts that read one.
+heavy_snmf_project <- function(d) {
+    set.seed(7)
+    geno <- file.path(d, "t.geno")
+    writeLines(vapply(seq_len(60L), function(i)
+        paste(sample(c(0L, 1L, 2L), 24L, replace = TRUE), collapse = ""), character(1)), geno)
+    res <- run_wrapper("snmf.R", c(geno, "2", "3", "2", "2", "1", "new"))
+    if (!identical(res$status, 0L))
+        stop("snmf.R failed while building the fixture:\n", paste(res$output, collapse = "\n"))
+    file.path(d, "t.snmfProject")
+}
+
 HEAVY_WRAPPERS <- list(
+    list(
+        # Release 4b (f59f46): the cross-entropy numbers the plot never wrote.
+        label   = "cross_entropy_table.R (LEA sNMF project)",
+        script  = "cross_entropy_table.R",
+        tools   = character(0),          # LEA is an R package
+        build   = function(d) heavy_snmf_project(d),
+        args    = function(d, proj) c(proj, "2", "3", file.path(d, "cross_entropy_K2-3.tsv")),
+        outputs = function(d) file.path(d, "cross_entropy_K2-3.tsv")
+    ),
+    list(
+        # Release 4b (6bf499): LEA's Tracy-Widom routine on a copy of the eigenvalues, so
+        # nothing is written beside the input or into the cwd.
+        label   = "tracy_widom_table.R (LEA Tracy-Widom)",
+        script  = "tracy_widom_table.R",
+        tools   = character(0),          # LEA is an R package
+        build   = function(d) fx_eigenvalues(d, "pca.eigenvalues", n = 20),
+        args    = function(d, ev) c(ev, file.path(d, "tracy_widom.tsv")),
+        outputs = function(d) file.path(d, "tracy_widom.tsv")
+    ),
     list(
         label   = "vcf_to_gapit_numeric.R (vcfR)",
         script  = "vcf_to_gapit_numeric.R",

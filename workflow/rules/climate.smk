@@ -99,6 +99,19 @@ rule correlation_heatmap:
             '{params.title}' > {log} 2>&1
         """
 
+rule correlation_table:
+    """The matrix correlation_heatmap draws, as a pair table (bffcfc): factor_correlation() on
+    the same table. Its own rule, so an existing tree gains it without redrawing the plot."""
+    input:  climate = O['climate_site']
+    output: O['corr_table']
+    params: second = 'NULL'
+    log:    f"{LOGDIR}climate/correlation_table.log"
+    shell:
+        """
+        Rscript /pipeline/scripts/correlation_table.R \
+            {input.climate} {params.second} {output} > {log} 2>&1
+        """
+
 # =============================================================================
 # Block 2 — dbMEM (shared spatial artifact) + varpart. Split into two rules
 # specifically so the shared artifact is cheap and standalone: climate_dbmem

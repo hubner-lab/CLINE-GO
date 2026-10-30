@@ -1443,6 +1443,9 @@ O = {
     'pca_svg': f"{MOD_PRESTRUCT}plots/pca.svg",
     'tracy': f"{MOD_PRESTRUCT}plots/tracy_widom.png",
     'cross_entropy': f"{MOD_PRESTRUCT}plots/cross_entropy_K{K_START}-{K_END}.png",
+    # The numbers behind those two plots (6bf499, f59f46), each from its own rule
+    'tracy_widom_table': f"{MOD_PRESTRUCT}tables/tracy_widom.tsv",
+    'cross_entropy_table': f"{MOD_PRESTRUCT}tables/cross_entropy_K{K_START}-{K_END}.tsv",
     # QC intermediate stats
     'qc_raw_summary':      f"{MOD_PROCESSING}tables/vcf_raw_summary.tsv",
     'qc_filtering_summary':f"{MOD_PROCESSING}tables/filtering_summary.tsv",
@@ -1506,6 +1509,7 @@ O['tajima']               = _ph('tajima')
 O['pi_div']               = _ph('pi_div')
 O['amova']                = _ph('amova')
 O['corr_heatmap']         = _ph('corr_heatmap')
+O['corr_table']           = _ph('corr_table')
 O['mantel']               = _ph('mantel')
 O['mantel_stats']         = _ph('mantel_stats')
 O['amova_plot']           = _ph('amova_plot')
@@ -1647,6 +1651,8 @@ def add_kbest_paths():
 
     # Plots - climate
     O['corr_heatmap'] = f"{MOD_CLIMATE}plots/correlation_heatmap.png"
+    # ...and the matrix it draws (bffcfc)
+    O['corr_table'] = f"{MOD_CLIMATE}tables/present/climate_correlation.tsv"
     # Plots - structure_k
     O['mantel'] = f"{MOD_STRUCT}plots/pop_stats/mantel_test.png"
     O['amova_plot'] = f"{MOD_STRUCT}plots/pop_stats/amova.png"
@@ -1963,6 +1969,19 @@ def snp_set_file(set_name):
     """Path to the curated SNP set TSV (SNPID, chr, pos, min_pvalue)."""
     return f"{INTER}snp_sets/{set_name}/selected_snps.tsv"
 
+def stored_snp_sets():
+    """Names of the sets in the store (a directory with a selected_snps.tsv), sorted."""
+    import glob as _glob
+    return sorted(os.path.basename(os.path.dirname(p))
+                  for p in _glob.glob(f"{INTER}snp_sets/*/selected_snps.tsv"))
+
+def snp_set_snp_count(set_name):
+    """SNPs in a stored set: the data lines of its selected_snps.tsv, 0 for a header-only file
+    (build_snp_set.R writes one when a strict declaration selects nothing). The one count
+    resolve_active_snp_sets() filters on and snp_sets_summary_tsv() reports."""
+    with open(snp_set_file(set_name)) as fh:
+        return max(sum(1 for line in fh if line.strip()) - 1, 0)
+
 # The fewest SNPs a set needs to enter mode=maladaptation: rda_offset.R stops below
 # 3 candidate SNPs, and that stop takes the whole run down. One floor for every
 # offset method, so `snp_sets: all` selects the same sets whatever methods run.
@@ -1986,18 +2005,14 @@ def resolve_active_snp_sets():
     behind by a declaration since removed from config stays in `all` until deleted
     (app or by hand).
     """
-    import glob as _glob
     store = f"{INTER}snp_sets/"
 
     def _built(n):
-        return os.path.exists(f"{store}{n}/selected_snps.tsv")
+        return os.path.exists(snp_set_file(n))
 
     def _too_small(candidates):
         """{name: SNP count} of the sets below MIN_OFFSET_SNPS, in input order."""
-        counts = {}
-        for n in candidates:
-            with open(f"{store}{n}/selected_snps.tsv") as fh:
-                counts[n] = max(sum(1 for line in fh if line.strip()) - 1, 0)
+        counts = {n: snp_set_snp_count(n) for n in candidates}
         return {n: c for n, c in counts.items() if c < MIN_OFFSET_SNPS}
 
     unbuilt = [n for n in SNP_SET_DECL if not _built(n)]
@@ -2007,10 +2022,7 @@ def resolve_active_snp_sets():
                 f"Declared SNP set(s) {unbuilt} not built yet — run mode=gea "
                 "(gea.*) / mode=gwas (gwas.*) first, which builds every set declared "
                 "under GEA.snp_sets / GWAS.snp_sets.")
-        found = sorted(
-            os.path.basename(os.path.dirname(p))
-            for p in _glob.glob(f"{store}*/selected_snps.tsv")
-        )
+        found = stored_snp_sets()
         small = _too_small(found)
         if small:
             print(f"INFO: Maladaptation.snp_sets=all skips SNP set(s) with fewer than "
@@ -2053,6 +2065,49 @@ def resolve_active_snp_sets():
             f"SNPs, the RDA offset's floor (SNP counts: {small}). "
             "Loosen the declaration's threshold or drop them from the list.")
     return names
+
+def read_snp_set_record(set_name):
+    """A stored set's record as parsed: its snp_set.yaml (declared sets and app-saved ones
+    since the record existed), else its manifest.json entry (older app-saved sets), else {}.
+    Read at DAG time inside Snakemake, whose interpreter has PyYAML (the image's system
+    python3, which runs tests/python, has not), so the import stays local."""
+    yml = snp_set_record(set_name)
+    if os.path.exists(yml):
+        import yaml
+        with open(yml) as fh:
+            return yaml.safe_load(fh) or {}
+    manifest = f"{INTER}snp_sets/manifest.json"
+    if os.path.exists(manifest):
+        with open(manifest) as fh:
+            for entry in json.load(fh):
+                if entry.get("name") == set_name:
+                    return entry
+    return {}
+
+def snp_sets_summary_tsv(active, records):
+    """Text of Maladaptation/tables/snp_sets_summary.tsv (922fa9): one row per stored set, what
+    its record says, the SNPs it holds and whether this maladaptation run fits offsets on it.
+
+    active   the names resolve_active_snp_sets() returned for this run
+    records  {name: (record, n_snps)} for every stored set: read_snp_set_record() and
+             snp_set_snp_count()
+    origin: the record's (config | shiny); shiny for a manifest-only set, as the app reads it.
+    reason: used, below_min_offset_snps (Maladaptation.snp_sets: all leaves a set under
+    MIN_OFFSET_SNPS out) or not_listed (an explicit Maladaptation.snp_sets list leaves it out)."""
+    explicit = not (SNP_SETS_CFG == 'all' or SNP_SETS_CFG is None)
+    lines = ["set\torigin\tsource_module\tstrategy\tclumping_distance\tn_snps\t"
+             "usable_for_offset\tused\treason"]
+    for name in sorted(records):
+        rec, n = records[name]
+        used = name in active
+        reason = "used" if used else "not_listed" if explicit else "below_min_offset_snps"
+        origin = rec.get("origin") or ("shiny" if rec else "unknown")
+        cells = [name, origin, rec.get("source_module", ""), rec.get("strategy", ""),
+                 rec.get("clumping_distance", ""), n,
+                 "TRUE" if n >= MIN_OFFSET_SNPS else "FALSE", "TRUE" if used else "FALSE",
+                 reason]
+        lines.append("\t".join("" if c is None else _param_text(c) for c in cells))
+    return "\n".join(lines) + "\n"
 
 # Offset products are per-SCENARIO: one model/fit projected onto N futures.
 # The model itself, and the fit-level plots derived from it (cumulative and
@@ -2142,6 +2197,11 @@ DENSITY_PLOT_COMBINED    = f"{MOD_CLIMATE}plots/density_plot_present.png"
 DENSITY_PLOT_PHENOTYPES   = f"{MOD_TRAITS}plots/density_plot_phenotypes.png"
 O['trait_corr']           = f"{MOD_TRAITS}plots/correlation_heatmap_traits.png"
 O['trait_corr_climate']   = f"{MOD_TRAITS}plots/correlation_heatmap_traits_climate.png"
+# The matrices those two correlograms draw, as pair tables (bffcfc)
+O['trait_corr_table']         = f"{MOD_TRAITS}tables/trait_correlation.tsv"
+O['trait_corr_climate_table'] = f"{MOD_TRAITS}tables/trait_climate_correlation.tsv"
+# mode=maladaptation: every stored SNP set, and whether this run used it (922fa9)
+O['mala_snp_sets_summary']    = f"{MOD_MALAD}tables/snp_sets_summary.tsv"
 O['trait_pairs']          = f"{MOD_TRAITS}plots/trait_pairs.png"
 O['trait_summary']        = f"{MOD_TRAITS}tables/trait_summary.tsv"
 O['trait_invariant']      = f"{MOD_TRAITS}tables/trait_invariant.tsv"
@@ -2314,6 +2374,28 @@ def _src(source, key):
 def method_params_table(source, method):
     """Path of a method's parameter table, beside its p-value table."""
     return f"{ASSOC_SOURCES[source]['mod']}tables/methods/{method}/{method}_params_K{K_BEST}.tsv"
+
+def method_lambda_table(source, method):
+    """Path of a method's lambda_GC table (one row per trait), beside its p-value table (00d7a8)."""
+    return f"{ASSOC_SOURCES[source]['mod']}tables/methods/{method}/{method}_lambda_K{K_BEST}.tsv"
+
+def method_thresholds_table(source, method):
+    """Path of a method's per-trait threshold table, beside its p-value table (bb27e1). No adjust
+    in the name: a changed rule rewrites this file instead of leaving a stale variant beside it."""
+    return f"{ASSOC_SOURCES[source]['mod']}tables/methods/{method}/{method}_thresholds_K{K_BEST}.tsv"
+
+def method_pvalue_correction(source, method):
+    """Whether a method's p-values were already rescaled by an inflation factor, which holds
+    their lambda_GC near 1 by construction (00d7a8): genomic_control (LFMM with
+    genomic_control: true; lfmm2.test divides by its GIF), rdadapt_gif (RDA: rdadapt() divides
+    the Mahalanobis distances by theirs) or none. From the resolved configs entry."""
+    registry, params = (GEA_METHODS, GEA_PARAMS) if source == "GEA" else (GWAS_METHODS, GWAS_PARAMS)
+    engine = registry[method]["engine"]
+    if engine == "rda":
+        return "rdadapt_gif"
+    if engine == "lfmm" and _param_text(params[method].get("genomic_control")) == "true":
+        return "genomic_control"
+    return "none"
 
 def _param_text(value):
     """A resolved parameter as the config spells it: true/false, numbers as Python prints them."""
@@ -3022,6 +3104,8 @@ def _targets_for_assoc_source(source):
         # Per-SNP outputs
         targets.append(src["pvalues_fn"](method))
         targets.append(method_params_table(source, method))
+        targets.append(method_lambda_table(source, method))
+        targets.append(method_thresholds_table(source, method))
         targets.append(src["sigsnps_fn"](method, adjust))
         for trait in m_traits:
             targets.append(f"{src['mod']}plots/manhattan/{method}/manhattan_{trait}_K{K_BEST}_{adjust}.png")
@@ -3088,7 +3172,8 @@ def get_targets(mode):
             [structure_plot(k) for k in ks] +
             [pca_struct_plot(k) for k in ks] +
             [pop_diff_plot(k) for k in ks] +
-            [O['pca'], O['tracy'], O['cross_entropy'], W['summary_done']]
+            [O['pca'], O['tracy'], O['cross_entropy'],
+             O['tracy_widom_table'], O['cross_entropy_table'], W['summary_done']]
         )
 
     elif mode == 'pregea':
@@ -3137,7 +3222,7 @@ def get_targets(mode):
         _refuse_invariant_predictors([('Climate.predictors', get_predictors_list())])
         targets = [
             O['climate_invariant'], O['climate_design'],
-            DENSITY_PLOT_COMBINED, O['corr_heatmap'],
+            DENSITY_PLOT_COMBINED, O['corr_heatmap'], O['corr_table'],
             O['climate_dbmem_vectors'], O['climate_dbmem_diag'], O['climate_dbmem_png'],
             O['climate_vp_selection'], O['climate_vp_selected'],
             O['climate_vp_table'], O['climate_vp_confound'], O['climate_vp_px'],
@@ -3155,12 +3240,12 @@ def get_targets(mode):
                 "traits mode requires phenotypic trait columns in the metadata "
                 "(columns 5+ after site/sample/latitude/longitude)")
         targets = [
-            DENSITY_PLOT_PHENOTYPES, O['trait_corr'], O['trait_pairs'],
+            DENSITY_PLOT_PHENOTYPES, O['trait_corr'], O['trait_corr_table'], O['trait_pairs'],
             O['trait_summary'], O['trait_invariant'],
         ]
         # Traits x climate correlogram: the only climate-dependent product here.
         if CLIMATE_ENABLED:
-            targets.append(O['trait_corr_climate'])
+            targets += [O['trait_corr_climate'], O['trait_corr_climate_table']]
         targets.append(W['summary_done'])
         return targets
 
@@ -3173,6 +3258,10 @@ def get_targets(mode):
         # Climate-dependent targets
         if CLIMATE_ENABLED:
             targets += [O['climate_site'], O['climate_site_scaled'], O['climate_all'], W['climate_raster']]
+            # The invariant-predictor table the app strikes chips from, written as soon as the
+            # site table exists: mode=climate refuses at parse time on an invariant predictor
+            # in Climate.predictors and would never write it (release A2 decision, 2026-10-30).
+            targets.append(O['climate_invariant'])
             # Simple PieMaps for ALL 19 BIO variables (exploration step)
             targets += [piemap_notrait(bio) for bio in ALL_BIO]
             targets += [piemap_notrait_points(bio) for bio in ALL_BIO]
@@ -3319,6 +3408,8 @@ def get_targets(mode):
                                     mala_offset_piemap(method, set_name, spatial_tag, 'pi_diversity', scenario),
                                 ]
 
+        # Every stored SNP set and whether this run used it (922fa9)
+        targets.append(O['mala_snp_sets_summary'])
         targets.append(W['summary_done'])
         return targets
 

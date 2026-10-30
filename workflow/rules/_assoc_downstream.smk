@@ -79,6 +79,51 @@ if ASSOC_SOURCES:
             with open(output[0], "w") as handle:
                 handle.write(params.table)
 
+    rule assoc_genomic_inflation:
+        """lambda_GC of every trait column of a method's p-value table, beside it (00d7a8).
+        Its own rule, like assoc_method_params, so an existing tree gains the file without
+        rerunning a genome scan. `correction` (method_pvalue_correction()) says when the
+        method's own inflation factor already holds lambda near 1."""
+        input:
+            pvalues = f"{OUTDIR}{{source}}/tables/methods/{{method}}/{{method}}_pvalues_K{K_BEST}.tsv"
+        output:
+            f"{OUTDIR}{{source}}/tables/methods/{{method}}/{{method}}_lambda_K{K_BEST}.tsv"
+        wildcard_constraints:
+            source = SOURCE_REGEX,
+            method = _ALL_ASSOC_METHODS_REGEX
+        params:
+            correction = lambda wc: method_pvalue_correction(wc.source, wc.method)
+        log:
+            f"{LOGDIR}{{source}}/lambda_{{method}}.log"
+        shell:
+            """
+            Rscript /pipeline/scripts/assoc_lambda.R \
+                {input.pvalues} {wildcards.method} {params.correction} {output} > {log} 2>&1
+            """
+
+    rule assoc_thresholds:
+        """Per-trait threshold, family size and call count behind a method's sig-SNP table,
+        beside its p-value table (bb27e1), from the function find_sig_snps.R uses. Its own
+        rule, not an output of assoc_find_sig_snps, whose new output would rerun every sig
+        table and everything downstream of it on an existing tree. The adjust is a param, not
+        part of the name, so a changed rule rewrites this file."""
+        input:
+            pvalues = f"{OUTDIR}{{source}}/tables/methods/{{method}}/{{method}}_pvalues_K{K_BEST}.tsv"
+        output:
+            f"{OUTDIR}{{source}}/tables/methods/{{method}}/{{method}}_thresholds_K{K_BEST}.tsv"
+        wildcard_constraints:
+            source = SOURCE_REGEX,
+            method = _ALL_ASSOC_METHODS_REGEX
+        params:
+            adjust = lambda wc: _src(wc.source, "configs")[wc.method]
+        log:
+            f"{LOGDIR}{{source}}/thresholds_{{method}}.log"
+        shell:
+            """
+            Rscript /pipeline/scripts/sig_threshold_table.R \
+                {input.pvalues} {params.adjust} {wildcards.method} {output} > {log} 2>&1
+            """
+
     rule assoc_combine_selected_snps:
         """Combine significant SNPs from all methods for a given source.
 

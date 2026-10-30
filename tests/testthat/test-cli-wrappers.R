@@ -118,12 +118,30 @@ WRAPPERS <- list(
         label   = "find_sig_snps.R",
         script  = "find_sig_snps.R",
         build   = function(d) fx_pvalues(d),
-        # cpu = 1 deliberately: sig_snps.R:44 superassigns inside mclapply, so the
-        # diagnostics slot empties at cpu >= 2 (filed). Nothing here reads it, but
-        # a smoke test should not depend on the core count either way.
+        # cpu = 1: a smoke test should not depend on the core count. The
+        # diagnostics slot no longer does either (bb27e1, test-sig_snps.R).
         args    = function(d, pv) c(pv, "bonf_0.05", "10000", "EMMAX", "1",
                                     file.path(d, "sig_snps.tsv")),
         outputs = function(d) file.path(d, "sig_snps.tsv"),
+        fails_without_input = TRUE
+    ),
+    list(
+        # Release 4b (00d7a8). Content: "assoc_lambda.R writes ..." below.
+        label   = "assoc_lambda.R",
+        script  = "assoc_lambda.R",
+        build   = function(d) fx_pvalues(d),
+        args    = function(d, pv) c(pv, "EMMAX", "none", file.path(d, "EMMAX_lambda_K3.tsv")),
+        outputs = function(d) file.path(d, "EMMAX_lambda_K3.tsv"),
+        fails_without_input = TRUE
+    ),
+    list(
+        # Release 4b (bb27e1). Content: "sig_threshold_table.R reports ..." below.
+        label   = "sig_threshold_table.R",
+        script  = "sig_threshold_table.R",
+        build   = function(d) fx_pvalues(d),
+        args    = function(d, pv) c(pv, "bonf_0.05", "EMMAX",
+                                    file.path(d, "EMMAX_thresholds_K3.tsv")),
+        outputs = function(d) file.path(d, "EMMAX_thresholds_K3.tsv"),
         fails_without_input = TRUE
     ),
     list(
@@ -550,6 +568,23 @@ WRAPPERS <- list(
         args    = function(d, f) c(f[1], f[2], file.path(d, "corr2.png"), f[3],
                                    "Traits x climate"),
         outputs = function(d) file.path(d, c("corr2.png", "corr2.svg"))
+    ),
+    list(
+        # Release 4b (bffcfc): the matrix the correlogram draws, as pairs.
+        label   = "correlation_table.R (one block)",
+        script  = "correlation_table.R",
+        build   = function(d) fx_climate_site(d),
+        args    = function(d, f) c(f, "NULL", file.path(d, "corr.tsv")),
+        outputs = function(d) file.path(d, "corr.tsv"),
+        fails_without_input = TRUE
+    ),
+    list(
+        # As trait_climate_correlation_table calls it: metadata first, climate second.
+        label   = "correlation_table.R (two blocks)",
+        script  = "correlation_table.R",
+        build   = function(d) c(fx_metadata(d, n = 8), fx_climate_site(d)),
+        args    = function(d, f) c(f[1], f[2], file.path(d, "corr2.tsv")),
+        outputs = function(d) file.path(d, "corr2.tsv")
     ),
     list(
         # PLOT_DIR-style output: plot_manhattan.R:156-208 derives every basename
@@ -1027,6 +1062,10 @@ test_that("pregea_varpart.R fits on site rows and records the design it used", {
     ok <- run_vp(8L)
     expect_true(any(grepl("unit of analysis = site: 8 sites \\(2-2 samples per site\\) from 16 samples", ok$log)))
     expect_identical(unique(ok$vp$status), "ok")
+    # 1d2490: how each MEM's flag was decided, forward selection or the fallback axis.
+    expect_true(all(ok$sel$selection %in% c("forward_selection", "fallback_best_marginal_r2",
+                                            "not_selected")))
+    expect_identical(ok$sel$selected, ok$sel$selection != "not_selected")
     expect_identical(unique(ok$vp$unit), "site")
     expect_identical(unique(ok$vp$n_units), 8L)
     expect_identical(unique(ok$vp$df_env), 7L)
@@ -1042,7 +1081,72 @@ test_that("pregea_varpart.R fits on site rows and records the design it used", {
     expect_true(is.na(few$vp$variance_pct))
     expect_identical(few$vp$n_units, 3L)
     expect_false(any(few$sel$selected))
+    expect_identical(unique(few$sel$selection), "skipped_insufficient_sites")
     expect_identical(nrow(few$conf), 0L)
+})
+
+test_that("assoc_lambda.R writes lambda per trait and the correction it was given", {
+    # Release 4b (00d7a8). Uniform quantiles give lambda 1 exactly; every statistic scaled
+    # by 1.5 gives 1.5; two tested p-values give NA.
+    skip_if_not(dir.exists(SCRIPTS), "scripts/ not mounted")
+    d <- withr::local_tempdir()
+    sandbox <- file.path(d, "cwd"); dir.create(sandbox)
+    p <- (1:999) / 1000
+    pv <- data.table::data.table(
+        SNPID = paste0("1:", 1:999), chr = "1", pos = 1:999, bio_1 = p,
+        bio_2 = pchisq(qchisq(p, 1, lower.tail = FALSE) * 1.5, 1, lower.tail = FALSE),
+        bio_3 = c(0.2, 0.4, rep(NA, 997)))
+    f <- file.path(d, "LFMM_pvalues_K3.tsv")
+    data.table::fwrite(pv, f, sep = "\t")
+    out <- file.path(d, "LFMM_lambda_K3.tsv")
+    res <- run_wrapper("assoc_lambda.R", c(f, "LFMM", "genomic_control", out), wd = sandbox)
+    expect_identical(res$status, 0L, info = res$output)
+
+    lam <- data.table::fread(out)
+    expect_identical(names(lam), c("method", "trait", "n_tests", "lambda_gc", "correction"))
+    expect_identical(lam$trait, c("bio_1", "bio_2", "bio_3"))
+    expect_identical(lam$n_tests, c(999L, 999L, 2L))
+    expect_equal(lam$lambda_gc[1:2], c(1, 1.5), tolerance = 1e-9)
+    expect_true(is.na(lam$lambda_gc[3]))
+    expect_identical(unique(lam$correction), "genomic_control")
+
+    bad <- run_wrapper("assoc_lambda.R", c(f, "LFMM", "gc", file.path(d, "x.tsv")), wd = sandbox)
+    expect_gt(bad$status, 0L)
+    expect_match(bad$output, "correction must be genomic_control, rdadapt_gif or none")
+})
+
+test_that("sig_threshold_table.R reports threshold, family size and calls, as find_sig_snps.R calls them", {
+    # Release 4b (bb27e1). Bonferroni's family is the trait's non-NA p-values; the
+    # count of calls must match the sig table find_sig_snps.R writes from the same
+    # p-values, here at cpu = 2 (the core count the diagnostics used to depend on).
+    skip_if_not(dir.exists(SCRIPTS), "scripts/ not mounted")
+    d <- withr::local_tempdir()
+    sandbox <- file.path(d, "cwd"); dir.create(sandbox)
+    pv <- data.table::data.table(
+        SNPID = sprintf("1:%d", (1:20) * 100L), chr = "1", pos = (1:20) * 100L,
+        bio_1 = c(1e-9, 1e-8, 0.004, rep(0.5, 17)),   # 0.05 / 20 = 0.0025: two calls
+        bio_2 = c(1e-9, NA, rep(0.5, 18)))            # 0.05 / 19: one call
+    f <- file.path(d, "EMMAX_pvalues_K3.tsv")
+    data.table::fwrite(pv, f, sep = "\t")
+    out <- file.path(d, "EMMAX_thresholds_K3.tsv")
+    res <- run_wrapper("sig_threshold_table.R", c(f, "bonf_0.05", "EMMAX", out), wd = sandbox)
+    expect_identical(res$status, 0L, info = res$output)
+
+    th <- data.table::fread(out)
+    expect_identical(names(th), c("method", "trait", "rule", "value", "status", "threshold",
+                                  "n_tested", "n_na_dropped", "n_significant"))
+    expect_identical(th$trait, c("bio_1", "bio_2"))
+    expect_identical(th$rule, c("bonf", "bonf"))
+    expect_identical(th$n_tested, c(20L, 19L))
+    expect_identical(th$n_na_dropped, c(0L, 1L))
+    expect_equal(th$threshold, c(0.05 / 20, 0.05 / 19))
+    expect_identical(th$n_significant, c(2L, 1L))
+
+    sig <- file.path(d, "EMMAX_sig_snps.tsv")
+    r2 <- run_wrapper("find_sig_snps.R", c(f, "bonf_0.05", "10000", "EMMAX", "2", sig), wd = sandbox)
+    expect_identical(r2$status, 0L, info = r2$output)
+    s <- data.table::fread(sig)
+    expect_identical(as.integer(table(factor(s$trait, levels = th$trait))), th$n_significant)
 })
 
 test_that("no spec invokes a wrapper that rewrites the tracked fixtures", {

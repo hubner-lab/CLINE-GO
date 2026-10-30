@@ -29,10 +29,10 @@ find_significant_snps_per_trait <- function(pvalues_dt, adjustment, value, cpu,
     message(paste0("INFO: Traits: ", paste(traits, collapse = ", ")))
     if (is_wza) message("INFO: WZA mode — bonf denominator = non-NA windows per trait")
 
-    diag_list <- vector("list", length(traits))
-    names(diag_list) <- traits
-
-    snps_per_trait <- parallel::mclapply(traits, function(trait) {
+    # Each worker returns its trait's diagnostics row together with its significant
+    # rows. A `diag_list[[trait]] <<- ...` here used to die with the forked worker,
+    # so `diagnostics` came back empty whenever cpu >= 2 (bb27e1).
+    per_trait <- parallel::mclapply(traits, function(trait) {
         result <- compute_pval_threshold(pvalues_dt[[trait]], adjustment, value)
 
         message(paste0("INFO: Trait=", trait,
@@ -41,7 +41,7 @@ find_significant_snps_per_trait <- function(pvalues_dt, adjustment, value, cpu,
                        " n_tested=",     result$n_tested,
                        " n_na_dropped=", result$n_na_dropped))
 
-        diag_list[[trait]] <<- data.table::data.table(
+        diag <- data.table::data.table(
             trait        = trait,
             status       = result$status,
             threshold    = result$threshold,
@@ -52,7 +52,7 @@ find_significant_snps_per_trait <- function(pvalues_dt, adjustment, value, cpu,
         if (result$status != "ok") {
             message(paste0("WARNING: No threshold for trait ", trait,
                            " (status=", result$status, "). Writing empty result."))
-            return(NULL)
+            return(list(diagnostics = diag, sig = NULL))
         }
 
         # INCLUSIVE (<=). compute_pval_threshold() returns a cutoff that is
@@ -67,16 +67,28 @@ find_significant_snps_per_trait <- function(pvalues_dt, adjustment, value, cpu,
         mask <- pvalues_dt[[trait]] <= result$threshold
         mask[is.na(mask)] <- FALSE
 
-        pvalues_dt[mask, list(SNPID, chr, pos,
-                              pvalue          = .SD[[trait]],
-                              pval_threshold  = result$threshold,
-                              trait           = trait),
-                   .SDcols = trait]
+        list(diagnostics = diag,
+             sig = pvalues_dt[mask, list(SNPID, chr, pos,
+                                         pvalue          = .SD[[trait]],
+                                         pval_threshold  = result$threshold,
+                                         trait           = trait),
+                              .SDcols = trait])
     }, mc.cores = as.integer(cpu))
 
-    diagnostics <- data.table::rbindlist(Filter(Negate(is.null), diag_list))
+    # At cpu >= 2 a worker that stops comes back as a try-error, and one that is
+    # killed as NULL; either would silently drop its trait from both results.
+    failed <- vapply(per_trait, function(x) is.null(x) || inherits(x, "try-error"),
+                     logical(1))
+    if (any(failed))
+        stop("find_significant_snps_per_trait: the worker for trait(s) ",
+             paste(traits[failed], collapse = ", "), " failed: ",
+             paste(unique(vapply(per_trait[failed], function(x)
+                 if (is.null(x)) "no result (worker killed?)" else trimws(as.character(x)),
+                 character(1))), collapse = "; "))
 
-    sig_snps <- data.table::rbindlist(Filter(Negate(is.null), snps_per_trait))
+    diagnostics <- data.table::rbindlist(lapply(per_trait, `[[`, "diagnostics"))
+
+    sig_snps <- data.table::rbindlist(lapply(per_trait, `[[`, "sig"))
 
     if (is.null(sig_snps) || nrow(sig_snps) == 0) {
         message("WARNING: No significant SNPs found")

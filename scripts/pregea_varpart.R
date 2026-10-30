@@ -157,9 +157,13 @@ dbmem_status <- if (length(mem_cols) == 0) "no_spatial_vectors" else "ok"
 
 X_geo_sel <- NULL
 X_geo_full <- NULL
+# `selection` says how each MEM's flag was decided (1d2490): forward_selection (ordiR2step,
+# Blanchet's double stopping rule), fallback_best_marginal_r2 (forward selection chose none, so
+# the single best axis was kept), not_selected, or skipped_insufficient_sites (no selection ran).
 selection_dt <- data.table(step = integer(), variable = character(),
-                           r2_adj_cumulative = numeric(), r2_adj_full_ceiling = numeric())
-selected_dt <- data.table(mem = character(), selected = logical())
+                           r2_adj_cumulative = numeric(), r2_adj_full_ceiling = numeric(),
+                           selection = character())
+selected_dt <- data.table(mem = character(), selected = logical(), selection = character())
 if (dbmem_status == "ok") {
     dbmem_dt <- dbmem_dt[match(climate_valid_ids, sample)]
     if (anyNA(dbmem_dt$sample)) stop("preGEA varpart: dbMEM table is missing climate-valid samples")
@@ -225,6 +229,7 @@ if (dbmem_status == "ok" && !insufficient_sites) {
             error = function(e) { message("WARNING: ordiR2step (dbMEM) failed: ", e$message); NULL })
         if (!is.null(step_res)) selected_names <- attr(terms(step_res), "term.labels")
     }
+    selected_by <- "forward_selection"
     if (length(selected_names) == 0) {
         # Nothing passed Blanchet's double stopping rule. The spatial Gradient Forest
         # downstream needs >= 1 MEM (it stops on an empty selection), so keep the single
@@ -237,6 +242,7 @@ if (dbmem_status == "ok" && !insufficient_sites) {
             if (is.null(f)) -Inf else suppressWarnings(RsquareAdj(f)$adj.r.squared)
         }, numeric(1))
         selected_names <- mem_cols[which.max(marg)]
+        selected_by <- "fallback_best_marginal_r2"
         message("WARNING: forward selection chose 0 MEMs; keeping the single best axis ", selected_names,
                 " (marginal adj. R2 = ", signif(max(marg), 3), ") so the spatial correction is not empty.")
     }
@@ -250,15 +256,18 @@ if (dbmem_status == "ok" && !insufficient_sites) {
         selection_dt <- rbind(selection_dt, data.table(
             step = i, variable = selected_names[i],
             r2_adj_cumulative = suppressWarnings(RsquareAdj(step_fit)$adj.r.squared),
-            r2_adj_full_ceiling = full_ceiling))
+            r2_adj_full_ceiling = full_ceiling, selection = selected_by))
     }
-    selected_dt <- data.table(mem = mem_cols, selected = mem_cols %in% selected_names)
+    selected_dt <- data.table(mem = mem_cols, selected = mem_cols %in% selected_names,
+                              selection = ifelse(mem_cols %in% selected_names, selected_by,
+                                                 "not_selected"))
     X_geo_sel <- X_geo_full[, selected_names, drop = FALSE]
     message("INFO: dbMEM forward selection: ", length(selected_names), "/", length(mem_cols), " MEM(s) selected")
 } else if (dbmem_status == "ok") {
     # insufficient sites: nothing is selected, so a spatial Gradient Forest (which reads
     # dbmem_selected.tsv and stops on 0 selected) refuses loudly instead of fitting.
-    selected_dt <- data.table(mem = mem_cols, selected = FALSE)
+    selected_dt <- data.table(mem = mem_cols, selected = FALSE,
+                              selection = "skipped_insufficient_sites")
     message("INFO: dbMEM forward selection skipped (insufficient sites) — no MEM selected")
 } else {
     message("INFO: dbMEM status=", dbmem_status, " — geography fraction unavailable, running climate-vs-structure only")

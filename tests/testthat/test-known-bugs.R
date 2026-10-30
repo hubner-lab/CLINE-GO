@@ -60,11 +60,11 @@ test_that("a position significant under two traits names its own chr:pos", {
 #    superassignment dies with the forked worker, so diagnostics is empty at
 #    cpu >= 2. Latent: find_sig_snps.R never reads the slot.
 #    Filed: docs/pipeline_improvement_requests.md (2026-09-10), Findings [bug][low].
+#    Fixed 2026-10-30 (bb27e1, release Phase 4b): each worker returns its
+#    diagnostics row, and sig_threshold_table.R writes the slot to disk.
 # ---------------------------------------------------------------------------
 
 test_that("diagnostics is populated at cpu = 2, not only at cpu = 1", {
-    skip("known bug: sig_snps.R:44 superassigns inside mclapply — filed 2026-09-10")
-
     dt <- data.table::data.table(
         SNPID = paste0("1:", 1:3), chr = "1", pos = 1:3,
         bio_1 = c(1e-9, 0.5, 0.5), bio_2 = c(0.5, 1e-9, 0.5)

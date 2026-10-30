@@ -183,20 +183,26 @@ Organized by **module** (matching pipeline modes). Each module owns its plots an
 ├── PreStructure/
 │   ├── plots/                             # pca.png, tracy_widom.png, cross_entropy_K{start}-{end}.png
 │   │   └── K{k}/                          # structure_K{k}.png, pca_structure_K{k}.png, pop_diff_K{k}.png
-│   └── tables/
+│   └── tables/                            # tracy_widom.tsv (LEA's test per PCA axis), cross_entropy_K{start}-{end}.tsv
+│       │                                  # (every K x run, best_run = the run extract_clusters.R takes), 2026-10-30
 │       └── K{k}/                          # clusters_K{k}.tsv (Q-matrices)
 ├── climate/                               # mode=climate owns predictor characterization + spatial/varpart
 │   ├── plots/                             # density_plot_present, correlation_heatmap, density_plot_future_*
 │   ├── plots/{spatial,varpart}/           # dbmem_screeplot, varpart_venn (nested donut), px_barplot, dbmem_selection_path
 │   ├── tables/present/                    # climate_present_all.tsv, _site.tsv, _site_scaled.tsv, climate_invariant_predictors.tsv
+│   │                                      # (also written by mode=structure since 2026-10-30, so the app can strike chips after
+│   │                                      # mode=climate refuses an invariant predictor), climate_correlation.tsv (the correlogram's matrix)
 │   ├── tables/spatial/                    # dbmem_vectors.tsv, dbmem_diagnostics.tsv
 │   ├── tables/varpart/                    # variance_partition (+ unit/n_units/df_env — fitted on ONE ROW PER SITE since 2026-09-13, audit ST1), climate_confounding (+ joint_p/n_sites), px_per_variable, dbmem_selected, dbmem_selection_path
+│   │                                      # (both carry `selection` since 2026-10-30: forward_selection | fallback_best_marginal_r2 |
+│   │                                      # not_selected | skipped_insufficient_sites; a table written earlier has no such column)
 │   ├── tables/future/                     # climate_future_year{Y}_ssp{S}_site.tsv, _all.tsv
 │   └── rasters/{present,future}/          # WorldClim .tif rasters (terra)
 ├── Traits/                                # mode=traits — phenotypic factor characterization, BOTH regimes
 │   ├── plots/                             # density_plot_phenotypes, correlation_heatmap_traits,
 │   │                                      # correlation_heatmap_traits_climate (standard only), trait_pairs
-│   └── tables/                            # trait_summary.tsv, trait_invariant.tsv
+│   └── tables/                            # trait_summary.tsv, trait_invariant.tsv, trait_correlation.tsv,
+│                                          # trait_climate_correlation.tsv (standard only): the correlograms' matrices as pairs
 ├── Structure/
 │   ├── plots/piemap/                      # piemap_{bio}.png/svg/qs + _points.png/svg/qs (clear-map companion) + zoom/
 │   ├── plots/piemap/{tajima_d,pi_diversity}/  # trait-scaled piemaps (optional)
@@ -219,6 +225,10 @@ Organized by **module** (matching pipeline modes). Each module owns its plots an
 │       ├── methods/{method}/              # {method}_pvalues_K{k}.tsv, _sig_snps_{adjust}.tsv, {method}_params_K{k}.tsv
 │       │                                  # (_params_: the method's configs entry as resolved, one row per parameter with
 │       │                                  # set_by; the K in these names is sNMF.k_best, not LFMM K / n_pcs, ce8cd4)
+│       │                                  # {method}_lambda_K{k}.tsv: lambda_GC per trait + `correction` (genomic_control |
+│       │                                  # rdadapt_gif | none: LFMM and RDA hold lambda near 1 by construction), 00d7a8;
+│       │                                  # {method}_thresholds_K{k}.tsv: per trait the rule, threshold, n_tested (Bonferroni's
+│       │                                  # family) and n_significant, from find_sig_snps.R's own function, bb27e1 (2026-10-30)
 │       ├── selected_snps.tsv, selected_snps_per_trait.tsv (per-(SNP, trait) min p — feeds regions_per_trait's trait-scoped min_pvalue), regions_per_trait.tsv, regions_combined.tsv
 │       ├── genes_per_region.tsv, genes_per_region_collapsed.tsv, genes_combined.tsv
 │       └── enrichment/{trait}/            # GO enrichment TSVs per region
@@ -230,7 +240,9 @@ Organized by **module** (matching pipeline modes). Each module owns its plots an
 ├── Maladaptation/
 │   ├── plots/{method}/{SUFFIX}/           # cumulative_importance, overall_importance, genetic_offset_piemap[_{tajima_d,pi_diversity,points}]
 │   │   └── zoom/{coords}/                # zoomed piemaps
-│   └── tables/{method}/{SUFFIX}/          # genetic_offset_map, genetic_offset_site, {method}_diagnostics.tsv (gradient_forest: extrap + % cells outside the training range)
+│   ├── tables/{method}/{SUFFIX}/          # genetic_offset_map, genetic_offset_site, {method}_diagnostics.tsv (gradient_forest: extrap + % cells outside the training range)
+│   └── tables/snp_sets_summary.tsv        # every stored SNP set: origin, strategy, clumping distance, n_snps, usable_for_offset,
+│                                          # used, reason (used | below_min_offset_snps | not_listed), 922fa9 (2026-10-30)
 ├── haplotype_scan/{tag}/                  # clustree plots, selected_regions.tsv, scan_status.tsv
 ├── haplotype/{tag}/                       # crosshap_viz, boxplots, haplotype piemaps, assignment/frequency tables
 ├── pipeline_summary.tsv                   # all modes append here
@@ -361,9 +373,9 @@ session, at the moment you hit it, not at the end.**
 The trigger is any of:
 
 - **You wrote a helper script to obtain something the pipeline already computed but never wrote to
-  disk.** (Canonical case: cross-entropy is rendered as a PNG only, and rule 1 forbids reading
-  plots — so `sNMF.k_best` could not be chosen from pipeline output at all without extracting the
-  values from the `.snmfProject` by hand.)
+  disk.** (Canonical case: cross-entropy was rendered as a PNG only, so `sNMF.k_best` could not be
+  chosen from pipeline output at all without extracting the values from the `.snmfProject` by
+  hand. Fixed 2026-10-30: `PreStructure/tables/cross_entropy_K{start}-{end}.tsv`.)
 - **You hand-built an output the pipeline cannot emit**, even though the logic exists somewhere in
   the codebase (e.g. `combine_sigsnps()` implements the ≥2-method consensus rule, but
   `SIGSNPS_METHOD` is hardcoded so batch mode can only union).
@@ -501,7 +513,8 @@ To add a new output: add to the appropriate dict/function, add to `get_targets()
 
 ### Known Quirks
 - LEA's `vcf2lfmm()` silently strips "chr" prefix — this is why we normalize both VCF and GFF early
-- LEA's `pca()` strips file extension and creates `{basename}.pca/` directory
+- LEA's `pca()` strips file extension and creates `{basename}.pca/` directory, and saves `{basename}.pcaProject` in the
+  WORKING directory (the results tree root in a run): a test that calls it in-process must run it from a temp dir
 - sNMF creates `.snmfProject` directory — must use `mode="new"` or `mode="continue"`
 - `qvalue` can fail with small datasets — scripts fall back to `p.adjust`
 - `emapplot` requires `pairwise_termsim()` called first (adds similarity matrix to enrichResult)
@@ -794,7 +807,8 @@ for the combine code any more: the data.table shallow-copy notice that every emp
 raised (`.empty_combined_snps_dt()` in `scripts/R/lib/combine_sigsnps.R`, 6b725e) is fixed, and
 `test-combine_sigsnps.R` asserts the empty path is warning-free.
 
-The 8 and the 2 are QUARANTINE counts. An increment that moves either is adding a `skip()`, and
+The 8 and the 2 are QUARANTINE counts (the 8 is 7 since 2026-10-30: bb27e1's `sig_snps.R`
+diagnostics assertion runs). An increment that moves either is adding a `skip()`, and
 the commit must name the filing it points at; a DECREMENT means a defect was fixed and its
 correct-behaviour assertion now runs.
 
@@ -942,9 +956,10 @@ runs rather than smoke tests.
 
 **On golden files specifically**: they are blocked, not merely undone. Three committed SIMDATA
 outputs are known-wrong and would be frozen as "expected" (`overlap_traits`/`overlap_snps`,
-exon/promoter counts), and `find_significant_snps_per_trait()`'s diagnostics are
-**core-count-dependent** — 2 rows at `cpu=1`, 0 at `cpu>=2` (`sig_snps.R:44`) — so that output
-cannot be a golden at all. Fix or explicitly quarantine those first.
+exon/promoter counts). `find_significant_snps_per_trait()`'s diagnostics were
+**core-count-dependent** — 2 rows at `cpu=1`, 0 at `cpu>=2` — until 2026-10-30 (bb27e1: each
+worker returns its row; `sig_threshold_table.R` writes them as `{method}_thresholds_K{k}.tsv`).
+Fix or explicitly quarantine the others first.
 
 **On Shiny/pipeline equivalence**: the surface is larger than it looks. `zzz.R:39-42` shares
 only `regions.R` and `pval_threshold.R` with the pipeline; gene finding (`fct_regions.R:67` vs

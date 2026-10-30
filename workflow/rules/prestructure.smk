@@ -46,6 +46,33 @@ rule cross_entropy_plot:
             {output} {params.inter_dir} > {log} 2>&1
         """
 
+rule tracy_widom_table:
+    """Tracy-Widom test of every PCA axis as a table (6bf499), with LEA's own routine on the
+    eigenvalues pca_plot wrote. Its own rule: pca_plot's projections feed EMMAX, so a new output
+    there would rerun every scan on an existing tree."""
+    input:  eigenvalues = W['pca_eigenvalues']
+    output: O['tracy_widom_table']
+    log:    f"{LOGDIR}prestructure/tracy_widom_table.log"
+    shell:
+        """
+        Rscript /pipeline/scripts/tracy_widom_table.R \
+            {input.eigenvalues} {output} > {log} 2>&1
+        """
+
+rule cross_entropy_table:
+    """sNMF cross-entropy of every K and run as a table (f59f46). Its own rule: the
+    cross-entropy plot is an input of write_summary, so a new output on cross_entropy_plot would
+    rerun both on an existing tree."""
+    input:  snmf = W['snmf']
+    output: O['cross_entropy_table']
+    params: ks = K_START, ke = K_END
+    log:    f"{LOGDIR}prestructure/cross_entropy_table.log"
+    shell:
+        """
+        Rscript /pipeline/scripts/cross_entropy_table.R \
+            {input.snmf} {params.ks} {params.ke} {output} > {log} 2>&1
+        """
+
 rule extract_clusters:
     """Extract Q-matrix (cluster assignments) for specific K."""
     input:  snmf = W['snmf'], meta = O['metadata']

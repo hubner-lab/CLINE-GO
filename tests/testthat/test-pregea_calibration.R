@@ -1,6 +1,6 @@
 # scripts/R/lib/pregea_calibration.R
 #
-# The lambda_GC band [deflation_floor, 1 + lambda_tol] preGEA picks rungs in, and the
+# lambda_GC itself, the band [deflation_floor, 1 + lambda_tol] preGEA picks rungs in, and the
 # transfer guard's verdict. pregea_transfer_guard.R itself needs LEA and EMMAX, so the
 # verdict is tested here and the script's use of it statically below.
 
@@ -30,4 +30,23 @@ test_that("pregea_transfer_guard.R takes both verdicts from transfer_verdict()",
     expect_identical(sum(grepl("<- transfer_verdict\\(", src)), 2L)
     expect_false(any(grepl("abs\\(delta_(lfmm|emmax)\\) < 0.3", src)))
     expect_true(any(grepl("source\\(\"/pipeline/scripts/R/lib/pregea_calibration.R\"\\)", src)))
+})
+
+test_that("lambda_gc is 1 on uniform quantiles and recovers a known inflation", {
+    p <- (1:999) / 1000                       # median p = 0.5 -> the null median exactly
+    expect_equal(lambda_gc(p), 1)
+    # Every 1-df statistic scaled by 1.5: the median scales with it.
+    inflated <- pchisq(qchisq(p, df = 1, lower.tail = FALSE) * 1.5, df = 1, lower.tail = FALSE)
+    expect_equal(lambda_gc(inflated), 1.5)
+    expect_equal(lambda_gc(c(p, NA, NA)), 1)  # NA p-values are left out
+    expect_identical(lambda_gc(c(0.2, NA, 0.4)), NA_real_)   # fewer than 3 tested
+})
+
+test_that("lambda_gc has one definition, shared by the transfer guard and the lambda tables", {
+    root <- getOption("clinego.repo_root", "/pipeline")
+    guard <- readLines(file.path(root, "scripts", "pregea_transfer_guard.R"))
+    tables <- readLines(file.path(root, "scripts", "assoc_lambda.R"))
+    expect_false(any(grepl("^\\s*lambda_gc\\s*<-\\s*function", guard)))
+    expect_true(any(grepl("lambda_gc\\(", guard)))
+    expect_true(any(grepl("source\\(\"/pipeline/scripts/R/lib/pregea_calibration.R\"\\)", tables)))
 })

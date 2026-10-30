@@ -296,3 +296,60 @@ test_that("lfmm.R stops when the vcfsnp does not label every tested SNP column",
     expect_match(res$output, "has 6 SNP columns but .* has 5 rows")
     expect_false(file.exists(out))
 })
+
+test_that("cross_entropy_table.R lists every K and run, and marks the run extract_clusters.R takes", {
+    # Release 4b (f59f46). best_run must be which.min(cross.entropy()), the rule
+    # extract_clusters.R picks a K's Q-matrix with and the point the plot draws.
+    skip_if_not(dir.exists(SCRIPTS), "scripts/ not mounted")
+    d <- withr::local_tempdir()
+    proj <- heavy_snmf_project(d)
+    out <- file.path(d, "ce.tsv")
+    res <- run_wrapper("cross_entropy_table.R", c(proj, "2", "3", out))
+    expect_identical(res$status, 0L, info = paste(res$output, collapse = "\n"))
+
+    ce <- data.table::fread(out)
+    expect_identical(names(ce), c("K", "run", "cross_entropy", "best_run"))
+    expect_identical(ce$K, c(2L, 2L, 3L, 3L))
+    expect_identical(ce$run, c(1L, 2L, 1L, 2L))
+    suppressPackageStartupMessages(library(LEA))
+    p <- load.snmfProject(proj)
+    for (k in 2:3) {
+        lea <- as.numeric(cross.entropy(p, K = k))
+        expect_equal(ce[K == k, cross_entropy], lea, tolerance = 1e-12)
+        expect_identical(ce[K == k & best_run == TRUE, run], which.min(lea))
+    }
+})
+
+test_that("tracy_widom_table.R gives LEA's tracy.widom() of a pcaProject, number for number", {
+    # Release 4b (6bf499). The table runs LEA's C routine on a copy of the eigenvalues
+    # file; the reference is LEA's public method on the pcaProject that wrote it.
+    skip_if_not(dir.exists(SCRIPTS), "scripts/ not mounted")
+    suppressPackageStartupMessages(library(LEA))
+    d <- withr::local_tempdir()
+    set.seed(3)
+    lfmm <- file.path(d, "g.lfmm")
+    utils::write.table(matrix(sample(0:2, 30 * 120, replace = TRUE), 30, 120), lfmm,
+                       row.names = FALSE, col.names = FALSE)
+    # LEA::pca() saves g.pcaProject in the WORKING directory, not beside the lfmm: run it
+    # from d, or it lands in tests/heavy/ of the checkout.
+    withr::with_dir(d, {
+        pc <- suppressMessages(LEA::pca(lfmm, scale = TRUE))
+        ref <- suppressMessages(tracy.widom(pc))
+    })
+    expect_true(file.exists(file.path(d, "g.pcaProject")))
+    ev <- file.path(d, "g.pca", "g.eigenvalues")
+    expect_true(file.exists(ev))
+
+    out <- file.path(d, "tw.tsv")
+    res <- run_wrapper("tracy_widom_table.R", c(ev, out))
+    expect_identical(res$status, 0L, info = paste(res$output, collapse = "\n"))
+    tw <- data.table::fread(out)
+    expect_identical(names(tw), c("axis", "eigenvalue", "tw_statistic", "tw_pvalue",
+                                  "effective_n", "variance_fraction"))
+    expect_equal(tw$axis, ref$N)
+    expect_equal(tw$eigenvalue, ref$eigenvalues)
+    expect_equal(tw$tw_statistic, ref$twstats)
+    expect_equal(tw$tw_pvalue, ref$pvalues)
+    expect_equal(tw$effective_n, ref$effectn)
+    expect_equal(tw$variance_fraction, ref$percentage)
+})

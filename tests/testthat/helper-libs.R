@@ -43,6 +43,7 @@ for (.f in c("utils/pval_threshold.R",
              "lib/invariants.R",
              "lib/climate_cells.R",
              "lib/pregea_calibration.R",
+             "lib/factor_correlation.R",
              "utils/theme_clinego.R",
              "lib/enrichment.R",
              "lib/enrichment_plots.R")) {

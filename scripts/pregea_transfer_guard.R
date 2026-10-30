@@ -75,14 +75,7 @@ resolve_auto <- function(arg, target_method, target_param, fallback) {
     fallback
 }
 
-# lambda_GC — same formula pregea_ladder_stats.R uses (median chi-sq(1)
-# statistic over the median of the null chi-sq(1)).
-lambda_gc <- function(pvals) {
-    pv <- pvals[!is.na(pvals)]
-    if (length(pv) < 3) return(NA_real_)
-    chisq1 <- suppressWarnings(qchisq(pv, df = 1, lower.tail = FALSE))
-    stats::median(chisq1, na.rm = TRUE) / qchisq(0.5, df = 1)
-}
+# lambda_gc() comes from pregea_calibration.R (sourced above), as for the GEA/GWAS lambda tables.
 
 rows <- list()
 add_row <- function(method, param, value, scope, metric, val, delta, verdict)

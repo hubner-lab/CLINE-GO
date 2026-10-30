@@ -22,16 +22,18 @@ OUT_QS  <- file.path(INTER_DIR, sub("\\.png$", ".qs", basename(OUT_PNG)))
 # Load SNMF project
 snmf_res <- load.snmfProject(SNMF_PROJECT)
 
-# Calculate cross-entropy for each K
+# Calculate cross-entropy for each K (the numbers, every run: cross_entropy_table.R)
 message(paste0("INFO: Run Cross Entropy test on K", K_START, '-', K_END))
 
+# The K factor is built in the data, not inside aes(): an aes() expression that reads
+# K_START/K_END left the saved .qs unredrawable without these globals (f59f46).
 gCrossEntropy <-
   sapply(K_START:K_END, function(K){ min(cross.entropy(snmf_res, K)) }) %>%
   setNames(K_START:K_END) %>%
   enframe %>%
   dplyr::arrange(as.numeric(name)) %>%
-  ggplot(aes(x = factor(paste0('K', name),
-                         levels = paste0('K', K_START:K_END)), y = value)) +
+  dplyr::mutate(K = factor(paste0('K', name), levels = paste0('K', K_START:K_END))) %>%
+  ggplot(aes(x = K, y = value)) +
     geom_point(color = CLINEGO_NEUTRAL) +
     theme_clinego() +
     labs(x = 'Number of ancestral populations',

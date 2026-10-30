@@ -121,6 +121,27 @@ test_that("diagnostics records n_na_dropped and a non-ok status", {
     expect_identical(res$diagnostics$n_na_dropped, 1L)
 })
 
+# bb27e1: the diagnostics used to be superassigned from inside mclapply, so a
+# forked worker's row never reached the parent. Both results must now be the same
+# data.table whatever the core count, in trait order, a non-ok trait included.
+test_that("sig_snps and diagnostics do not depend on the core count", {
+    dt  <- pvals(pos = 1:6, bio_1 = c(1e-9, 1e-8, 0.5, 0.5, 0.5, 0.5),
+                 bio_2 = c(0.5, 0.5, 1e-9, 0.5, 0.5, 0.5),
+                 bio_3 = c(NA, NA, NA, NA, NA, 0.5))
+    one   <- quiet(find_significant_snps_per_trait(dt, "custom", 1e-6, 1))
+    three <- quiet(find_significant_snps_per_trait(dt, "custom", 1e-6, 3))
+    expect_identical(three$diagnostics, one$diagnostics)
+    expect_identical(three$sig_snps, one$sig_snps)
+    expect_identical(one$diagnostics$trait, c("bio_1", "bio_2", "bio_3"))
+    expect_identical(nrow(one$sig_snps), 3L)
+})
+
+test_that("a worker that stops is an error naming its traits, not a dropped trait", {
+    dt <- pvals(bio_1 = c(1e-9, 0.5, 0.5), bio_2 = c(0.5, 1e-9, 0.5))
+    expect_error(suppressWarnings(quiet(find_significant_snps_per_trait(dt, "nonsense", 1, 2))),
+                 "worker for trait\\(s\\) bio_1, bio_2 failed: .*Unknown adjustment method")
+})
+
 # --- annotate_cross_trait_overlaps -----------------------------------------
 
 test_that("annotate_cross_trait_overlaps adds its three columns and echoes the distance", {
