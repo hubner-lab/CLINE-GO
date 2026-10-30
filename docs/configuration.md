@@ -27,6 +27,8 @@ Input:
 
 CPU cores are auto-detected (`max(1, cpu_count - 2)`). Override with optional `cpu: N`.
 
+Do not branch a parameter by copying a results tree to a new `project_name`. Snakemake keeps each output's record (parameters, code, inputs) in `.snakemake/metadata/` under the output's absolute path, so in a copy no output has a record, and an output without a record is never rerun for a changed parameter: changing, say, `EMMAX.n_pcs` or `GEA.snp_clumping_distance` in the copy schedules nothing, and the copied tables stay. Start the new project from the inputs, or force the affected rules with `-R <rule>`.
+
 ---
 
 ### Filter — VCF quality filtering
@@ -76,8 +78,8 @@ sNMF:
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `sNMF.k_start` | Minimum K to test | `3` |
-| `sNMF.k_end` | Maximum K to test | `7` |
+| `sNMF.k_start` | Minimum K to test | `2` |
+| `sNMF.k_end` | Maximum K to test | `6` |
 | `sNMF.k_best` | Selected K (set after reviewing cross-entropy from `mode=prestructure`) | — |
 | `sNMF.repeats` | Number of sNMF repetitions per K | `10` |
 | `sNMF.imputed_maf` | MAF floor on the sNMF-**imputed** matrices (LD-pruned and full), i.e. the SNP set every GEA/GWAS method tests. Blank/`null` = same as `Filter.maf`; `0` = filter off; must be in [0, 0.5) | `null` |
@@ -233,19 +235,19 @@ An `auto_genome_wide` / `auto_per_chromosome` clumping or region distance is rea
 
 ```yaml
 Piemap:
-  alpha: 0.8
-  show_labels: true
-  label_size: 3
-  pie_scale: 0.5
+  alpha: 0.6
+  show_labels: false
+  label_size: 10
+  pie_scale: 1.0
   use_points: false
 ```
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `Piemap.alpha` | Transparency of pie charts | `0.8` |
-| `Piemap.show_labels` | Show site labels | `true` |
-| `Piemap.label_size` | Label font size | `3` |
-| `Piemap.pie_scale` | Base pie chart size multiplier | `0.5` |
+| `Piemap.alpha` | Transparency of pie charts | `0.6` |
+| `Piemap.show_labels` | Show site labels | `false` |
+| `Piemap.label_size` | Label font size (the app's template writes `8`) | `10` |
+| `Piemap.pie_scale` | Base pie chart size multiplier | `1.0` |
 | `Piemap.use_points` | Use points instead of pies (for very many sites) | `false` |
 
 ---
@@ -309,9 +311,7 @@ GEA:
         axes: auto
   snp_clumping_distance: auto_genome_wide
   clumping_ld_rule: critical
-  top_regions: 10
-  promoter_length: 3000
-  scattermore_threshold: 30000
+  promoter_length: 10000
 ```
 
 | Parameter | Description | Default |
@@ -321,9 +321,8 @@ GEA:
 | `GEA.region_clumping_distance` | Advanced: a separate distance for the region merge and flank only (bp or `auto_*`); unset = `snp_clumping_distance` | unset |
 | `GEA.clumping_ld_rule` | Which LD-decay distance an `auto_*` distance takes: `critical`, `half_decay` or `r2_threshold` (see LDdecay). `auto_per_chromosome` needs `LDdecay.scope` per_chromosome or both, `auto_genome_wide` (and a declared SNP set's auto gap) genome_wide or both. A leftover `clumping_r2_threshold` no longer picks the rule (a warning says so) | `"critical"` |
 | `GEA.ld_decay_group` | Sample group from the LD-decay table for the distance (legacy `region_ld_decay_group`) | `"All"` |
-| `GEA.promoter_length` | Promoter length (bp) upstream of gene start for SNP counting | `3000` |
+| `GEA.promoter_length` | Promoter length (bp) upstream of gene start for SNP counting | `10000` |
 | `GEA.combine_method` | How per-method sig-SNP tables merge into the **static** `selected_snps.tsv` (and what the pipeline derives from it): `All` (union over every configured method), `Overlap` (only SNPs called by ≥2 methods within `snp_clumping_distance`), `MethodOverlap` (as `Overlap`, same predictor required), or a single configured method name. Does not affect the Shiny filter bar's strategy — see **Combine strategy** below | `"All"` |
-| `GEA.scattermore_threshold` | SNP count above which scattermore is used for Manhattan background rendering | `30000` |
 
 **configs format**: Each entry specifies:
 - `method`: `EMMAX`, `LFMM`, `RDA`, or any GAPIT3 model (`GLM`, `MLM`, `CMLM`, `ECMLM`, `SUPER`, `MLMM`, `FarmCPU`, `BLINK`)
@@ -399,16 +398,16 @@ Each set directory holds `selected_snps.tsv` (`SNPID chr pos min_pvalue`), `decl
 ```yaml
 GFF:
   feature: mRNA
-  gene_name: Name
+  gene_name: description
   biotype: biotype
   go_field: ontology
 ```
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `GFF.feature` | GFF feature type to extract genes (`gene`, `mRNA`, etc.) | `"gene"` |
-| `GFF.gene_name` | Attribute for gene display name | `"Name"` |
-| `GFF.biotype` | Attribute for biotype filtering | `"biotype"` |
+| `GFF.feature` | GFF feature type to extract genes (`gene`, `mRNA`, etc.) | `"mRNA"` |
+| `GFF.gene_name` | Attribute that labels each gene in the app's region plot (a gene without it is labelled by its ID); no pipeline table reads it | `"description"` |
+| `GFF.biotype` | Attribute giving each gene's biotype, which colours the app's region plot gene track (a gene without it counts as `protein_coding`); no pipeline table reads it | `"biotype"` |
 | `GFF.go_field` | GFF attribute containing GO terms (or `"NULL"` to skip enrichment) | `"NULL"` |
 
 ---
@@ -421,7 +420,6 @@ Enrichment:
   plot_width: 12
   plot_height: 10
   cnet_label: gene_id
-  top_plot_regions: 5
 ```
 
 | Parameter | Description | Default |
@@ -430,7 +428,6 @@ Enrichment:
 | `Enrichment.plot_width` | Plot width (inches) | `12` |
 | `Enrichment.plot_height` | Plot height (inches) | `10` |
 | `Enrichment.cnet_label` | Gene label in cnetplot: `"gene_id"`, `"Name"`, or `"description"` | `"gene_id"` |
-| `Enrichment.top_plot_regions` | Top regions per trait to generate plots for (`0` = all) | `5` |
 
 GO enrichment is computed on-demand in the Shiny dashboard when the user clicks a region.
 
@@ -440,19 +437,16 @@ GO enrichment is computed on-demand in the Shiny dashboard when the user clicks 
 
 ```yaml
 Future:
-  ssp: ssp370
+  ssp: '585'
   year: 2061-2080
-  models:
-    - ACCESS-CM2
-    - CNRM-CM6-1
-    - MIROC6
+  models: ACCESS-CM2,CNRM-CM6-1,MIROC6
 ```
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `Future.ssp` | Shared Socioeconomic Pathway scenario (`ssp126`, `ssp245`, `ssp370`, `ssp585`) | `"ssp370"` |
+| `Future.ssp` | Shared Socioeconomic Pathway scenario, the number only (`126`, `245`, `370`, `585`); output paths read `ssp585` | `"585"` |
 | `Future.year` | Future time period (`2021-2040`, `2041-2060`, `2061-2080`, `2081-2100`) | `"2061-2080"` |
-| `Future.models` | List of CMIP6 models to ensemble-average | — |
+| `Future.models` | CMIP6 models to ensemble-average, one comma-separated string (a YAML list stops the parse) | — |
 
 ---
 
@@ -530,6 +524,8 @@ GWAS:
 - **MEAN** — Missing values replaced with trait mean. All samples used together.
 - **MEDIAN** — Missing values replaced with trait median. All samples used together.
 
+MEAN and MEDIAN fill the trait itself: a filled sample enters the test as if it had been measured at the trait's mean or median, so the test counts more observations than were measured, and the GWAS phenomap's per-site means are taken after the fill, which pulls a site with missing values toward that value. DROP, the default, tests each trait on the samples that have it.
+
 ---
 
 ### GEAxGWAS — GEA + GWAS overlap
@@ -538,13 +534,13 @@ GWAS:
 GEAxGWAS:
   pairwise:
     window_size: 500000
-    min_snps: 1
+    min_snps: 2
 ```
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `GEAxGWAS.pairwise.window_size` | Window (bp) around SNPs for window-based overlap scoring | `500000` |
-| `GEAxGWAS.pairwise.min_snps` | Minimum overlapping SNPs to report a pair | `1` |
+| `GEAxGWAS.pairwise.min_snps` | Minimum overlapping SNPs to report a pair | `2` |
 
 `region_distance` for overlap region computation is set interactively in the Shiny dashboard (defaults to `max(GEA.region_distance, GWAS.region_distance)`).
 
@@ -661,7 +657,8 @@ Set `GFF.go_field: "NULL"` to skip enrichment.
         ├── <name>/                        # saved in the GEA tab: selected_snps.tsv, snp_set.yaml
         └── {gea,gwas}.<name>/             # declared in config: selected_snps.tsv, snp_set.yaml, declaration.json
 
-{project_name}_logs/{module}/              # per-module log directories
+{project_name}_logs/{module}/              # per-module log directories: processing/, prestructure/, structure/,
+                                           # climate/, traits/, pregea/, GEA/, GWAS/, gea_x_gwas/, maladaptation/
 ```
 
 **Path parameterization**:
@@ -735,6 +732,11 @@ significance rule, GWAS `missing_strategy`), each with `set_by` (`config`, `defa
   missingness filter), its bounds (mean ± k population SD) and its removals (`outlier_flag`).
   Without it: a preview on the final cohort and the filtered VCF, flagged at ±3 sample SD, which
   does not show what `het_outlier_sd: 3` would remove.
+- Heterozygosity (`F_inbreeding`, the het filter) and relatedness (`relatedness_pairs.tsv`, plink
+  `--genome`) count autosomes only, as plink computes them: SNPs on contigs named `X`, `Y`, `XY`
+  or `MT` (and numbered 96-99, which plink reads as those) do not enter them. Every other step,
+  missingness and MAF included, uses them. Checked 2026-10-30: SIMDATA with chr5 renamed `X` gives
+  the het and IBS values of SIMDATA without chr5.
 
 ### Run records
 

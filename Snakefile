@@ -22,10 +22,24 @@ if GWAS_CONFIGS and GEA_CONFIGS:
 include: "workflow/rules/maladaptation.smk"
 include: "workflow/rules/summary.smk"
 
+# Job temp files (R's tempdir(), fread(cmd = ) copies, mktemp) go to the results tree, not to
+# the container's /tmp, which is the host's root disk (441eee). Snakemake exports its tmpdir
+# resource to every job as TMPDIR, and that resource defaults to the tempfile module's
+# directory, set here. A TMPDIR already in the environment (an HPC job's scratch) or
+# --default-resources "tmpdir='/path'" still wins. Set here, not in common.smk: the Python
+# tests exec that file in their own process.
+import tempfile
+JOB_TMPDIR = f"{INTER}tmp"
+if not any(os.environ.get(v) for v in ("TMPDIR", "TEMP", "TMP")):
+    tempfile.tempdir = JOB_TMPDIR
+
 # Run records: _intermediate/run_records/<mode>.json + history.jsonl (write_run_record in
-# common.smk). Snakemake runs these only for a real run with jobs, never for -n.
+# common.smk). Snakemake runs these only for a real run with jobs, never for -n, which is
+# also why the job temp folder is made here: a dry run writes nothing.
 onstart:
     write_run_record("running", log)
+    if tempfile.tempdir == JOB_TMPDIR:
+        os.makedirs(JOB_TMPDIR, exist_ok=True)
 
 onsuccess:
     write_run_record("success", log)

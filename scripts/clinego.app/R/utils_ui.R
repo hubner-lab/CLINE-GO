@@ -40,20 +40,6 @@ region_info_bar <- function(region_id, n_snps = NULL, n_exon = NULL,
     )
 }
 
-#' Mode status indicator row
-#' @param name display name
-#' @param ok logical
-#' @noRd
-mode_status_row <- function(name, ok) {
-    icon_cls <- if (ok) "status-ok"      else "status-missing"
-    icon     <- if (ok) "\u2713"         else "\u2014"
-    htmltools::div(
-        class = "mode-status",
-        htmltools::span(class = paste("status-icon", icon_cls), icon),
-        htmltools::span(name)
-    )
-}
-
 #' Small badge showing a config parameter value
 #' @param label short label (e.g. "K", "combine")
 #' @param value the value to display
@@ -368,31 +354,6 @@ gf_sensitivity_note <- function(diag) {
               label   = spec$label,
               class   = spec$class,
               states  = TRUE)
-}
-
-#' A card header with title + download popover
-#' @noRd
-card_header_with_download <- function(ns, title, dl_id_svg = NULL, dl_id_png = NULL) {
-    dl_btn <- if (!is.null(dl_id_svg) || !is.null(dl_id_png)) {
-        bslib::popover(
-            trigger = bsicons::bs_icon("download", title = "Download"),
-            title = "Download",
-            if (!is.null(dl_id_svg))
-                shiny::downloadButton(ns(dl_id_svg), "SVG",
-                                      class = "btn-sm btn-outline-secondary"),
-            if (!is.null(dl_id_png))
-                shiny::downloadButton(ns(dl_id_png), "PNG",
-                                      class = "btn-sm btn-outline-secondary")
-        )
-    } else {
-        NULL
-    }
-
-    bslib::card_header(
-        class = "d-flex justify-content-between align-items-center",
-        shiny::textOutput(ns(title), inline = TRUE),
-        if (!is.null(dl_btn)) htmltools::span(class = "d-flex gap-2", dl_btn)
-    )
 }
 
 #' The CLINE-GO wordmark.

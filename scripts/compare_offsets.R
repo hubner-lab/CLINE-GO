@@ -374,10 +374,9 @@ if (nway_n_models >= 2) {
                 message(paste0('WARNING: Kendall W via vegan failed: ', conditionMessage(e)))
             })
         }
-        # Ensemble: mean rank across models → normalised consensus offset
-        mean_rank <- rowMeans(rank_mat)
-        nway_dt   <- data.table(site = sites_common, mean_rank = mean_rank)
-        fwrite(nway_dt, file.path(CACHE_DIR, 'nway_mean_rank.tsv'), sep = '\t')
+        # No mean-rank consensus offset is written: on real data the engines' site rankings
+        # disagree (Trifolium: pairwise -0.19 to -0.65), so a consensus map would show an
+        # agreement Kendall's W does not find (bae357; nway_mean_rank.tsv until 2026-10-30).
     }
 }
 

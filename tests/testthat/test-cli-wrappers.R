@@ -515,10 +515,10 @@ WRAPPERS <- list(
         fails_without_input = TRUE
     ),
     list(
-        # The poster child for the cwd sandbox: generate_simdata.R:8 falls back
-        # to a RELATIVE "data/" when argv is empty, and data/ is gitignored, so
-        # a no-arg run would overwrite the working SIMDATA fixtures invisibly.
-        # Always pass an explicit dir (fx_inter_dir: no trailing slash, file.path joins).
+        # generate_simdata.R used to fall back to a RELATIVE "data/" when argv
+        # was empty, overwriting the working SIMDATA fixtures (gitignored, so
+        # invisibly); it now refuses, asserted in its own test below. The
+        # explicit dir is fx_inter_dir: no trailing slash, file.path joins.
         label   = "generate_simdata.R",
         script  = "generate_simdata.R",
         build   = function(d) fx_inter_dir(d, "simdata"),
@@ -923,7 +923,7 @@ WRAPPERS <- list(
                                    f$raster, "3", "0", f$meta),
         outputs = function(d) c(file.path(d, "cache", c("stats.json", "rank_stability.tsv",
                                                         "site_offsets.tsv", "disagree_by_novelty.tsv",
-                                                        "nway_mean_rank.tsv", "disagree_rank.tif")),
+                                                        "disagree_rank.tif")),
                                 file.path(d, "novelty", c("exdet_novelty.tif", "exdet_novelty.tsv"))),
         fails_without_input = FALSE
     ),
@@ -1011,6 +1011,8 @@ test_that("compare_offsets.R: identical rankings give Kendall W = 1 and ExDet cl
     expect_equal(st$kendall_w, 1)
     expect_equal(st$spearman_rho, 1)
     expect_equal(st$n_models_nway, 2L)
+    # Kendall's W only: no mean-rank consensus offset, even where the models agree (bae357).
+    expect_false(file.exists(file.path(f$cache, "nway_mean_rank.tsv")))
     expect_equal(st$jaccard_top_k, 1)      # top-3 of 6 sites, k < n so it is defined
     nov <- data.table::fread(file.path(f$novelty, "exdet_novelty.tsv"))
     expect_equal(nov$pct_cells_novel, 50.0)
@@ -1155,6 +1157,18 @@ test_that("no spec invokes a wrapper that rewrites the tracked fixtures", {
     # downstream would notice. Keep this a mechanism, not a review convention.
     scripts_used <- vapply(WRAPPERS, function(s) s$script, character(1))
     expect_length(intersect(scripts_used, WRAPPER_DENYLIST), 0L)
+})
+
+test_that("generate_simdata.R without an output dir refuses and writes nothing", {
+    # The sandbox stands in for the repo root, where the old default "data/"
+    # overwrote the working SIMDATA fixtures (b9be33).
+    skip_if_not(dir.exists(SCRIPTS), "scripts/ not mounted")
+    sandbox <- withr::local_tempdir()
+    res <- run_wrapper("generate_simdata.R", character(0), wd = sandbox)
+    expect_gt(res$status, 0L)
+    expect_match(res$output, "usage")
+    expect_identical(list.files(sandbox, all.files = TRUE, no.. = TRUE, recursive = TRUE),
+                     character(0))
 })
 
 test_that("find_genes_around_regions.R actually annotates the overlapping genes", {
@@ -1405,6 +1419,18 @@ test_that("compare_results.R: an unlisted change fails, a listed one passes", {
     wrong <- compare_case(bump, expect = "GEA/tables/pvalues.tsv\tchanged_values\tpos\tX3")
     expect_identical(wrong$status, 1L, info = wrong$output)
     expect_setequal(wrong$report$status, c("unexpected", "expected_not_seen"))
+})
+
+test_that("compare_results.R: a header-only --expect file expects no difference", {
+    # The shape of a zero-diff window's file (release 4d's p4d_vs_p4c.tsv), which used to
+    # stop with "unknown kind(s) ": the missing body was read as one row of empty strings.
+    skip_if_not(dir.exists(SCRIPTS), "scripts/ not mounted")
+    same <- compare_case(expect = character(0))
+    expect_identical(same$status, 0L, info = same$output)
+    bumped <- compare_case(function(b) edit_lines(pvalues_of(b), "\t0.25\t", "\t0.26\t"),
+                           expect = character(0))
+    expect_identical(bumped$status, 1L, info = bumped$output)
+    expect_identical(bumped$report$status, "unexpected")
 })
 
 test_that("compare_results.R: an expectation that never happens does not fail the run", {

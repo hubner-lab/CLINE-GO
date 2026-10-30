@@ -14,9 +14,9 @@
 # THE CWD SANDBOX, and why it is the real containment mechanism.
 # run_wrapper() runs each script with its working directory set to an empty
 # throwaway dir, and expect_wrapper_ok() then asserts that dir is STILL empty.
-# Several wrappers resolve a path relative to the cwd — generate_simdata.R:8
-# defaults OUTDIR to "data/", and base-graphics calls drop Rplots.pdf where they
-# stand (geometric_offset.R:459, rda_offset.R:397). Without the sandbox those
+# Several wrappers resolve a path relative to the cwd — generate_simdata.R
+# defaulted OUTDIR to "data/" until 2026-10-30, and base-graphics calls drop
+# Rplots.pdf where they stand (geometric_offset.R:459, rda_offset.R:397). Without the sandbox those
 # land in the mounted repo. A `git status` check cannot substitute: data/ and
 # *_results/ are gitignored (.gitignore:4,23), so git is blind to exactly the
 # writes that matter most.

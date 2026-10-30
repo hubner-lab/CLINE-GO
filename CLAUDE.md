@@ -121,9 +121,11 @@ reports **`tail`'s** exit status — a failed run then looks like exit 0. Redire
 
 *`haplotype_scan` / `haplotype` modes removed in Phase 3 — haplotype analysis now runs interactively in the Shiny app (Region Explorer → Run Haplotype Scan / Run Haplotype Viz).*
 
-**CRITICAL: Never run multiple modes in parallel for the same project.** All modes share the same `{PROJECT}_results/` working directory and Snakemake lock. Running two modes concurrently (e.g., `association` and `association_phenotypes` for SIMDATA) causes lock conflicts and potential file corruption. Always run modes sequentially. Parallel runs are only safe across **different projects** (e.g., two projects with distinct `project_name` values, each with its own `_results/` directory).
+**CRITICAL: Never run multiple modes in parallel for the same project.** All modes share the same `{PROJECT}_results/` working directory and Snakemake lock. Running two modes concurrently (e.g., `gea` and `gwas` for SIMDATA) causes lock conflicts and potential file corruption. Always run modes sequentially. Parallel runs are only safe across **different projects** (e.g., two projects with distinct `project_name` values, each with its own `_results/` directory).
 
 **CRITICAL: `{PROJECT}_results/` is keyed by `project_name` alone — the pipeline never checks that a config's `Input.vcf/metadata/gff` still matches what actually produced the existing outputs in that folder.** Two different config files sharing the same `project_name` (e.g., the CLI's config file and the Shiny app's own `config_{project_name}.yaml`, written separately from the Home tab's Input Files section) will both read/write the same `_results/` directory even if they point at completely different raw data. Non-parameterized paths (`Processing/tables/metadata.tsv`, `PreStructure/plots/K*/`, etc.) get silently overwritten by whichever config ran most recently — this already happened once (2026-07-21, a CLI run and a Shiny-triggered run both targeting `project_name: TEST` with different `Input.vcf`, three minutes apart). **Name projects after their actual VCF/dataset, never reuse a project name across datasets, and never run the CLI and the Shiny "Run" button against the same project concurrently.**
+
+**CRITICAL: never branch a parameter by copying a results tree to a new project name** (08cb45, 8f1176). Snakemake keeps each output's record (params, code, input) in `.snakemake/metadata/`, keyed by the output's absolute path, and every pipeline path is absolute (`/pipeline/{PROJECT}_results/...`). In a `cp -a`/rsync copy under a new name no output has a record, and a missing record never triggers a rerun (`persistence` compares only a record that exists): a changed `EMMAX.n_pcs`, `RDA.condition_pcs` or `GEA.snp_clumping_distance` schedules nothing and the copied tables stay, silently. Checked 2026-10-30 by decoding a tree's metadata keys. Start the new project from the inputs, or force the rules that read the parameter with `-R <rule>`.
 
 **Snakemake debug flags**: `-n` (dry run), `-R <rule>` (rerun rule + downstream), `--forcerun <rule>` (rerun only rule), `-F` (force all), `-p` (print shell commands)
 
@@ -137,41 +139,42 @@ forcing its rule, then reading the output.
 ## Architecture
 
 ### Key Files
-- `Snakefile` - Thin orchestrator (~35 lines): includes, the run-record hooks (onstart/onsuccess/onerror) + `rule all`. The hooks stay here: `tests/python/_smk_harness.py` exec()s common.smk as plain Python, where an `onstart:` block is a SyntaxError
+- `Snakefile` - Thin orchestrator (~50 lines): includes, the job temp folder (every job's `TMPDIR` is `_intermediate/tmp/`, 441eee), the run-record hooks (onstart/onsuccess/onerror) + `rule all`. Both stay here: `tests/python/_smk_harness.py` exec()s common.smk as plain Python, where an `onstart:` block is a SyntaxError and a process-wide `tempfile.tempdir` would leak into the tests
 - `workflow/rules/common.smk` - Config parsing, path dicts, helpers, `get_targets()`
 - `workflow/run_record.py` - Builds and writes `_intermediate/run_records/` (stdlib JSON: the image's system python3, which runs the Python tests, has no PyYAML)
-- `workflow/rules/{module}.smk` - Per-module rules: `processing`, `structure`, `structure_k`, `association`, `phenotype_assoc`, `overlapping`, `maladaptation`, `summary`
-- `workflow/rules/regionplot.smk` - Only `gff2topr` rule remains (used by Shiny on-demand regionplots); `mode=regionplot` is deprecated
-- `Snakefile_old` - Original workflow (**do NOT modify**)
+- `workflow/rules/{mode}.smk` - Per-mode rules: `processing`, `prestructure`, `structure`, `climate`, `traits`, `pregea`, `gea`, `gwas`, `gea_x_gwas`, `maladaptation`, plus `summary.smk` (write_summary per mode) and `_assoc_downstream.smk` (the rules GEA and GWAS share: significant SNPs, regions, genes, Manhattans, keyed by a `{source}` wildcard). `regionplot.smk` is gone (58419cf): the app converts the GFF for its region plot itself (`gff2topr.py`, `fct_regions.R`)
+- `workflow/methods/{gea,gwas,maladaptation}.py` - Method registries (`GEA_METHODS`, `GWAS_METHODS`, `MALADAPTATION_METHODS`)
 - `config_SIMDATA.yaml` - Main testing dataset config (nested YAML). Additional per-project configs (`config_<PROJECT>.yaml`, named after the actual VCF/dataset) are created on demand for real-data validation runs — see Test Datasets.
 - `scripts/*.R` - R scripts (executed at `/pipeline/scripts/` inside Docker)
 - `scripts/emmax-intel64`, `scripts/emmax-kin-intel64` - Pre-built EMMAX binaries (checked in, not built from source)
-- `scripts/app.R` - Shiny interactive results viewer (~2,500 lines) -- **NOT YET UPDATED** for new paths
 - `Dockerfile` - Container with pinned package versions (rocker/shiny:4.5, Bioconductor 3.22)
 
 ### Configuration Groups (Nested YAML)
 
-Config uses nested YAML groups. Old flat `UPPER_SNAKE_CASE` keys are auto-migrated via `_migrate_config()` with deprecation warnings.
+Config uses nested YAML groups, spelled as below (case matters). The original workflow's flat `UPPER_SNAKE_CASE` keys are no longer read (their migration layer went in 0bfc46b); the one migration left renames the legacy `region_distance`/`combine_gap` to `snp_clumping_distance` with a DeprecationWarning (`_migrate_assoc_config()`).
 
-1. **input** - `dir`, `vcf`, `metadata`, `gff` + top-level `project_name`, `cpu`
+1. **Input** - `dir`, `vcf`, `metadata`, `gff` + top-level `project_name`, `cpu`
 1b. **Regime** - `mode`: `standard` (geography + climate: structure, GEA, maladaptation) or `gwas_only` (no coordinates: Home/Processing/PreStructure/Structure/GWAS). Declared once at project creation and **hard-validated** in `common.smk` — an unknown value raises at parse time. `Climate.enabled` is **derived** from it (`gwas_only` forces `false`) on every write the Shiny app makes, and forced to `False` in `common.smk` for a hand-written CLI config; it is no longer user-editable in the app. A project predating the key is read as `gwas_only` only when it sets `Climate.enabled: false` explicitly, else `standard`.
-2. **filter** - `maf`, `snp_miss`, `sample_miss`
-3. **ld** - `window`, `step`, `r2`
-4. **snmf** - `k_start`, `k_end`, `k_best`, `repeats` (no ploidy key: sNMF runs diploid only, `PLOIDY = 2` in `common.smk`, and a `sNMF.ploidy` other than 2 is refused at parse time, 899581)
-5. **map** - `climate_extent` (was MAP_CROP), `gap`, `resolution`, `zoom_extent` (was MAP_REGIONMAP_EXTENT)
-6. **climate** - `predictors` (was CLIMATE_VARS)
-7. **pop** - `calc_stats`, `window_size`, `custom_trait_file`
-8. **piemap** - `alpha`, `show_labels`, `label_size`, `pie_scale`, `use_points`
-9. **association** - `configs` (list of method/adjust/threshold), `combine_method`, `snp_clumping_distance` (ONE distance for the cross-method agreement, the cross-trait overlap annotation and the region merge: bp, or `auto_genome_wide`/`auto_per_chromosome` resolved from the LD-decay table by every consumer since 2026-10-24; the legacy `combine_gap`/`region_distance` names migrate to it; unset or null it is `auto_genome_wide` since 2026-10-26, said once on stderr, where it was a fixed 100 kb — so a config that relied on the old default now needs `mode=structure`'s LD-decay table, and `LDdecay.scope: per_chromosome` refuses it at parse time; a group that does not run, GEA in `gwas_only`, is neither announced nor scope-checked), `clumping_ld_rule` (since 2026-10-26: which LD-decay column an auto distance reads, `critical` (default) | `half_decay` | `r2_threshold`; replaces `clumping_r2_threshold`, whose level is now `LDdecay.r2_threshold` (a leftover `clumping_r2_threshold` must equal it, no longer picks the rule, and says so on stderr: an old config gets the default unless it sets `clumping_ld_rule`); declared SNP sets resolve an auto gap the same way instead of the old silent 100 kb; `auto_genome_wide` needs `LDdecay.scope` genome_wide or both and `auto_per_chromosome` per_chromosome or both, both checked at parse time), `region_clumping_distance` (advanced, unset by default: a separate distance for the region merge only), `top_regions`, `promoter_length`, `go_field`
+2. **Filter** - `maf`, `snp_miss`, `sample_miss`, `relatedness`, `relatedness_action`, `het_outlier_sd`, `min_depth`, `max_depth`
+3. **LD** - `window`, `step`, `r2`
+4. **sNMF** - `k_start`, `k_end`, `k_best`, `repeats` (no ploidy key: sNMF runs diploid only, `PLOIDY = 2` in `common.smk`, and a `sNMF.ploidy` other than 2 is refused at parse time, 899581)
+5. **Map** - `climate_extent` (was MAP_CROP), `gap`, `resolution`, `zoom_extent` (was MAP_REGIONMAP_EXTENT)
+6. **Climate** - `enabled` (derived from Regime), `predictors` (was CLIMATE_VARS), `source` (`worldclim` | `custom`, with `custom.*`), `Varpart.*`
+6b. **Traits** - `pairs_max_factors` (default 8; above it the pairs grid is a placeholder)
+7. **Population** - `calc_stats`, `window_size`, `custom_trait_file`
+8. **Piemap** - `alpha`, `show_labels`, `label_size`, `pie_scale`, `use_points`
+9. **GEA** - `configs` (list of method/adjust/threshold, optional `params`), `combine_method`, `snp_clumping_distance` (ONE distance for the cross-method agreement, the cross-trait overlap annotation and the region merge: bp, or `auto_genome_wide`/`auto_per_chromosome` resolved from the LD-decay table by every consumer since 2026-10-24; the legacy `combine_gap`/`region_distance` names migrate to it; unset or null it is `auto_genome_wide` since 2026-10-26, said once on stderr, where it was a fixed 100 kb — so a config that relied on the old default now needs `mode=structure`'s LD-decay table, and `LDdecay.scope: per_chromosome` refuses it at parse time; a group that does not run, GEA in `gwas_only`, is neither announced nor scope-checked), `clumping_ld_rule` (since 2026-10-26: which LD-decay column an auto distance reads, `critical` (default) | `half_decay` | `r2_threshold`; replaces `clumping_r2_threshold`, whose level is now `LDdecay.r2_threshold` (a leftover `clumping_r2_threshold` must equal it, no longer picks the rule, and says so on stderr: an old config gets the default unless it sets `clumping_ld_rule`); declared SNP sets resolve an auto gap the same way instead of the old silent 100 kb; `auto_genome_wide` needs `LDdecay.scope` genome_wide or both and `auto_per_chromosome` per_chromosome or both, both checked at parse time), `region_clumping_distance` (advanced, unset by default: a separate distance for the region merge only), `ld_decay_group`, `promoter_length`, `snp_sets` (declared SNP sets), `wza.*`
 9b. **LDdecay** - `group_by`, `min_samples`, `max_distance` (kb), `scope`, `max_pairs`, `background_markers_per_chr`, `background_quantile`, `r2_threshold`, `loess_span`, `min_signal_ratio` (default 2), `seed`, `exclude_chromosomes` (optional, none by default: contigs left out of the curve and background, one comma-separated string such as `"X,Y,MT,Pt"`). Since 2026-10-27 every row carries `ld_status` (`reliable`/`unreliable`) and `ld_status_reason`: unreliable when short-range r² < `min_signal_ratio` x the critical r² (the background lies above half the short-range LD, so the curve meets noise before it halves), too few bins, or no background; an `auto_*` distance **stops** on an unreliable genome-wide row (declare bp), an unreliable chromosome falls back to a reliable genome-wide value, WZA keeps its fallback. A table written before 2026-10-27 has no `ld_status`: its rows are judged by the same rule from their own `short_r2` / `background_r2` at ratio 2 (`.ld_table_status()` in `region_distance.R`, mirrored by `_ld_auto_refusal()` in `common.smk`; they used to read as reliable, 96e4fd), with a WARNING to re-run mode=structure. Trifolium (57 plants, 5 selfing lineages) is 1.75, unreliable; Arabidopsis 14.5, barley panels 3.9-4.7, 57-plant subsamples of those 2.7-5.4, SS-Clines 4.8-36.5. Since 2026-10-26 r² is PLINK 1.9 `--r2` (allele-count correlation, missing calls excluded pairwise) for the curve (`ld_decay_pairs`, which replaced PopLDdecay: its unphased r² pseudo-phases heterozygotes) and for the unlinked background (`ld_decay_background`); `ld_decay_analyze.R` bins, fits LOESS and writes `decay_critical_bp` (curve meets the critical r² of unlinked markers, Breseghello & Sorrells 2006), `decay_half_bp` (half the short-range r², Zhao 2011 / Vos 2017) and `decay_r2thr_bp`. The Hill–Weir fit is gone: with no background term it overstated every distance (Trifolium r² = 0.2: 130.8 kb fitted, 8.8 kb in the data). PLINK runs with `--chr-set 95 --allow-extra-chr` in these steps (`no-x no-y no-xy no-mt` made PLINK refuse a VCF with an X or MT contig, fixed 2026-10-26): X, MT and other names (Pt) enter the curve and background with an autosome's r², Y gives no pairs; since 2026-10-29 every plink call in the pipeline does the same (12f364), so a contig numbered 23-26 keeps its number instead of becoming X/Y/XY/MT; 96-99 still map to X/Y/XY/MT (95 is plink 1.9's autosome maximum).
-10. **gff** - `feature`, `gene_name`, `biotype`
-11. **enrichment** - `top_terms`, `plot_width`, `plot_height`, `cnet_label`, `top_plot_regions`
-12. **future** - `ssp`, `year`, `models`
-14. **gradient_forest** - `ntree`, `cor_threshold`, `spatial_correction` (was GF_PCNM), `run_label` (was `suffix`), `random_model`, `extrap` (2026-09-13: `true` = `predict.gradientForest`'s default linear continuation beyond the training climate range — what every published GF-offset code base runs; `false` = plateau. Recorded with the share of cells outside the training envelope in `gradient_forest_diagnostics.tsv`; the three design docs that claimed the pipeline plateaus were wrong — audit SC1)
+9c. **PreGEA** - `predictors`, `k_offset`, `n_pcs_max`, `Advanced.*` (`collinearity_r`, `vif_max`, `axis_alpha`, `permutations`), `TransferGuard.*` (`enabled`, `lfmm_k`, `emmax_n_pcs`)
+10. **GFF** - `feature`, `go_field`; `gene_name` and `biotype` are read only by the app's region plot (its gene track), by no rule
+11. **Enrichment** - `top_terms`, `plot_width`, `plot_height`, `cnet_label` (GO enrichment runs in the app, on demand)
+12. **Future** - `ssp` (the number, e.g. `585`), `year`, `models` (one comma-separated string)
+14. **Maladaptation.methods.gradient_forest** - `ntree`, `cor_threshold`, `spatial_correction` (was GF_PCNM), `run_label` (was `suffix`), `random_model`, `extrap` (2026-09-13: `true` = `predict.gradientForest`'s default linear continuation beyond the training climate range — what every published GF-offset code base runs; `false` = plateau. Recorded with the share of cells outside the training envelope in `gradient_forest_diagnostics.tsv`; the three design docs that claimed the pipeline plateaus were wrong — audit SC1)
 14b. **Maladaptation.predictors** - predictors every offset model is fitted on (`MALA_PREDICTORS`, 2026-10-15); `auto` = `Climate.predictors`, else a parse-time-validated subset. With more predictors than sites - 1 the RDA offset aliases the surplus by column order (Trifolium, 16 on 11 sites: all precipitation dropped), so pass a non-redundant subset. Not in the output path: changing it reruns maladaptation in place
-15. **phenotype_association** - `configs`, `missing_strategy`; inherits from `association.*` by default, override only if different
-16. **overlap** - `region_distance` (Shiny filter bar default, falls back to `max(association, phenotype_association)`); `pairwise.window_size`, `pairwise.min_snps` for pairwise trait overlap table. Overlap regions/genes/enrichment are computed interactively in Shiny — not pipeline-side.
-17. **haplotype** - `scan.regions_source`, `scan.regions_file`, `scan.top_regions`, `scan.min_snps`, `scan.min_group_size` (was MGMIN), `scan.min_haplotype_size` (was MINHAP), `scan.epsilon_range`, `scan.metadata_type`, `epsilon_selected`
+15. **GWAS** - `configs`, `missing_strategy` (`DROP` by default; `MEAN`/`MEDIAN` fill the trait itself, see `docs/configuration.md`), `traits`, `snp_sets`; the distances, LD rule and promoter length inherit from `GEA.*` unless set, `combine_method` does not
+16. **GEAxGWAS** - `region_distance` (Shiny filter bar default, falls back to `max(GEA, GWAS)`); `pairwise.window_size`, `pairwise.min_snps` for pairwise trait overlap table. Overlap regions/genes/enrichment are computed interactively in Shiny — not pipeline-side.
+17. **haplotype** (lowercase, read only by the app's haplotype scan and viz) - `scan.regions_source`, `scan.regions_file`, `scan.top_regions`, `scan.min_snps`, `scan.min_group_size` (was MGMIN), `scan.min_haplotype_size` (was MINHAP), `scan.epsilon_range`, `scan.metadata_type`, `epsilon_selected`
+18. **Simulation** - `enabled`, `source`, `truth_table`, `fitness.identity_table`, `fitness.gardens`: declares a simulated benchmark dataset with its truth set (absent = a real dataset)
 
 ### Output Organization
 
@@ -253,6 +256,8 @@ Organized by **module** (matching pipeline modes). Each module owns its plots an
 ├── pipeline_summary.tsv                   # all modes append here
 ├── _work/maf{}_miss{}_smiss{}/ld{}_win{}_step{}/  # parameterized intermediates
 └── _intermediate/                         # internal: samples/, annotation/, enrichment/, {method}/{SUFFIX}/, haplotype/, qs_cache/, flags/
+    ├── tmp/                               # every job's TMPDIR (R's tempdir(), fread(cmd = ) copies, mktemp): empty
+    │                                      # after a clean run; an inherited TMPDIR or --default-resources tmpdir= wins (441eee)
     ├── run_records/                       # {mode}.json: what the mode last ran with (config + its sha256, command, git commit
     │                                      # and dirty paths, image when -e CLINEGO_IMAGE_ID is passed, gea/gwas method params);
     │                                      # history.jsonl: one line per finished run. Written by the Snakefile's
@@ -264,7 +269,8 @@ Organized by **module** (matching pipeline modes). Each module owns its plots an
                                            # snp_set_build, scripts/build_snp_set.R on the app's own selection lib
                                            # scripts/R/lib/snp_set_select.R): selected_snps.tsv, snp_set.yaml, declaration.json
 
-{PROJECT}_logs/{module}/                   # per-module log directories
+{PROJECT}_logs/{module}/                   # per-module log directories: processing/ prestructure/ structure/ climate/
+                                           # traits/ pregea/ GEA/ GWAS/ gea_x_gwas/ maladaptation/ snp_sets/
 ```
 
 ### Workflow Dependencies
@@ -291,7 +297,7 @@ Real-data projects (e.g. a specific WGS/GBS dataset) are **additional, on-demand
 | **Purpose** | Primary testing dataset — all routine development |
 | **Features** | 3 original pops (Negev/TelAviv/Galilee) + 6 preGEA sites added by `scripts/add_pregea_sites.R` (spatially IDW-interpolated genotypes/phenotypes, inside the original coordinate bounding box so `Climate.climate_extent: auto` reuses the cached WorldClim raster), missing data test, climate-associated SNPs, GO terms, relatedness-test duplicate samples (`*_DUP`, `scripts/add_related_samples.R`) |
 
-**`test_data/config_testdata.yaml` is a separate, tracked copy of SIMDATA for GitHub** (2026-08-19) — `data/` and `config_SIMDATA.yaml` are gitignored, so a fresh clone had no runnable dataset. `test_data/` ships copies of the SIMDATA VCF/metadata/GFF renamed to `testdata.*` (`project_name: testdata`), plus `config_testdata.yaml` (same as `config_SIMDATA.yaml` except `Map.resolution: 2.5` — avoids a 10.4 GB WorldClim download on first clone). **Do not confuse the two**: `config_SIMDATA.yaml` is the local working config (37 GB WorldClim cache in `data/`, 30s resolution) — never edit `test_data/*` expecting it to affect local SIMDATA runs, and never point local dev at `test_data/`. See README "Test Dataset" section.
+**`test_data/config_testdata.yaml` is a separate, tracked copy of SIMDATA for GitHub** (2026-08-19) — `data/` and `config_SIMDATA.yaml` are gitignored, so a fresh clone had no runnable dataset. `test_data/` ships copies of the SIMDATA VCF/metadata/GFF renamed to `testdata.*` (`project_name: testdata`), plus `config_testdata.yaml` (a copy of `config_SIMDATA.yaml` as it stood on 2026-08-19, with `Map.resolution: 2.5` — avoids a 10.4 GB WorldClim download on first clone; the two have drifted since, e.g. `GEA.snp_clumping_distance` is 1,000,000 bp in the test config, stated under that name since 2026-10-30 (it was the deprecated `region_distance`), and 100,000 in the local one on this machine). **Do not confuse the two**: `config_SIMDATA.yaml` is the local working config (37 GB WorldClim cache in `data/`, 30s resolution) — never edit `test_data/*` expecting it to affect local SIMDATA runs, and never point local dev at `test_data/`. See README "Test Dataset" section.
 **Rebuilding SIMDATA from scratch** (it is gitignored — `data/` and `config_*.yaml` both are — so a fresh clone has no fixture; rebuilt 2026-08-15 after exactly that):
 1. `Rscript scripts/generate_simdata.R data/` — writes **only** `data/SIMDATA.vcf` and `data/SIMDATA.gff3`
 2. **Write `data/SIMDATA_metadata.tsv` by hand** — the generator does not produce it. Columns must be exactly `site sample latitude longitude height flowering_time disease_score` (both injector scripts below hardcode those trait names), sample names `NEG01-10`/`TAV01-10`/`GAL01-10`, and coordinates **identical within a site** (Negev 30.854/34.7826, TelAviv 32.0837/34.7817, Galilee 33.0128/35.4985) — `add_pregea_sites.R:74` asserts exactly 3 distinct `(site, lat, lon)` triples and dies otherwise
@@ -425,7 +431,7 @@ exists to prevent.
 4. Test with SIMDATA
 
 ### Debugging Failed Rule
-1. Check `{PROJECT}_logs/{module}/<rule_name>.log`
+1. Check `{PROJECT}_logs/{module}/<rule_name>.log` (GEA and GWAS log to `GEA/` and `GWAS/`: their shared downstream rules can only name the folder by their `{source}` wildcard, 973468)
 2. Verify input files exist and aren't empty
 3. Re-run with `-p` flag for verbose output
 4. Test R scripts interactively inside Docker
@@ -464,7 +470,7 @@ exists to prevent.
 
 GAPIT models are auto-detected from config method names and routed through `gapit.R` with shared BN kinship + LEA PCA covariates. EMMAX/LFMM continue through their existing scripts. All methods produce standardized pvalue TSVs consumed by the same downstream rules.
 
-### Phenotype Association Workflow (`association_phenotypes` mode)
+### Phenotype Association Workflow (`mode=gwas`)
 1. **prepare_phenotypes** - Extract traits from metadata columns 5+, handle missing values (MEAN/MEDIAN/DROP)
 2. **Per-trait VCF subsetting** (DROP mode) - Subset VCF to samples with non-missing trait values
 3. **TPED/Kinship** - Separate Snakemake rules (not inside R script) for TPED conversion and BN kinship computation
@@ -474,11 +480,11 @@ GAPIT models are auto-detected from config method names and routed through `gapi
 7. **Downstream** - Reuses existing scripts: find_sig_snps, create_regions, find_genes, enrichment, manhattan
 - Two paths: Path A (MEAN/MEDIAN, single sample set) vs Path B (DROP, per-trait `{pheno_trait}` wildcard rules)
 - PCA: uses whole-dataset PCA projections (subsetted to trait samples in `emmax_phenotypes.R`)
-- Config: `phenotype_association.*` inherits from `association.*` by default, override only if different
+- Config: `GWAS.*` inherits the distances, LD rule and promoter length from `GEA.*`, override only if different
 - GAPIT DROP mode uses full-dataset GD + kinship; `gapit.R` subsets internally via `SAMPLES_SUBSET` arg
 
-### association.configs Format
-`association.configs` in config YAML is a list of `{method, adjust, threshold}` entries. Parsed into a dict mapping method name to `"adjust_threshold"` string. Controls which association methods run, their p-value adjustment, and significance thresholds.
+### GEA.configs / GWAS.configs Format
+`GEA.configs` (and `GWAS.configs`) in config YAML is a list of `{method, adjust, threshold}` entries. Parsed into a dict mapping method name to `"adjust_threshold"` string. Controls which association methods run, their p-value adjustment, and significance thresholds.
 
 The rules are `bonf | qval | top | toppct | custom`, all in `compute_pval_threshold()` (`scripts/R/utils/pval_threshold.R`), validated at parse time (`PVAL_ADJUSTMENTS`, `_THRESHOLD_VALID` in `common.smk`, mirrored by the app's `threshold_value_valid_for_type()`). `toppct` (since 2026-10-27) is `top` with N = ceiling(share/100 × the table's rows, NA rows included), the MVP benchmark's operating point (0.25 % per predictor, RDA 0.5 %). A rule name never contains `_`: every consumer splits `adjust_threshold` at the first underscore.
 
@@ -526,12 +532,12 @@ To add a new output: add to the appropriate dict/function, add to `get_targets()
 - `emapplot` and `cnetplot` need ≥2 enriched terms; `dotplot` works with 1+
 - `download_climate_present` (WorldClim) is very slow — always preserve its output
 - Dead `assoc_genes()`/`assoc_genes_collapsed()` template functions referencing undefined `GENE_DISTANCE` were removed — gene finding uses `find_genes_around_regions.R` directly
-- `scattermore` is used via `association.scattermore_threshold` (default 30,000) to downsample non-sig SNPs in Manhattan plots
+- Manhattan backgrounds always draw every SNP with `scattermore`; no config key sets a threshold (the documented `scattermore_threshold` was never read)
 - `ld_prune`'s sed strips `\t0_0_` while `filter_vcf` and `subset_vcf_pheno` strip `0_`. Measured (audit B29, 52289b): ld_prune reads the already-stripped `vcf_filt`, so its one `--const-fid` pass writes a SINGLE `0_` and the sed never matches; `W['vcf_ld']`, `W['vcf_imp']` and the other LD-pruned VCFs keep `0_NEG01`-style names. There is no doubled prefix. Readers of those names handle it explicitly: `amova.R` matches by id after stripping one leading `0_` (2026-10-29), `pregea_subset_vcf_pruned_climate` prefixes its `--keep` list. Do not change the sed: it would rewrite every LD-pruned VCF header those readers expect.
 
 ## Shiny App — golem Package (`scripts/clinego.app/`)
 
-Interactive results viewer built as a **golem R package** using bslib (Bootstrap 5). The legacy `scripts/app.R` is preserved as reference but is not in active use.
+Interactive results viewer built as a **golem R package** using bslib (Bootstrap 5). The legacy `scripts/app.R` was deleted in 0bfc46b.
 
 ### Dev Mode (no Docker rebuild)
 
@@ -600,16 +606,23 @@ aesthetic. Playwright replaces the *mechanical* half of that loop, not the judge
 - `fct_data_loading.R` — TSV loaders, `load_cached()` with 200MB cachem cache
 - `fct_manhattan.R` — `build_manhattan_plotly()`, coord alignment, `add_cum_pos()`
 - `fct_labels.R` — `build_region_labels()`, `format_region_id()`, `format_hap_tag()`
-- `utils_ui.R` — `plot_placeholder()`, `region_info_bar()`, `mode_status_row()`
+- `fct_modules.R` — module registry: the single source of truth for top-level navigation (the module bar)
+- `fct_config_schema.R`, `fct_config_writer.R` — config parameter schema for every tab; the working config written back to YAML
+- `fct_pipeline.R` — launches Snakemake as a background process, parses `{project}_logs/.run.log` for progress
+- `fct_regions.R`, `fct_combine.R`, `fct_overlap.R` — on-the-fly regions, combine strategies and GEA x GWAS overlap for interactive exploration
+- `fct_threshold_rules.R`, `fct_region_params.R`, `fct_snp_sets.R` — per-cell significance rules; per-region parameter persistence; curated SNP sets
+- `fct_help_notes.R`, `fct_method_registry.R`, `fct_model_compare.R` — plot help notes; the GEA method registry bridged from Python; offset-model comparison (`compare_offsets.R`)
+- `utils_ui.R`, `utils_dashboard.R` — `plot_placeholder()`, `region_info_bar()`, `help_note()` and the shared dashboard primitives
 - `utils_helpers.R` — `file_ok()`, `resolve_adjust()`, `make_project_data()`, `safe_datatable()`
+- `zzz.R` — loads the shared pipeline libraries into the package namespace at load time
 - `mod_image_card.R` — reusable static image card (full-screen + SVG/PNG download)
 - `mod_manhattan_overlay.R` — plotly overlay on background PNG; returns `selected_region` reactive
-- `mod_region_detail.R` — GO enrichment, genes, GO table, regionplot, haplotype (used by 3 tabs)
+- `mod_region_explorer.R` — Region explorer: genes, GO enrichment, regional plot, haplotype scan and viz (used by the GEA, GWAS and GEA x GWAS tabs)
 - `mod_piemap_viewer.R` — piemap display with bio/metric/zoom path resolution
-- `mod_home.R`, `mod_structure.R`, `mod_structure_k.R`, `mod_maladaptation.R` — simple tabs
-- `mod_association.R`, `mod_phenotype.R`, `mod_overlapping.R`, `mod_haplotype.R` — complex tabs
+- `mod_home.R`, `mod_processing.R`, `mod_prestructure.R`, `mod_structure.R`, `mod_climate.R`, `mod_traits.R`, `mod_pregea.R`, `mod_gea.R` (+ `mod_rda_details.R`), `mod_gwas.R`, `mod_gea_x_gwas.R` (+ `mod_pairwise_overlap.R`), `mod_maladaptation.R` — one tab per module
+- `mod_config_sidebar.R`, `mod_create_project.R`, `mod_pipeline_runner.R`, `mod_dashboard_outputs.R` — config sidebar, New Project modal, Run/Stop/progress, dashboard-only outputs
 
-**Region-centric design**: Clicking a sig SNP in any Manhattan → selects region → `mod_region_detail` renders below (enrichment plots, genes table, GO table, regionplot, haplotype viz). Same pattern in Association, Phenotype Association, and Overlapping tabs.
+**Region-centric design**: Clicking a sig SNP in any Manhattan → selects region → the Region explorer (`mod_region_explorer.R`) renders below (genes, GO enrichment, regional plot, haplotype viz). Same pattern in the GEA, GWAS and GEA x GWAS tabs.
 
 **Haplotype tag resolution**: Tags are `{meta_type}_{source}` (e.g., `site_association`). Each association tab finds its matching haplotype tag by splitting on `_` and matching source part.
 
@@ -676,7 +689,7 @@ marker comment at the app-install block in `Dockerfile`).
 - `scripts/clinego.app/DESCRIPTION` — package metadata + Imports
 
 ### Legacy App
-- `scripts/app.R` — shinydashboard monolith (3,466 lines). Preserved for reference. Uses OLD flat path structure and `.qs` files — do NOT use for new development.
+- `scripts/app.R`, the shinydashboard monolith, was deleted in 0bfc46b (2026-04-08); `git show 0bfc46b^:scripts/app.R` still has it.
 
 ## TODO
 
@@ -735,7 +748,8 @@ load-bearing and not obvious:
 - **The cwd sandbox.** `run_wrapper(..., wd = )` runs each script in an empty throwaway dir and
   `expect_wrapper_ok()` asserts it is still empty afterwards. This — not a `git status` check — is
   the containment: `data/` and `*_results/` are both gitignored, so git is blind to exactly the
-  writes that matter (`generate_simdata.R:8` defaults `OUTDIR` to a relative `"data/"`).
+  writes that matter (`generate_simdata.R` defaulted `OUTDIR` to a relative `"data/"` until 2026-10-30; it now
+  refuses to run without one, b9be33).
 - **`fx_inter_dir()` returns a directory WITHOUT a trailing slash, on purpose.** Scripts used to
   join a directory argument with `paste0` and worked only because `common.smk` gives `INTER` and
   every plot/table dir a trailing slash; since 2026-10-29 (5c8fce) they join with `file.path`, and
@@ -932,8 +946,8 @@ tree is absent.
 **Tier 6 — Python + CLI wrappers** landed 2026-09-12, in two places. `tests/python/`
 is a third suite (`unittest`, registered at `run_all.sh:70-78`) covering
 `design_adequacy.py`'s hand-rolled eigensolver, `gff2topr.py` (subprocess only — it has no
-`__main__` guard and `sys.exit()`s from its module body), `snakemake_progress_handler.py`,
-and the one part of `workflow/methods/` that is code rather than data: `gwas.py`'s
+`__main__` guard and `sys.exit()`s from its module body), every workflow file through Snakemake's own
+parser (`test_smk_parse.py`, `snakemake --print-compilation`, 9f4c4a), and the one part of `workflow/methods/` that is code rather than data: `gwas.py`'s
 comprehension filtering `GEA_METHODS` by `supports_phenotypes`. `tests/testthat/test-cli-wrappers.R`
 smoke-tests **33 of the ~40** zero-function `commandArgs()` wrappers, asserting exit 0 and
 non-empty declared outputs — the layer Tier 1 could not see. One row asserts a NON-zero exit:
@@ -959,12 +973,16 @@ Still missing: golden-file regression on SIMDATA outputs (see below), and smoke 
 the wrappers needing a VCF / plink / LEA / EMMAX / GAPIT / WorldClim, which are integration
 runs rather than smoke tests.
 
-**On golden files specifically**: they are blocked, not merely undone. Three committed SIMDATA
-outputs are known-wrong and would be frozen as "expected" (`overlap_traits`/`overlap_snps`,
-exon/promoter counts). `find_significant_snps_per_trait()`'s diagnostics were
-**core-count-dependent** — 2 rows at `cpu=1`, 0 at `cpu>=2` — until 2026-10-30 (bb27e1: each
-worker returns its row; `sig_threshold_table.R` writes them as `{method}_thresholds_K{k}.tsv`).
-Fix or explicitly quarantine the others first.
+**On golden files specifically**: no longer blocked (66f74e). The three known-wrong SIMDATA
+outputs (`overlap_traits`/`overlap_snps`, exon/promoter counts) were fixed in 66ff928;
+`find_significant_snps_per_trait()`'s diagnostics, **core-count-dependent** until 2026-10-30
+(2 rows at `cpu=1`, 0 at `cpu>=2`), now come from each worker and are written as
+`{method}_thresholds_K{k}.tsv` (bb27e1); sNMF takes the project seed (8d07b1). Two SIMDATA trees
+built from scratch match in every TSV (release prep Phase 0, 2026-10-28: only logs, PDFs,
+`.snmfProject`, `relatedness_mds.png` and cached `.qs` objects differ), and
+`scripts/compare_results.R` compares a tree with such a reference. What is missing is the gate
+step: a reference tree is ~266 MB, too big to commit, so the comparison runs per release window
+(`docs/release/`, local), not in `run_all.sh`.
 
 **On Shiny/pipeline equivalence**: the surface is larger than it looks. `zzz.R:39-42` shares
 only `regions.R` and `pval_threshold.R` with the pipeline; gene finding (`fct_regions.R:67` vs

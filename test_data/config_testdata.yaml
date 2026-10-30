@@ -66,8 +66,7 @@ GEA:
     params:
       condition_pcs: 3
       axes: auto
-  combine_gap: 100000
-  region_distance: 1000000
+  snp_clumping_distance: 1000000
   promoter_length: 10000
 # PreGEA is now ONE decision (LFMM/EMMAX/RDA always run together) — see
 # README "Fixed constants" for everything that used to be a parameter here:

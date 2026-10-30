@@ -15,7 +15,7 @@ if GWAS_CONFIGS and PHENO_MISSING != 'DROP':
         params:
             strategy = PHENO_MISSING,
             work_dir = f"{WORK_FILT}phenotypes/"
-        log: f"{LOGDIR}gwas/prepare_phenotypes.log"
+        log: f"{LOGDIR}GWAS/prepare_phenotypes.log"
         shell:
             """
             Rscript /pipeline/scripts/prepare_phenotypes.R \
@@ -28,7 +28,7 @@ if GWAS_CONFIGS and PHENO_MISSING != 'DROP':
         input: vcf = W['vcf_imp_full']
         output: tped = W['pheno_tped'], tfam = W['pheno_tfam']
         params: prefix = f"{WORK_FILT}phenotypes/emmax/{VCF_BASE}"
-        log: f"{LOGDIR}gwas/tped_pheno.log"
+        log: f"{LOGDIR}GWAS/tped_pheno.log"
         shell:
             """
             plink --vcf {input.vcf} --double-id --chr-set 95 --allow-extra-chr --output-chr MT --recode12 transpose \
@@ -40,7 +40,7 @@ if GWAS_CONFIGS and PHENO_MISSING != 'DROP':
         input: tped = W['pheno_tped']
         output: W['pheno_kinship']
         params: prefix = f"{WORK_FILT}phenotypes/emmax/{VCF_BASE}"
-        log: f"{LOGDIR}gwas/kinship_pheno.log"
+        log: f"{LOGDIR}GWAS/kinship_pheno.log"
         shell:
             "/pipeline/scripts/emmax_run.sh /pipeline/scripts/emmax-kin-intel64 -v -d 10 -x {params.prefix} > {log} 2>&1"
 
@@ -76,7 +76,7 @@ if GWAS_CONFIGS and PHENO_MISSING != 'DROP':
                 # here silently discarded the user's structure-correction setting.
                 k           = GWAS_PARAMS.get("EMMAX", {}).get("n_pcs", K_BEST),
                 tables_dir  = f"{INTER}gwas_per_trait/",
-            log: f"{LOGDIR}gwas/gwas_a_emmax_{{pheno_trait}}.log"
+            log: f"{LOGDIR}GWAS/gwas_a_emmax_{{pheno_trait}}.log"
             shell:
                 "Rscript /pipeline/scripts/emmax_phenotypes.R "
                 "{input.vcf} {params.tped_prefix} {input.kinship} {input.pca} "
@@ -91,7 +91,7 @@ if GWAS_CONFIGS and PHENO_MISSING != 'DROP':
                 qvals = pheno_qvalues("EMMAX"),
             params:
                 files_str = lambda wc, input: " ".join(input)
-            log: f"{LOGDIR}gwas/gwas_a_emmax_assemble.log"
+            log: f"{LOGDIR}GWAS/gwas_a_emmax_assemble.log"
             shell:
                 'Rscript /pipeline/scripts/combine_pheno_pvalues.R '
                 '"{params.files_str}" {output.pvals} {output.qvals} > {log} 2>&1'
@@ -121,7 +121,7 @@ if GWAS_CONFIGS and PHENO_MISSING != 'DROP':
                 workdir       = lambda wc: f"{INTER}gapit/gwas_a/{wc.pheno_trait}/",
                 tables_dir    = f"{INTER}gwas_per_trait/",
                 native_outdir = f"{MOD_GWAS}GAPIT_native_output/",
-            log: f"{LOGDIR}gwas/gapit_gwas_a_{{pheno_trait}}.log"
+            log: f"{LOGDIR}GWAS/gapit_gwas_a_{{pheno_trait}}.log"
             shell:
                 """
                 Rscript /pipeline/scripts/gapit.R \
@@ -141,7 +141,7 @@ if GWAS_CONFIGS and PHENO_MISSING != 'DROP':
                     pvals = pheno_pvalues(_gwas_model),
                     qvals = pheno_qvalues(_gwas_model),
                 params: files_str = lambda wc, input: " ".join(input)
-                log:    f"{LOGDIR}gwas/gwas_a_{_gwas_model.lower()}_assemble.log"
+                log:    f"{LOGDIR}GWAS/gwas_a_{_gwas_model.lower()}_assemble.log"
                 shell:
                     'Rscript /pipeline/scripts/combine_pheno_pvalues.R '
                     '"{params.files_str}" {output.pvals} {output.qvals} > {log} 2>&1'
@@ -160,7 +160,7 @@ if GWAS_CONFIGS and PHENO_MISSING == 'DROP':
         params:
             strategy = PHENO_MISSING,
             work_dir = f"{WORK_FILT}phenotypes/"
-        log: f"{LOGDIR}gwas/prepare_phenotypes.log"
+        log: f"{LOGDIR}GWAS/prepare_phenotypes.log"
         shell:
             """
             Rscript /pipeline/scripts/prepare_phenotypes.R \
@@ -176,7 +176,7 @@ if GWAS_CONFIGS and PHENO_MISSING == 'DROP':
         output: f"{WORK_FILT}phenotypes/{{pheno_trait}}/{VCF_BASE}_K{K_BEST}imp.vcf"
         wildcard_constraints: pheno_trait = PHENO_TRAIT_RE
         params: prefix = f"{WORK_FILT}phenotypes/{{pheno_trait}}/{VCF_BASE}_K{K_BEST}imp"
-        log: f"{LOGDIR}gwas/subset_vcf_pheno_{{pheno_trait}}.log"
+        log: f"{LOGDIR}GWAS/subset_vcf_pheno_{{pheno_trait}}.log"
         shell:
             """
             plink --vcf {input.vcf} --keep {input.samples} --const-fid 0 --chr-set 95 --allow-extra-chr --output-chr MT \
@@ -192,7 +192,7 @@ if GWAS_CONFIGS and PHENO_MISSING == 'DROP':
             tfam = f"{WORK_FILT}phenotypes/{{pheno_trait}}/emmax/{VCF_BASE}.tfam"
         wildcard_constraints: pheno_trait = PHENO_TRAIT_RE
         params: prefix = f"{WORK_FILT}phenotypes/{{pheno_trait}}/emmax/{VCF_BASE}"
-        log: f"{LOGDIR}gwas/tped_pheno_trait_{{pheno_trait}}.log"
+        log: f"{LOGDIR}GWAS/tped_pheno_trait_{{pheno_trait}}.log"
         shell:
             """
             plink --vcf {input.vcf} --double-id --chr-set 95 --allow-extra-chr --output-chr MT --recode12 transpose \
@@ -205,7 +205,7 @@ if GWAS_CONFIGS and PHENO_MISSING == 'DROP':
         output: f"{WORK_FILT}phenotypes/{{pheno_trait}}/emmax/{VCF_BASE}.aBN.kinf"
         wildcard_constraints: pheno_trait = PHENO_TRAIT_RE
         params: prefix = f"{WORK_FILT}phenotypes/{{pheno_trait}}/emmax/{VCF_BASE}"
-        log: f"{LOGDIR}gwas/kinship_pheno_trait_{{pheno_trait}}.log"
+        log: f"{LOGDIR}GWAS/kinship_pheno_trait_{{pheno_trait}}.log"
         shell:
             "/pipeline/scripts/emmax_run.sh /pipeline/scripts/emmax-kin-intel64 -v -d 10 -x {params.prefix} > {log} 2>&1"
 
@@ -214,7 +214,7 @@ if GWAS_CONFIGS and PHENO_MISSING == 'DROP':
     for _method in GWAS_OTHER_CONFIGS:
         _engine           = GWAS_METHODS[_method]["engine"]
         _out_path         = f"{MOD_GWAS}tables/methods/{_method}/{{pheno_trait}}_pvalues_K{K_BEST}.tsv"
-        _logpath          = f"{LOGDIR}gwas/gwas_b_{_method.lower()}_{{pheno_trait}}.log"
+        _logpath          = f"{LOGDIR}GWAS/gwas_b_{_method.lower()}_{{pheno_trait}}.log"
         _tped_pfx         = f"{WORK_FILT}phenotypes/{{pheno_trait}}/emmax/{VCF_BASE}"
         _per_trait_inputs = expand(
             f"{MOD_GWAS}tables/methods/{_method}/{{trait}}_pvalues_K{K_BEST}.tsv",
@@ -251,7 +251,7 @@ if GWAS_CONFIGS and PHENO_MISSING == 'DROP':
                 pvals = pheno_pvalues(_method),
                 qvals = pheno_qvalues(_method),
             params: files_str = lambda wc, input: ' '.join(input)
-            log: f"{LOGDIR}gwas/combine_gwas_pvalues_{_method.lower()}.log"
+            log: f"{LOGDIR}GWAS/combine_gwas_pvalues_{_method.lower()}.log"
             shell:
                 "Rscript /pipeline/scripts/combine_pheno_pvalues.R "
                 '"{params.files_str}" {output.pvals} {output.qvals} > {log} 2>&1'
@@ -278,7 +278,7 @@ if GWAS_CONFIGS and PHENO_MISSING == 'DROP':
                 workdir = lambda wc: f"{INTER}gapit/phenotype_association/{wc.pheno_trait}/",
                 tables_dir = f"{MOD_GWAS}tables/methods/",
                 native_outdir = f"{MOD_GWAS}GAPIT_native_output/"
-            log: f"{LOGDIR}gwas/gapit_pheno_trait_{{pheno_trait}}.log"
+            log: f"{LOGDIR}GWAS/gapit_pheno_trait_{{pheno_trait}}.log"
             shell:
                 """
                 Rscript /pipeline/scripts/gapit.R \
@@ -298,7 +298,7 @@ if GWAS_CONFIGS and PHENO_MISSING == 'DROP':
             wildcard_constraints:
                 method = '|'.join(GWAS_GAPIT_CONFIGS.keys())
             params: files_str = lambda wc, input: ' '.join(input)
-            log: f"{LOGDIR}gwas/combine_gwas_pvalues_{{method}}.log"
+            log: f"{LOGDIR}GWAS/combine_gwas_pvalues_{{method}}.log"
             shell:
                 """
                 Rscript /pipeline/scripts/combine_pheno_pvalues.R \
@@ -330,7 +330,7 @@ if GWAS_CONFIGS:
           inter_dir = INTER,
           regionmap_extent = REGIONMAP_EXTENT,
           pie_scale = PIEMAP_PIE_SCALE
-      log: f"{LOGDIR}gwas/piemap_pheno_{{pheno_trait}}.log"
+      log: f"{LOGDIR}GWAS/piemap_pheno_{{pheno_trait}}.log"
       shell:
           """
           Rscript /pipeline/scripts/plot_piemap.R \
@@ -361,7 +361,7 @@ if GWAS_CONFIGS:
           inter_dir = INTER,
           regionmap_extent = REGIONMAP_EXTENT,
           pie_scale = PIEMAP_PIE_SCALE
-      log: f"{LOGDIR}gwas/piemap_pheno_points.log"
+      log: f"{LOGDIR}GWAS/piemap_pheno_points.log"
       shell:
           """
           Rscript /pipeline/scripts/plot_piemap.R \

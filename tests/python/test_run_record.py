@@ -345,6 +345,18 @@ class SnakefileHooksTest(unittest.TestCase):
                              ("onerror", "error")):
             self.assertRegex(text, rf"(?m)^{hook}:\n    write_run_record\(\"{status}\", log\)$")
 
+    def test_jobs_get_the_results_tree_as_tmpdir_unless_the_environment_sets_one(self):
+        # 441eee: Snakemake's tmpdir resource (exported to every job as TMPDIR) defaults to
+        # tempfile.gettempdir(). Pointed at the results tree only when the environment names no
+        # temp dir, and made in onstart, which never runs for -n.
+        with open(os.path.join(REPO_ROOT, "Snakefile")) as handle:
+            text = handle.read()
+        self.assertRegex(text, r'(?m)^JOB_TMPDIR = f"\{INTER\}tmp"$')
+        self.assertRegex(text, r'(?m)^if not any\(os\.environ\.get\(v\) for v in \("TMPDIR", "TEMP", "TMP"\)\):\n'
+                               r'    tempfile\.tempdir = JOB_TMPDIR$')
+        self.assertRegex(text, r'(?m)^onstart:\n(    .*\n)*    if tempfile\.tempdir == JOB_TMPDIR:\n'
+                               r'        os\.makedirs\(JOB_TMPDIR, exist_ok=True\)$')
+
 
 if __name__ == "__main__":
     unittest.main()

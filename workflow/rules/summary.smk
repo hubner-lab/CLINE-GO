@@ -180,7 +180,7 @@ elif MODE == 'gea':
             ld_rule          = REGION_LD_RULE,
             ld_decay_group   = REGION_LD_DECAY_GROUP,
             ld_decay_path    = O.get('ld_decay_table', 'NULL') if REGION_DISTANCE_MODE != 'fixed' else 'NULL'
-        log: f"{LOGDIR}gea/write_summary.log"
+        log: f"{LOGDIR}GEA/write_summary.log"
         shell:
             """
             Rscript /pipeline/scripts/write_summary.R \
@@ -261,7 +261,7 @@ elif MODE == 'gwas':
             ld_rule          = PHENO_REGION_LD_RULE,
             ld_decay_group   = PHENO_REGION_LD_DECAY_GROUP,
             ld_decay_path    = O.get('ld_decay_table', 'NULL') if PHENO_REGION_DISTANCE_MODE != 'fixed' else 'NULL'
-        log: f"{LOGDIR}gwas/write_summary.log"
+        log: f"{LOGDIR}GWAS/write_summary.log"
         shell:
             """
             Rscript /pipeline/scripts/write_summary.R \

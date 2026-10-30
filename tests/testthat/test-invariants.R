@@ -123,6 +123,29 @@ test_that("check_regions_table catches a SNP that lies outside its own region", 
     expect_true("region_snp_outside_bounds" %in% v$check)
 })
 
+test_that("check_regions_table lets one SNP sit in a region of every trait it is called for", {
+    # A per-trait table holds a region per (trait, cluster): 1:120 called for three traits
+    # gives three regions over a one-SNP table, which is valid (da17e7).
+    r <- data.table::rbindlist(lapply(c("a", "b", "c"), function(t)
+        dt(region_id = paste0("1_100-200_", t), trait = t, chr = "1", start = 100L, end = 200L,
+           length = 100L, snp_count = 1L, snp_ids = "1:120")))
+    expect_no_violations(check_regions_table(r, dt(SNPID = "1:120", chr = "1", pos = 120L)))
+})
+
+test_that("check_regions_table catches more regions than SNPs within one group", {
+    # Two regions, one SNP in the table; region 2 lists no SNP, so nothing else fires.
+    snps <- dt(SNPID = "1:120", chr = "1", pos = 120L)
+    r <- dt(region_id = c("1_100-200", "2_100-200"), chr = c("1", "2"),
+            start = c(100L, 100L), end = c(200L, 200L), snp_ids = c("1:120", NA))
+    v <- check_regions_table(r, snps)
+    expect_equal(v$check, "more_regions_than_snps")
+    expect_equal(v$key, "regions")
+    # The same two regions under one trait of a per-trait table: keyed by that trait.
+    v <- check_regions_table(data.table::copy(r)[, trait := "a"], snps)
+    expect_equal(v$check, "more_regions_than_snps")
+    expect_equal(v$key, "a")
+})
+
 test_that("check_regions_table reports a missing required column instead of erroring", {
     v <- check_regions_table(dt(region_id = "r1", chr = "1"))
     expect_equal(v$check, "regions_schema")

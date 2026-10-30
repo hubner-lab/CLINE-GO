@@ -205,6 +205,22 @@ class TestEmmaxReadsImputedGenotypes(unittest.TestCase):
                 with self.subTest(config=label, rule=name, key=key):
                     self.assertNotIn(path, raw)
 
+    def test_every_tped_rule_keeps_full_sample_ids_and_letter_contigs(self):
+        """--double-id keeps an underscore-bearing sample name whole as FID and IID (plink
+        splits WBDC_001 and refuses PG_B_001 without it, d8f924), and --output-chr MT keeps
+        X/Y/MT as letters. A run on SIMDATA renamed PG_B_<name> with contig X gave the
+        reference's GWAS tables exactly (2026-10-30, afb3cb, 0bf1fb); these flags are what
+        made it so, and no SIMDATA run would notice one going missing."""
+        rules = self.graphs["MEAN"]
+        tped = [r for r in rules if "--recode12" in r["shell"]]
+        self.assertEqual({r["name"] for r in tped},
+                         {"tped_gea", "tped_gea_climate", "tped_gwas", "tped_gwas_trait",
+                          "pregea_tped_pruned"})
+        for rule in tped:
+            with self.subTest(rule=rule["name"]):
+                self.assertIn("--double-id", rule["shell"])
+                self.assertIn("--output-chr MT", rule["shell"])
+
 
 class TestGeaLessGwasHasTheImputedMatrix(unittest.TestCase):
     """GWAS EMMAX now needs the full-matrix imputation chain even when no GEA

@@ -78,9 +78,14 @@ test_that("prepare_config_for_yaml preserves a character vector of predictors", 
 
 test_that("config_file_path names config_{project}.yaml under the pipeline root", {
     # Resolves through get_pipeline_path(), which helper-pipeline-path.R redirects,
-    # so pin the root here to assert the naming convention itself.
-    withr::local_options(clinego.pipeline_path = "/pipeline")
-    expect_identical(config_file_path("SIMDATA"), "/pipeline/config_SIMDATA.yaml")
+    # so pin the root here. A temp root holding its own config_SIMDATA.yaml, not
+    # /pipeline: that file is gitignored, so a fresh clone has none and the
+    # function falls back to config.yaml (0e11b9).
+    root <- withr::local_tempdir()
+    file.create(file.path(root, "config_SIMDATA.yaml"))
+    withr::local_options(clinego.pipeline_path = root)
+    expect_identical(config_file_path("SIMDATA"), file.path(root, "config_SIMDATA.yaml"))
+    expect_identical(config_file_path("OTHER"), file.path(root, "config.yaml"))
 })
 
 test_that("a prepared config round-trips through yaml", {

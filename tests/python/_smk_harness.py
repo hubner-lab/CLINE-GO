@@ -37,11 +37,10 @@ may need it; and the fixture wants to be perturbable field by field, a dict lite
 making the perturbation the readable part of each test.  The
 values mirror ``test_data/config_testdata.yaml`` (including its deliberately
 float-spelled ``k_end: 7.0`` / ``ntree: 1000.0``, which exist to exercise the
-integer casting at :89) with ONE deviation: ``GEA.snp_clumping_distance``
-replaces the shipped file's ``region_distance``/``combine_gap`` pair, which
-common.smk:276-287 accepts but answers with a DeprecationWarning per load. The
-quick gate's warning baseline is zero, and the fixture should not be the thing
-that breaks it.
+integer casting at :89). Until 2026-10-30 the shipped file spelled the clumping
+distance with the deprecated ``region_distance``/``combine_gap`` pair, which
+common.smk answers with a DeprecationWarning per load; it now states the
+effective ``GEA.snp_clumping_distance: 1000000`` as this fixture does (73151f).
 """
 import ast
 import contextlib

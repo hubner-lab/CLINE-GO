@@ -422,8 +422,8 @@ LD_DECAY_TAG = f"plink_grp{LD_DECAY_GROUP_BY}_min{LD_DECAY_MIN_SAMPLES}_dist{LD_
 # GFF parameters
 GFF = _cfg('Input', 'gff', '')
 GFF_FEATURE = _cfg('GFF', 'feature', 'mRNA')
-GFF_GENE_NAME = _cfg('GFF', 'gene_name', 'description')
-GFF_BIOTYPE = _cfg('GFF', 'biotype', 'biotype')
+# GFF.gene_name and GFF.biotype are read by no rule: only the app's region plot passes them
+# to gff2topr.py, for its gene track (fct_regions.R .ensure_gff_topr()).
 
 # ASSOCIATION parameters
 _assoc = config.get('GEA', {})
@@ -2321,7 +2321,6 @@ _gea_wza = _parse_wza_config(_assoc)
 if K_BEST is not None and GEA_CONFIGS:
     ASSOC_SOURCES["GEA"] = {
         "mod":             MOD_GEA,
-        "logdir":          f"{LOGDIR}GEA/",
         "configs":         GEA_CONFIGS,
         "method_regex":    GEA_METHOD_REGEX,
         "trait_regex":     r"bio_\d+",
@@ -2346,7 +2345,6 @@ _gwas_wza = _parse_wza_config(_pheno, defaults=_assoc)
 if K_BEST is not None and GWAS_CONFIGS:
     ASSOC_SOURCES["GWAS"] = {
         "mod":             MOD_GWAS,
-        "logdir":          f"{LOGDIR}GWAS/",
         "configs":         GWAS_CONFIGS,
         "method_regex":    GWAS_METHOD_REGEX,
         "trait_regex":     PHENO_TRAIT_RE,
@@ -2765,7 +2763,7 @@ dirs_to_create = [
     f"{MOD_TRAITS}plots/", f"{MOD_TRAITS}tables/", f"{LOGDIR}traits/",
     # Log subdirectories
     f"{LOGDIR}processing/", f"{LOGDIR}prestructure/", f"{LOGDIR}structure/",
-    f"{LOGDIR}gea/", f"{LOGDIR}GEA/", f"{LOGDIR}maladaptation/",
+    f"{LOGDIR}GEA/", f"{LOGDIR}maladaptation/",
 ]
 
 # preGEA directories (LD-pruned hyperparameter-exploration mode)
@@ -2824,7 +2822,6 @@ if GWAS_CONFIGS:
     dirs_to_create.append(f"{MOD_GWAS}plots/piemap/")
     dirs_to_create.append(f"{MOD_GWAS}plots/manhattan/combined/")
     dirs_to_create.append(f"{INTER}enrichment_gwas/")
-    dirs_to_create.append(f"{LOGDIR}gwas/")
     dirs_to_create.append(f"{LOGDIR}GWAS/")
     for method in GWAS_CONFIGS:
         dirs_to_create.append(f"{MOD_GWAS}plots/manhattan/{method}/")
@@ -2853,7 +2850,6 @@ if GEA_CONFIGS and GWAS_CONFIGS:
     dirs_to_create.append(f"{MOD_GEAXGWAS}plots/enrichment/")
     dirs_to_create.append(f"{INTER}enrichment_gea_x_gwas/")
     dirs_to_create.append(f"{LOGDIR}gea_x_gwas/")
-    dirs_to_create.append(f"{LOGDIR}GEAxGWAS/")
 
 # Add LD decay directories
 if K_BEST is not None:
@@ -3384,8 +3380,9 @@ def get_targets(mode):
                     if _mflags['supports_random_model'] and GF_RANDOM_MODEL:
                         targets.append(mala_model(method, set_name, spatial_tag, 'random'))
                     # Imputation-sensitivity check (GF only — the other engines cannot take
-                    # a frequency response: LEA::genetic.gap requires individual genotypes
-                    # with mandatory imputation, Gain et al. 2023 MBE 40(6):msad140).
+                    # a frequency response: LEA::genetic.gap fits individual genotypes, "in the
+                    # 'lfmm' format without missing values (9 or 'NA'). See 'impute'" — its
+                    # help page, LEA 3.22.0).
                     # Runs automatically; the badge it feeds is the whole point, so it is
                     # NOT gated on MALA_EMIT_PLOTS (it is a table, not a plot).
                     if _mflags['builds_model'] and GF_SENSITIVITY_CHECK:

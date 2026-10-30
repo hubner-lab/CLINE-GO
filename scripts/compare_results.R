@@ -303,6 +303,7 @@ read_expect <- function(path) {
     if (!length(lines)) return(empty)
     hdr <- split_fields(lines[[1L]], "\t")[[1L]]
     if (!all(c("path", "kind") %in% hdr)) stop("--expect header must name path and kind: ", path)
+    if (length(lines) == 1L) return(empty)   # a header alone: no difference expected
     rows <- split_fields(lines[-1L], "\t")
     if (any(lengths(rows) > length(hdr))) stop("--expect row with more fields than its header: ", path)
     rows <- lapply(rows, function(r) c(r, rep("", length(hdr) - length(r))))

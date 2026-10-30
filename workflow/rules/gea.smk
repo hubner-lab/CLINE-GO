@@ -18,7 +18,7 @@ rule vcf_to_lfmm_full:
         vcfsnp = W['vcfsnp_full'],
         removed = W['removed_full'],
         nmissing = W['lfmm_full_nmissing']
-    log: f"{LOGDIR}gea/vcf_to_lfmm_full.log"
+    log: f"{LOGDIR}GEA/vcf_to_lfmm_full.log"
     shell: "Rscript /pipeline/scripts/vcf2lfmm.R {input.vcf} > {log} 2>&1"
 
 rule snmf_full:
@@ -26,7 +26,7 @@ rule snmf_full:
     input:  geno = W['geno_full']
     output: W['snmf_full']
     params: ks = K_BEST, ke = K_BEST, ploidy = PLOIDY, rep = REPEAT, mode = SNMF_PROJECT_MODE
-    log:    f"{LOGDIR}gea/snmf_full.log"
+    log:    f"{LOGDIR}GEA/snmf_full.log"
     threads: CPU
     shell:
         """
@@ -40,7 +40,7 @@ rule impute_full:
     input:  snmf = W['snmf_full'], lfmm = W['lfmm_full'], nmissing = W['lfmm_full_nmissing']
     output: W['lfmm_imp_full_raw']
     params: k = K_BEST
-    log:    f"{LOGDIR}gea/impute_full.log"
+    log:    f"{LOGDIR}GEA/impute_full.log"
     shell:
         """
         Rscript /pipeline/scripts/impute.R {input.snmf} {input.lfmm} {params.k} {output} {input.nmissing} > {log} 2>&1
@@ -51,7 +51,7 @@ rule lfmm2vcf_full:
     input:  vcf = W['vcf_filt'], lfmm_imp = W['lfmm_imp_full_raw']
     output: W['vcf_imp_full_raw']
     params: blocksize = 20000
-    log:    f"{LOGDIR}gea/lfmm2vcf_full.log"
+    log:    f"{LOGDIR}GEA/lfmm2vcf_full.log"
     shell:
         """
         Rscript /pipeline/scripts/lfmm2vcf.R {input.lfmm_imp} {input.vcf} {params.blocksize} {output} > {log} 2>&1
@@ -65,7 +65,7 @@ rule filter_imputed_maf_full:
     output: lfmm = W['lfmm_imp_full'], vcfsnp = W['vcfsnp_imp_full'], vcf = W['vcf_imp_full'],
             report = W['imputed_maf_report_full']
     params: threshold = IMPUTED_MAF
-    log:    f"{LOGDIR}gea/filter_imputed_maf_full.log"
+    log:    f"{LOGDIR}GEA/filter_imputed_maf_full.log"
     shell:
         """
         Rscript /pipeline/scripts/filter_imputed_maf.R {input.lfmm_imp} {input.vcfsnp} {input.vcf} \
@@ -79,7 +79,7 @@ rule tped_gea:
     input: vcf = W['vcf_imp_full']
     output: tped = W['assoc_tped'], tfam = W['assoc_tfam']
     params: prefix = f"{WORK_FILT}emmax/{VCF_BASE}"
-    log: f"{LOGDIR}gea/tped_assoc.log"
+    log: f"{LOGDIR}GEA/tped_assoc.log"
     shell:
         """
         plink --vcf {input.vcf} --double-id --chr-set 95 --allow-extra-chr --output-chr MT --recode12 transpose \
@@ -91,7 +91,7 @@ rule kinship_gea:
     input: tped = W['assoc_tped']
     output: W['assoc_kinship']
     params: prefix = f"{WORK_FILT}emmax/{VCF_BASE}"
-    log: f"{LOGDIR}gea/kinship_assoc.log"
+    log: f"{LOGDIR}GEA/kinship_assoc.log"
     shell:
         "/pipeline/scripts/emmax_run.sh /pipeline/scripts/emmax-kin-intel64 -v -d 10 -x {params.prefix} > {log} 2>&1"
 
@@ -112,7 +112,7 @@ if "EMMAX" in GEA_OTHER_CONFIGS:
             samples = W['climate_valid_samples']
         output: W['vcf_imp_full_climate']
         params: prefix = f"{WORK_FILT}climate/{VCF_BASE}_K{K_BEST}imp"
-        log: f"{LOGDIR}gea/subset_vcf_gea_climate.log"
+        log: f"{LOGDIR}GEA/subset_vcf_gea_climate.log"
         shell:
             """
             plink --vcf {input.vcf} --keep {input.samples} --const-fid 0 --chr-set 95 --allow-extra-chr --output-chr MT \
@@ -125,7 +125,7 @@ if "EMMAX" in GEA_OTHER_CONFIGS:
         input: vcf = W['vcf_imp_full_climate']
         output: tped = W['assoc_tped_climate'], tfam = W['assoc_tfam_climate']
         params: prefix = f"{WORK_FILT}climate/emmax/{VCF_BASE}"
-        log: f"{LOGDIR}gea/tped_gea_climate.log"
+        log: f"{LOGDIR}GEA/tped_gea_climate.log"
         shell:
             """
             plink --vcf {input.vcf} --double-id --chr-set 95 --allow-extra-chr --output-chr MT --recode12 transpose \
@@ -138,7 +138,7 @@ if "EMMAX" in GEA_OTHER_CONFIGS:
         input: tped = W['assoc_tped_climate']
         output: W['assoc_kinship_climate']
         params: prefix = f"{WORK_FILT}climate/emmax/{VCF_BASE}"
-        log: f"{LOGDIR}gea/kinship_gea_climate.log"
+        log: f"{LOGDIR}GEA/kinship_gea_climate.log"
         shell:
             "/pipeline/scripts/emmax_run.sh /pipeline/scripts/emmax-kin-intel64 -v -d 10 -x {params.prefix} > {log} 2>&1"
 
@@ -154,7 +154,7 @@ if "EMMAX" in GEA_OTHER_CONFIGS:
             input: tped = W['assoc_tped_climate']
             output: W['assoc_kinship_climate_ibs']
             params: prefix = f"{WORK_FILT}climate/emmax/{VCF_BASE}"
-            log: f"{LOGDIR}gea/kinship_gea_climate_ibs.log"
+            log: f"{LOGDIR}GEA/kinship_gea_climate_ibs.log"
             shell:
                 "/pipeline/scripts/emmax_run.sh /pipeline/scripts/emmax-kin-intel64 -v -s -d 10 -x {params.prefix} > {log} 2>&1"
 
@@ -196,7 +196,7 @@ if "EMMAX" in GEA_OTHER_CONFIGS:
             k           = GEA_PARAMS.get("EMMAX", {}).get("n_pcs", K_BEST),
             inter_dir   = INTER,
             tped_prefix = f"{WORK_FILT}climate/emmax/{VCF_BASE}",
-        log: f"{LOGDIR}gea/assoc_emmax_{{trait}}.log"
+        log: f"{LOGDIR}GEA/assoc_emmax_{{trait}}.log"
         shell:
             """
             Rscript /pipeline/scripts/emmax.R \
@@ -211,7 +211,7 @@ if "EMMAX" in GEA_OTHER_CONFIGS:
         output: assoc_pvalues("EMMAX")
         params:
             traits_str = lambda wc, input: " ".join(input)
-        log: f"{LOGDIR}gea/assoc_emmax_assemble.log"
+        log: f"{LOGDIR}GEA/assoc_emmax_assemble.log"
         shell:
             "Rscript /pipeline/scripts/assemble_pvalues.R {params.traits_str} {output} > {log} 2>&1"
 
@@ -239,7 +239,7 @@ if "LFMM" in GEA_OTHER_CONFIGS:
             # by pregea_recommend.R, yet silently discarded at the rule.
             k = GEA_PARAMS.get('LFMM', {}).get('K', K_BEST),
             gc = "TRUE" if GEA_PARAMS.get('LFMM', {}).get('genomic_control', True) else "FALSE",
-        log: f"{LOGDIR}gea/assoc_lfmm_{{trait}}.log"
+        log: f"{LOGDIR}GEA/assoc_lfmm_{{trait}}.log"
         shell:
             """
             Rscript /pipeline/scripts/lfmm.R \
@@ -254,7 +254,7 @@ if "LFMM" in GEA_OTHER_CONFIGS:
         output: assoc_pvalues("LFMM")
         params:
             traits_str = lambda wc, input: " ".join(input)
-        log: f"{LOGDIR}gea/assoc_lfmm_assemble.log"
+        log: f"{LOGDIR}GEA/assoc_lfmm_assemble.log"
         shell:
             "Rscript /pipeline/scripts/assemble_pvalues.R {params.traits_str} {output} > {log} 2>&1"
 
@@ -312,7 +312,7 @@ if "RDA" in GEA_OTHER_CONFIGS:
             cand_adjust    = GEA_CONFIGS["RDA"].split("_", 1)[0],
             cand_threshold = GEA_CONFIGS["RDA"].split("_", 1)[1],
         threads: CPU
-        log: f"{LOGDIR}gea/assoc_rda.log"
+        log: f"{LOGDIR}GEA/assoc_rda.log"
         shell:
             """
             Rscript /pipeline/scripts/rda.R \
@@ -335,7 +335,7 @@ if GEA_GAPIT_CONFIGS or GWAS_GAPIT_CONFIGS:
         output:
             gd = W['gapit_gd'],
             gm = W['gapit_gm']
-        log: f"{LOGDIR}gea/vcf_to_numeric.log"
+        log: f"{LOGDIR}GEA/vcf_to_numeric.log"
         shell:
             "Rscript /pipeline/scripts/vcf_to_gapit_numeric.R {input.vcf} {output.gd} {output.gm} > {log} 2>&1"
 
@@ -373,7 +373,7 @@ if GEA_GAPIT_CONFIGS:
             workdir       = lambda wc: f"{INTER}gapit/gea/{wc.trait}/",
             tables_dir    = f"{INTER}gea_per_trait/",
             native_outdir = f"{MOD_GEA}GAPIT_native_output/",
-        log: f"{LOGDIR}gea/gapit_gea_{{trait}}.log"
+        log: f"{LOGDIR}GEA/gapit_gea_{{trait}}.log"
         shell:
             """
             Rscript /pipeline/scripts/gapit.R \
@@ -391,6 +391,6 @@ if GEA_GAPIT_CONFIGS:
             input:  _gapit_trait_files
             output: assoc_pvalues(_gapit_model)
             params: traits_str = lambda wc, input: " ".join(input)
-            log:    f"{LOGDIR}gea/assoc_{_gapit_model.lower()}_assemble.log"
+            log:    f"{LOGDIR}GEA/assoc_{_gapit_model.lower()}_assemble.log"
             shell:
                 "Rscript /pipeline/scripts/assemble_pvalues.R {params.traits_str} {output} > {log} 2>&1"

@@ -155,9 +155,18 @@ check_regions_table <- function(regions, snps = NULL, table_name = "regions") {
         out$missing_snp <- violation("region_names_unknown_snp", "error", table_name, miss_key, miss_det)
         out$oob_snp     <- violation("region_snp_outside_bounds", "error", table_name, oob_key, oob_det)
 
-        if (nrow(r) > length(known)) {
-            out$more_regions <- violation("more_regions_than_snps", "error", table_name, table_name,
-                                          paste0(nrow(r), " regions but only ", length(known), " SNPs"))
+        # Within one group (a trait of a per-trait table, or a whole combined table) regions
+        # do not overlap and each holds a SNP, so a group cannot have more regions than there
+        # are SNPs. Across traits it can: a SNP significant for k traits sits in k per-trait
+        # regions (da17e7).
+        over <- r[, .N, by = ".grp"][N > length(known)]
+        if (nrow(over) > 0) {
+            out$more_regions <- violation(
+                "more_regions_than_snps", "error", table_name,
+                if (is.null(grp_col)) table_name else over$.grp,
+                paste0(over$N, " regions",
+                       if (!is.null(grp_col)) paste0(" for ", grp_col, " ", over$.grp) else "",
+                       " but only ", length(known), " SNPs"))
         }
     }
 

@@ -4,7 +4,7 @@
 #' for each tab. When the user clicks Run:
 #'   1. Working config is written to YAML (via fct_config_writer.R)
 #'   2. Snakemake is launched as a background processx process
-#'   3. Progress is polled from .progress.jsonl every second
+#'   3. Progress is polled from {project}_logs/.run.log every second
 #'   4. Rule list is shown as rules start/finish (expandable toggle)
 #'   5. On success: bar turns solid green at 100%; config_state$saved updated
 #'   6. On failure: bar turns solid red; failed rules highlighted in list

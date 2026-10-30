@@ -5,7 +5,10 @@
 set.seed(42)
 
 args <- commandArgs(trailingOnly = TRUE)
-OUTDIR <- if (length(args) > 0) args[1] else "data/"
+# No default: the old relative "data/" regenerated the working SIMDATA fixtures in place when
+# run from the repo root, dropping their injected relatedness and preGEA samples (b9be33).
+if (length(args) != 1) stop("usage: Rscript generate_simdata.R <output_dir>")
+OUTDIR <- args[1]
 
 message("INFO: Generating SIMDATA synthetic dataset")
 message(paste0("INFO: Output directory: ", OUTDIR))

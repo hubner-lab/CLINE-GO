@@ -17,7 +17,9 @@
 #   manhattan_combined              manhattan_combined_pheno
 #
 # log: uses static wildcard paths (f"{LOGDIR}{{source}}/...") rather than
-# lambdas — Snakemake 9 does not support lambda in log: directives.
+# lambdas — Snakemake 9 does not support lambda in log: directives. So these
+# logs land in {PROJECT}_logs/GEA/ and GWAS/, and the modules' own rules
+# (gea.smk, gwas.smk, summary.smk) log there too: one folder per module (973468).
 
 if ASSOC_SOURCES:
 
