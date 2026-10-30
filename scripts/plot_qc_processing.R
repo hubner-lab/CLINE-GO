@@ -28,6 +28,12 @@
 #   23 pihat_thresh       - Filter.relatedness IBS threshold or 'NULL' (colors/counts only; removal is a separate Filter.relatedness_action gate)
 #   24 relatedness_removed - relatedness_removed.tsv (preview of samples that WOULD be dropped, IID/IBS/F_MISS) or 'NULL' when no threshold is set
 #   25 relatedness_action  - Filter.relatedness_action ('keep' or 'remove') -- whether the preview above was actually applied
+#   26 metadata_raw        - Input.metadata (every sample, with its site), for the per-site table and het sites
+#   27 samples_filtered    - samples_filtered.list (FID IID): the samples the missingness filter kept
+#   28 samples_het         - samples_het_filtered.list, or 'NULL' when Filter.het_outlier_sd is unset
+#   29 samples_rel         - samples_rel_filtered.list, or 'NULL' unless the relatedness filter removes samples
+#   30 filter_steps        - filter_vcf_steps.log (plink's report of filter_vcf's --geno and --maf steps)
+# Args 26-30 come after the original 25 so those keep their positions.
 
 suppressPackageStartupMessages({
     library(data.table)
@@ -37,8 +43,11 @@ suppressPackageStartupMessages({
 
 source("/pipeline/scripts/R/utils/theme_clinego.R")
 source("/pipeline/scripts/R/lib/gff_parsing.R")   # normalize_chr()
+source("/pipeline/scripts/R/lib/qc_processing.R")
 
 args <- commandArgs(trailingOnly = TRUE)
+if (length(args) != 30L)
+    stop("plot_qc_processing.R takes 30 arguments, got ", length(args))
 
 RAW_SUMMARY       <- args[1]
 SAMPLE_MISS_FILE  <- args[2]
@@ -65,6 +74,11 @@ RELATEDNESS_PAIRS  <- args[22]
 PI_HAT_THRESH      <- if (args[23] == 'NULL') NULL else as.numeric(args[23])
 RELATEDNESS_REMOVED_FILE <- if (args[24] == 'NULL') NULL else args[24]
 RELATEDNESS_ACTION       <- tolower(args[25])
+METADATA_RAW_FILE  <- args[26]
+SAMPLES_FILT_FILE  <- args[27]
+SAMPLES_HET_FILE   <- if (args[28] == 'NULL') NULL else args[28]
+SAMPLES_REL_FILE   <- if (args[29] == 'NULL') NULL else args[29]
+FILTER_STEPS_LOG   <- args[30]
 
 #=============================================================================
 # HELPERS
@@ -162,8 +176,6 @@ save_plot(p_lmiss, "snp_missingness_distribution.png")
 maf_raw  <- fread(MAF_RAW_FILE)
 maf_filt <- fread(MAF_FILT_FILE)  # kept for attrition computation below
 
-n_below_maf <- nrow(maf_raw[MAF < MAF_THRESH])
-
 p_maf <- ggplot(maf_raw, aes(x = MAF)) +
     geom_histogram(
         aes(fill = MAF < MAF_THRESH),
@@ -186,31 +198,69 @@ save_plot(p_maf, "maf_distribution.png")
 #=============================================================================
 # 5. HET VS MISSINGNESS SCATTER
 #=============================================================================
-het  <- fread(HET_FILT_FILE, colClasses = list(character = "IID"))
-meta <- fread(METADATA_FILE, colClasses = list(character = "sample"))
+meta     <- fread(METADATA_FILE, colClasses = list(character = "sample"))
+meta_raw <- fread(METADATA_RAW_FILE, colClasses = c(site = "character", sample = "character"))
+passed_missingness <- read_sample_list(SAMPLES_FILT_FILE)
 
-# Compute observed heterozygosity
-het[, obs_het := (N_NM - O_HOM) / N_NM]
-het[, sample := IID]
-
-# Merge with metadata to get site (kept for the table only \u2014 NOT used to color
-# the plot: population studies typically have far more sampling sites than a
-# legend can usefully show).
-merged <- merge(het, meta[, .(sample, site)], by = "sample", all.x = TRUE)
-merged[is.na(site), site := "unknown"]
-
-# Also merge missingness
 smiss2 <- copy(smiss)
 smiss2[, sample := IID]
-merged <- merge(merged, smiss2[, .(sample, F_MISS)], by = "sample", all.x = TRUE)
 
-# Compute outlier bounds
-het_mean <- mean(merged$obs_het, na.rm = TRUE)
-het_sd   <- sd(merged$obs_het, na.rm = TRUE)
-sd_thresh <- if (!is.null(HET_OUTLIER_SD)) HET_OUTLIER_SD else 3
-het_lo <- het_mean - sd_thresh * het_sd
-het_hi <- het_mean + sd_thresh * het_sd
-merged[, outlier := obs_het < het_lo | obs_het > het_hi]
+if (!is.null(HET_OUTLIER_SD)) {
+    # The het filter ran: draw what it read and what it did (7ccf66). het_raw.het is the
+    # het_outlier_filter rule's own input (raw VCF, the samples that passed the missingness
+    # filter), the bounds are that rule's mean +/- k population SD, and a sample is flagged
+    # when the rule dropped it. Recomputed on the final cohort's het_filtered.het with the
+    # sample SD, as the preview below is, they counted and flagged other samples than the
+    # filter removed.
+    passed_het <- read_sample_list(SAMPLES_HET_FILE)
+    het <- fread(HET_RAW_FILE, colClasses = list(character = "IID"))
+    if (!setequal(het$IID, passed_missingness))
+        stop("het_raw.het does not hold exactly the samples that passed the missingness filter")
+    het[, obs_het := (N_NM - O_HOM) / N_NM]
+    het[, sample := IID]
+    merged <- merge(het, meta_raw[, .(sample, site)], by = "sample", all.x = TRUE)
+    merged[is.na(site), site := "unknown"]
+    merged <- merge(merged, smiss2[, .(sample, F_MISS)], by = "sample", all.x = TRUE)
+
+    bounds <- het_outlier_bounds(merged$obs_het, HET_OUTLIER_SD)
+    het_lo <- bounds[["lo"]]
+    het_hi <- bounds[["hi"]]
+    merged[, outlier := !sample %in% passed_het]
+    # The lines are recomputed here, the flags are the filter's: they must agree, except for
+    # a sample within rounding of a bound (awk and R sum in different orders).
+    eps <- 1e-9 * max(1, abs(het_lo), abs(het_hi))
+    off <- merged[(outlier & obs_het > het_lo + eps & obs_het < het_hi - eps) |
+                  (!outlier & (obs_het < het_lo - eps | obs_het > het_hi + eps)), sample]
+    if (length(off) > 0L)
+        stop("het_outlier_filter's removals disagree with its own bounds for: ",
+             paste(off, collapse = ", "))
+} else {
+    # No het filter: a preview on the final cohort (het_filtered.het, filtered VCF) at
+    # +/- 3 sample SDs. It does not show what Filter.het_outlier_sd: 3 would remove (that
+    # filter reads het_raw.het with the population SD); kept as it was, so a run without the
+    # filter (SIMDATA, the d150 paper tree) keeps its table.
+    het <- fread(HET_FILT_FILE, colClasses = list(character = "IID"))
+
+    # Compute observed heterozygosity
+    het[, obs_het := (N_NM - O_HOM) / N_NM]
+    het[, sample := IID]
+
+    # Merge with metadata to get site (kept for the table only \u2014 NOT used to color
+    # the plot: population studies typically have far more sampling sites than a
+    # legend can usefully show).
+    merged <- merge(het, meta[, .(sample, site)], by = "sample", all.x = TRUE)
+    merged[is.na(site), site := "unknown"]
+
+    # Also merge missingness
+    merged <- merge(merged, smiss2[, .(sample, F_MISS)], by = "sample", all.x = TRUE)
+
+    # Compute outlier bounds
+    het_mean <- mean(merged$obs_het, na.rm = TRUE)
+    het_sd   <- sd(merged$obs_het, na.rm = TRUE)
+    het_lo <- het_mean - 3 * het_sd
+    het_hi <- het_mean + 3 * het_sd
+    merged[, outlier := obs_het < het_lo | obs_het > het_hi]
+}
 
 # Build plot \u2014 no site coloring (see comment above); outliers marked red.
 p_het <- ggplot(merged, aes(x = F_MISS, y = obs_het)) +
@@ -317,65 +367,52 @@ n_ld_snps   <- count_vcf_snps(VCF_LD)
 # (audit 2026-09-13 B41); before that assertion a silently truncated keep-list made this
 # table report 100 % retention at the first step.
 n_raw_samples_in_meta <- nrow(smiss)
-n_after_sample_filter <- nrow(smiss[F_MISS <= SAMPLE_MISS_THRESH])
-n_after_het_filter    <- if (!is.null(HET_OUTLIER_SD)) sum(!merged$outlier, na.rm = TRUE) else n_after_sample_filter
-n_final_samples       <- nrow(meta)  # post all filtering (from aligned metadata)
 
 # Relatedness removal count (read once here, reused by the Section 10 MDS plot below)
-relatedness_removed_applied <- RELATEDNESS_ACTION == "remove" &&
-    !is.null(RELATEDNESS_REMOVED_FILE) && file.exists(RELATEDNESS_REMOVED_FILE)
 removed_ids <- character(0)
 if (!is.null(RELATEDNESS_REMOVED_FILE) && file.exists(RELATEDNESS_REMOVED_FILE)) {
     removed_tbl <- fread(RELATEDNESS_REMOVED_FILE)
     if (nrow(removed_tbl) > 0) removed_ids <- removed_tbl$IID
 }
 
-# SNP attrition: separate MAF and SNP missingness stages
-# n_below_maf is already computed above from maf_raw
-n_after_maf <- n_raw_snps - n_below_maf
+# Every row is a step the pipeline ran (7ccf66, 7e11b6): a sample row counts the list its
+# filter wrote, and the SNP rows are plink's own report of filter_vcf's call, which
+# filter_vcf_steps replays. plink applies --geno before --maf, both to the final samples. The
+# MAF row used to be the raw SNP count minus the pre-filter MAF histogram's below-threshold
+# count, a step plink never takes, and the het row a recount on the final cohort.
+sample_steps <- list("After sample missingness filter" = length(passed_missingness))
+final_ids <- passed_missingness
+if (!is.null(HET_OUTLIER_SD)) {
+    sample_steps[["After het outlier removal"]] <- length(passed_het)
+    final_ids <- passed_het
+}
+if (!is.null(SAMPLES_REL_FILE)) {
+    passed_rel <- read_sample_list(SAMPLES_REL_FILE)
+    sample_steps[["After relatedness filter"]] <- length(passed_rel)
+    final_ids <- passed_rel
+}
+if (!setequal(final_ids, meta$sample))
+    stop("the last sample filter's list and metadata.tsv (filter_vcf's samples) hold different samples")
 
-attrition <- data.table(
-    stage = c(
-        "Raw VCF",
-        "After sample missingness filter",
-        if (!is.null(HET_OUTLIER_SD)) "After het outlier removal" else NULL,
-        if (relatedness_removed_applied) "After relatedness filter" else NULL,
-        "After MAF filter",
-        "After MAF + SNP missingness filter",
-        "After LD pruning"
-    ),
-    n_samples = c(
-        n_raw_samples_in_meta,
-        n_after_sample_filter,
-        if (!is.null(HET_OUTLIER_SD)) n_after_het_filter else NULL,
-        if (relatedness_removed_applied) n_final_samples else NULL,
-        # filter_vcf applies --keep and --maf/--geno in a single plink call, so
-        # sample selection is already final by this point regardless of which
-        # optional stages above ran — always n_final_samples, never a stale
-        # pre-relatedness/pre-het count (that produced a nonsensical up-jump).
-        n_final_samples,
-        n_final_samples,
-        n_final_samples
-    ),
-    n_snps = c(
-        n_raw_snps,
-        n_raw_snps,
-        if (!is.null(HET_OUTLIER_SD)) n_raw_snps else NULL,
-        if (relatedness_removed_applied) n_raw_snps else NULL,
-        n_after_maf,
-        n_filt_snps,
-        n_ld_snps
-    )
-)
-attrition[, pct_samples := round(100 * n_samples / n_raw_samples_in_meta, 1)]
-attrition[, pct_snps    := round(100 * n_snps / n_raw_snps, 1)]
-attrition[, stage := factor(stage, levels = stage)]
+plink_steps <- parse_plink_filter_log(readLines(FILTER_STEPS_LOG), SNP_MISS_THRESH)
+if (plink_steps$n_pass != n_filt_snps || plink_steps$n_samples_pass != length(final_ids))
+    stop(sprintf(paste0("filter_vcf_steps (%s variants, %s samples) does not reproduce filter_vcf ",
+                        "(%s variants, %s samples)"),
+                 plink_steps$n_pass, plink_steps$n_samples_pass, n_filt_snps, length(final_ids)))
+if (!is.na(n_raw_snps) && plink_steps$n_loaded != n_raw_snps)
+    message("WARNING: plink loaded ", plink_steps$n_loaded, " variants where bcftools counts ",
+            n_raw_snps, " SNPs: the VCF holds other records (indels, MNPs), which plink filters ",
+            "like SNPs, so the SNP filter rows start from plink's count, not the Raw VCF row's.")
+
+attrition <- filtering_attrition(n_raw_samples_in_meta, n_raw_snps, sample_steps,
+                                 plink_steps, n_ld_snps)
 
 fwrite(attrition, file.path(TABLES_DIR, "filtering_summary.tsv"), sep = "\t", quote = FALSE)
 message("INFO: Saved filtering_summary.tsv")
 
 # SNP-only waterfall plot — exclude sample-only stages (sample miss + het outlier)
-snp_stages <- c("Raw VCF", "After MAF filter", "After MAF + SNP missingness filter", "After LD pruning")
+snp_stages <- c("Raw VCF", "After SNP missingness filter", "After MAF + SNP missingness filter",
+                "After LD pruning")
 attrition_snps <- attrition[stage %in% snp_stages]
 attrition_snps[, stage := factor(stage, levels = snp_stages)]
 
@@ -397,15 +434,19 @@ save_plot(p_attrition, "filtering_attrition.png", width = 8, height = 5)
 #=============================================================================
 # 8. DEPTH DISTRIBUTIONS (conditional)
 #=============================================================================
+depth_usable <- FALSE
 if (HAS_DP && DEPTH_SAMPLE_FILE != 'NULL' && file.exists(DEPTH_SAMPLE_FILE)) {
     depth_s <- fread(DEPTH_SAMPLE_FILE)  # columns: INDV, N_SITES, MEAN_DEPTH
     depth_l <- fread(DEPTH_SITE_FILE)    # columns: CHROM, POS, MEAN_DEPTH
 
-    # GBS VCFs often declare FORMAT/DP in the header but leave per-genotype DP empty ('.'),
-    # which vcftools reports as -nan/0. Skip plot+table entirely rather than write a blank
-    # PNG — Shiny falls back to an explanatory placeholder when these files don't exist.
+    # compute_depth_stats reads the raw input VCF (7ca55e). Until 2026-10-30 it read the
+    # filtered VCF, which plink writes with GT only, so every depth was -nan and this branch
+    # blamed the data. A VCF can still declare FORMAT/DP and leave every genotype's DP empty
+    # ('.'), which vcftools reports as -nan: then plot and table are skipped rather than a
+    # blank PNG written, and Shiny shows its placeholder.
     depth_ok <- any(is.finite(depth_s$MEAN_DEPTH) & depth_s$MEAN_DEPTH > 0) &&
                 any(is.finite(depth_l$MEAN_DEPTH) & depth_l$MEAN_DEPTH > 0)
+    depth_usable <- depth_ok
 
 if (depth_ok) {
     # Bin per-site depth for histogram (avoid plotting millions of points)
@@ -431,10 +472,13 @@ if (depth_ok) {
         ) +
         theme_clinego()
 
-    # Combine into one figure (2 panels)
+    # Combine into one figure (2 panels). Saved through save_plot() (ggsave) like every other
+    # QC plot: cowplot::save_plot (cowplot 1.2.0, ggplot2 4.0.3) wrote the PNG and then opened
+    # R's default pdf device in the working directory, which left an Rplots.pdf in the results
+    # tree, or stopped the script where that directory is not writable (found 2026-10-30, the
+    # first time this branch ran on real DP: before 7ca55e it never had a depth to draw).
     p_depth <- cowplot::plot_grid(p_depth_s, p_depth_l, ncol = 2, labels = c("A", "B"))
-    cowplot::save_plot(file.path(PLOTS_DIR, "depth_distribution.png"), p_depth,
-                       base_width = 10, base_height = 4)
+    save_plot(p_depth, "depth_distribution.png", width = 10, height = 4)
 
     # Write depth summary table
     depth_summary <- data.table(
@@ -456,7 +500,7 @@ if (depth_ok) {
     # Shiny's file_ok() treats file.size==0 as unavailable and still falls back to the
     # explanatory placeholder (see mod_processing.R depth_status).
     file.create(file.path(PLOTS_DIR, "depth_distribution.png"))
-    message("WARNING: FORMAT/DP is declared in the VCF header but no finite, positive depth values were found (typical for GBS with unpopulated DP) — skipping depth_distribution.png and depth_summary.tsv.")
+    message("WARNING: FORMAT/DP is declared in the VCF header but no genotype of the input VCF carries a finite, positive DP — skipping depth_distribution.png and depth_summary.tsv.")
 }
 }
 
@@ -564,5 +608,16 @@ if (!is.null(mds_coords)) {
         theme_void()
 }
 save_plot(p_mds, "relatedness_mds.png")
+
+#=============================================================================
+# 11. MISSING CALLS AND DEPTH PER SAMPLING SITE (787ffe)
+#=============================================================================
+# Every sample of the keep-list, the ones the missingness filter dropped included, so a site
+# sequenced in a weak batch shows up as a site, not as scattered sample removals. Depth is the
+# raw VCF's per-sample mean DP (NA without usable FORMAT/DP).
+site_qc <- site_qc_table(meta_raw, smiss, passed_missingness, final_ids,
+                         depth = if (depth_usable) depth_s else NULL)
+fwrite(site_qc, file.path(TABLES_DIR, "sample_qc_by_site.tsv"), sep = "\t", quote = FALSE, na = "NA")
+message("INFO: Saved sample_qc_by_site.tsv")
 
 message("INFO: All QC plots and tables complete.")

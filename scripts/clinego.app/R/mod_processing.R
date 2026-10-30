@@ -181,14 +181,18 @@ mod_processing_server <- function(id, project_data) {
                     sd_thresh <- config_get(pd$config, "Filter", "het_outlier_sd", default = NULL)
                     miss_thresh <- config_get(pd$config, "Filter", "sample_miss", default = NULL)
                     if (is.null(sd_thresh) && is.null(miss_thresh)) return(NULL)
+                    # Since release 4c the plot shows what the het filter did when it ran;
+                    # without it, a ±3 SD preview on the retained samples (plot_qc_processing.R).
                     txt <- if (!is.null(sd_thresh)) {
-                        paste0("Samples beyond ±", sd_thresh,
-                              " SD heterozygosity or above the missingness cutoff are flagged as outliers.")
+                        paste0("Red: samples the heterozygosity filter removed, beyond ±", sd_thresh,
+                              " population SD of the samples that passed the missingness filter. ",
+                              "The vertical line is the missingness cutoff.")
                     } else {
-                        "Samples above the missingness cutoff are flagged as outliers."
+                        paste0("Red: retained samples beyond ±3 SD, shown only: no heterozygosity ",
+                              "filter is set. The vertical line is the missingness cutoff.")
                     }
                     filter_note(
-                        if (!is.null(sd_thresh)) paste0("±", sd_thresh, " SD") else "outliers",
+                        if (!is.null(sd_thresh)) paste0("±", sd_thresh, " SD") else "±3 SD preview",
                         txt
                     )
                 })
@@ -244,22 +248,26 @@ mod_processing_server <- function(id, project_data) {
                 note    = shiny::reactive({
                     t <- config_get(pd$config, "Filter", "maf", default = NULL)
                     if (is.null(t)) return(NULL)
-                    # Below-threshold count derived from filtering_summary.tsv (Raw VCF vs
-                    # After MAF filter n_snps) rather than baked into the plot as on-figure
-                    # text — keeps the count next to the threshold explanation, not on the PNG.
+                    # What the MAF step itself removed, from filtering_summary.tsv's rows for
+                    # plink's two SNP steps (--geno runs first, then --maf). The histogram's red
+                    # bars count every raw SNP below the threshold, those --geno removed first
+                    # included. A table from before release 4c has no "After SNP missingness
+                    # filter" row, and the note then gives no count.
                     fs <- as.data.frame(load_filtering_summary(pd$name))
-                    n_below <- NA_integer_
+                    n_maf <- NA_integer_
                     if (nrow(fs) > 0) {
-                        raw_row <- fs[fs$stage == "Raw VCF", ]
-                        maf_row <- fs[fs$stage == "After MAF filter", ]
-                        if (nrow(raw_row) > 0 && nrow(maf_row) > 0)
-                            n_below <- as.integer(raw_row$n_snps[1]) - as.integer(maf_row$n_snps[1])
+                        geno_row <- fs[fs$stage == "After SNP missingness filter", ]
+                        maf_row  <- fs[fs$stage == "After MAF + SNP missingness filter", ]
+                        if (nrow(geno_row) > 0 && nrow(maf_row) > 0)
+                            n_maf <- as.integer(geno_row$n_snps[1]) - as.integer(maf_row$n_snps[1])
                     }
-                    below_txt <- if (is.na(n_below)) "" else
-                        paste0(n_below, " SNP", if (n_below != 1) "s" else "", " below threshold. ")
+                    removed_txt <- if (is.na(n_maf)) "" else
+                        paste0(n_maf, " SNP", if (n_maf != 1) "s" else "",
+                               " removed by this filter. It runs after the SNP missingness ",
+                               "filter, so the red bars can show more. ")
                     filter_note(
                         paste0("MAF < ", t),
-                        paste0(below_txt, "Variants with minor-allele frequency below ", t,
+                        paste0(removed_txt, "Variants with minor-allele frequency below ", t,
                               " are removed before analysis.")
                     )
                 })
@@ -308,12 +316,17 @@ mod_processing_server <- function(id, project_data) {
                 dl_name = shiny::reactive(paste0(pd$name, "_depth_distribution")),
                 placeholder = shiny::reactive(switch(depth_status(),
                     not_provided   = "VCF has no FORMAT/DP field",
-                    declared_empty = "FORMAT/DP is declared but genotype DP values are empty",
+                    declared_empty = "FORMAT/DP is declared, but no genotype depth was read",
                     "Plot not available"
                 )),
+                # 7ca55e: until release 4c the pipeline read depth from the filtered VCF, which
+                # plink writes without DP, so every project with DP landed in declared_empty and
+                # this text blamed the data. Now depth comes from the input VCF.
                 suggestion = shiny::reactive(switch(depth_status(),
                     not_provided   = "Depth QC needs per-genotype DP in the VCF.",
-                    declared_empty = "Typical for GBS — no usable depth values. Re-call with DP populated to enable depth QC.",
+                    declared_empty = paste0("Depth comes from each genotype's DP in the input VCF. ",
+                                            "Results made before 2026-10-30 read the filtered VCF, ",
+                                            "which has none: re-run mode=processing."),
                     NULL
                 )),
                 note    = shiny::reactive({
@@ -322,10 +335,12 @@ mod_processing_server <- function(id, project_data) {
                     if (is.null(min_d) && is.null(max_d)) return(NULL)
                     lo <- if (!is.null(min_d)) min_d else "–"
                     hi <- if (!is.null(max_d)) max_d else "–"
+                    # depth_filter masks calls (bcftools filter -S .), it removes no site
                     filter_note(
                         paste0(lo, "–", hi, "×"),
-                        paste0("Sites outside the ", lo, "–", hi,
-                              "× mean-depth window are removed.")
+                        paste0("Genotype calls with DP outside ", lo, "–", hi,
+                              " are set to missing before the SNP filters. ",
+                              "The plot shows depth before that masking.")
                     )
                 })
             )
@@ -419,7 +434,7 @@ mod_processing_ui <- function(id) {
                 title = htmltools::tagList(
                     bsicons::bs_icon("layers"), " Depth Distribution ",
                     htmltools::span(class = "text-muted small",
-                                    "(context — often empty for GBS)")
+                                    "(context — needs per-genotype DP)")
                 ),
                 shiny::uiOutput(ns("depth_section"))
             ),

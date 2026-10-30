@@ -179,7 +179,12 @@ Organized by **module** (matching pipeline modes). Each module owns its plots an
 
 ```
 {PROJECT}_results/
-├── Processing/tables/                     # metadata.tsv, sample_missing_stats.tsv
+├── Processing/tables/                     # metadata.tsv, filtering_summary.tsv (one row per filter step that ran:
+│                                          # sample rows count the lists the filters wrote, SNP rows are plink's own
+│                                          # report of filter_vcf's --geno, then --maf, replayed by rule filter_vcf_steps),
+│                                          # sample_qc_by_site.tsv (missing calls and depth per sampling site, dropped
+│                                          # samples included), sample_heterozygosity.tsv, relatedness_*.tsv; depth QC
+│                                          # reads the raw input VCF's FORMAT/DP (the filtered VCF has none), 2026-10-30
 ├── PreStructure/
 │   ├── plots/                             # pca.png, tracy_widom.png, cross_entropy_K{start}-{end}.png
 │   │   └── K{k}/                          # structure_K{k}.png, pca_structure_K{k}.png, pop_diff_K{k}.png

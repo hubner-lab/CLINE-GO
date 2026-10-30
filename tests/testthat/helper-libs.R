@@ -44,6 +44,7 @@ for (.f in c("utils/pval_threshold.R",
              "lib/climate_cells.R",
              "lib/pregea_calibration.R",
              "lib/factor_correlation.R",
+             "lib/qc_processing.R",
              "utils/theme_clinego.R",
              "lib/enrichment.R",
              "lib/enrichment_plots.R")) {

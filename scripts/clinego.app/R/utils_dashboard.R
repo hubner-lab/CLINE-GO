@@ -162,7 +162,7 @@ lab_depth_below_fold <- function(ns, open = FALSE) {
             title = htmltools::tagList(
                 bsicons::bs_icon("layers"), " Depth Distribution ",
                 htmltools::span(class = "text-muted small",
-                                "(context — often empty for GBS)")
+                                "(context — needs per-genotype DP)")
             ),
             shiny::uiOutput(ns("depth_section"))
         )

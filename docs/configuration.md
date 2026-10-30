@@ -592,7 +592,8 @@ Set `GFF.go_field: "NULL"` to skip enrichment.
 ```
 {project_name}_results/
 ├── Processing/
-│   └── tables/                            # metadata.tsv, sample_missing_stats.tsv
+│   └── tables/                            # metadata.tsv, filtering_summary.tsv, sample_qc_by_site.tsv,
+│                                          # sample_heterozygosity.tsv, relatedness_pairs.tsv (see below)
 │
 ├── PreStructure/
 │   ├── plots/                             # pca.png, tracy_widom.png, cross_entropy_K{s}-{e}.png
@@ -702,6 +703,38 @@ significance rule, GWAS `missing_strategy`), each with `set_by` (`config`, `defa
   module, strategy, clumping distance, `n_snps` (counted from its `selected_snps.tsv`),
   `usable_for_offset` (at least 3 SNPs), `used` and `reason` (`used`, `below_min_offset_snps`,
   `not_listed`).
+
+### Processing QC tables
+
+- `Processing/tables/filtering_summary.tsv` — one row per filtering step that ran, in the order it
+  ran. `Raw VCF` counts the metadata's samples and bcftools' SNPs. A sample filter's row
+  (`After sample missingness filter`; `After het outlier removal` with `Filter.het_outlier_sd`;
+  `After relatedness filter` with `Filter.relatedness_action: remove`) counts the list that filter
+  wrote. The SNP rows are plink's own report of filter_vcf's single call, which applies `--geno`
+  (`Filter.snp_miss`) before `--maf` (`Filter.maf`), both on the final samples:
+  `After SNP missingness filter`, then `After MAF + SNP missingness filter`. Rule
+  `filter_vcf_steps` replays that call and keeps plink's log (`_intermediate/qc/filter_vcf_steps.log`).
+  A table written before 2026-10-30 has an `After MAF filter` row instead (the raw SNP count minus
+  the pre-filter MAF histogram's below-threshold SNPs, a step plink never takes), and its het row
+  recounted outliers on the final cohort.
+- `Processing/tables/sample_qc_by_site.tsv` — one row per sampling site (metadata `site`), over
+  every sample in the metadata, those the missingness filter dropped included: `n_samples`,
+  `n_failed_missingness`, `n_retained` (in the final cohort), the per-sample missing-call rate on
+  the raw VCF (`f_miss_mean`, `f_miss_median`, `f_miss_min`, `f_miss_max`) and the per-sample mean
+  FORMAT/DP (`depth_mean`, `depth_median`; `NA` without usable DP). A site sequenced in a weaker
+  batch shows up here as a site, not as scattered sample removals.
+- Depth QC (`Processing/plots/depth_distribution.png`, `Processing/tables/depth_summary.tsv`) reads
+  FORMAT/DP from the raw input VCF, over the metadata's samples, before `Filter.min_depth` /
+  `max_depth` mask calls. A sample's mean depth is vcftools `--depth`: the mean DP over every
+  genotype that carries one, uncalled genotypes included, so a sample with many uncovered sites
+  reads lower than the mean depth of its calls (Trifolium86, 86 plants: median 3.4x against 5.6x
+  over called genotypes). Before 2026-10-30 it read the filtered VCF, which plink writes without
+  DP, so every project reported no depth.
+- `Processing/tables/sample_heterozygosity.tsv` and `het_vs_missingness.png` — with
+  `Filter.het_outlier_sd` set: the het filter's own input (raw VCF, the samples that passed the
+  missingness filter), its bounds (mean ± k population SD) and its removals (`outlier_flag`).
+  Without it: a preview on the final cohort and the filtered VCF, flagged at ±3 sample SD, which
+  does not show what `het_outlier_sd: 3` would remove.
 
 ### Run records
 

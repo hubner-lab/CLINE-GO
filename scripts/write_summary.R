@@ -143,8 +143,8 @@ if (MODE == 'processing') {
 
     # Depth info — three states:
     #   not_provided:   VCF has no FORMAT/DP field
-    #   declared_empty: FORMAT/DP declared but genotype DP values were empty/non-finite
-    #                   (typical for GBS) — plot_qc_processing.R skips depth_summary.tsv in this case
+    #   declared_empty: FORMAT/DP declared in the header, but no genotype of the input VCF
+    #                   carries a usable DP — plot_qc_processing.R skips depth_summary.tsv then
     #   available:      usable depth values found, depth_summary.tsv was written
     depth_summary_exists <- HAS_DP == 'TRUE' && DEPTH_SUMMARY != 'NULL' && file.exists(DEPTH_SUMMARY)
     depth_qc_status <- if (HAS_DP != 'TRUE') {

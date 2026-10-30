@@ -295,12 +295,17 @@ if (MIN_DEPTH is not None or MAX_DEPTH is not None) and HAS_FORMAT_DP:
             echo "INFO: Total missing genotypes after depth masking: $n_masked" >> {log}
             """
 
+# The VCF and keep-list filter_vcf's plink call reads. filter_vcf_steps replays that call on
+# the same two files, so they are named once.
+_FILTER_VCF_INPUT = W['vcf_depth_filtered'] if ((MIN_DEPTH is not None or MAX_DEPTH is not None) and HAS_FORMAT_DP) else f"{INDIR}{VCF_RAW}"
+_FINAL_SAMPLES = W['samples_rel_filtered'] if RELATEDNESS_REMOVE else (W['samples_het_filtered'] if HET_OUTLIER_SD is not None else W['samples_filtered'])
+
 rule filter_vcf:
     """Filter VCF by MAF, missingness, and sample list (after sample missingness filter).
     Also normalizes chromosome names by removing 'chr' prefix to match LEA behavior."""
     input:
-        vcf = W['vcf_depth_filtered'] if ((MIN_DEPTH is not None or MAX_DEPTH is not None) and HAS_FORMAT_DP) else f"{INDIR}{VCF_RAW}",
-        samples = W['samples_rel_filtered'] if RELATEDNESS_REMOVE else (W['samples_het_filtered'] if HET_OUTLIER_SD is not None else W['samples_filtered'])
+        vcf = _FILTER_VCF_INPUT,
+        samples = _FINAL_SAMPLES
     output: W['vcf_filt']
     params: prefix = W['vcf_filt'].replace('.vcf', ''), maf = MAF, miss = MISS
     log:    f"{LOGDIR}processing/filter_vcf.log"
@@ -328,6 +333,30 @@ rule filter_vcf:
         sed -E -i 's/^(##contig=<ID=)[Cc][Hh][Rr]/\\1/' {output}
 
         echo "INFO: Normalized chromosome names (case-insensitive 'chr' strip; X/Y/MT kept as letters)" >> {log}
+        """
+
+rule filter_vcf_steps:
+    """Replay filter_vcf's plink call (same VCF, keep-list, --maf and --geno) and keep plink's
+    report of what each step removed: the SNP rows of filtering_summary.tsv (7e11b6). plink
+    applies --geno before --maf, so its MAF count is over the SNPs that passed --geno. A rule
+    of its own rather than an output of filter_vcf, so an existing tree does not rebuild its
+    filtered VCF and everything downstream; plot_qc_processing.R checks that the replay passes
+    exactly filter_vcf's SNPs and samples."""
+    input:
+        vcf     = _FILTER_VCF_INPUT,
+        samples = _FINAL_SAMPLES
+    output: O['qc_filter_steps']
+    params: prefix = f"{INTER}qc/filter_vcf_steps_tmp", maf = MAF, miss = MISS
+    log:    f"{LOGDIR}processing/filter_vcf_steps.log"
+    threads: CPU
+    shell:
+        """
+        plink --vcf {input.vcf} --const-fid --chr-set 95 --allow-extra-chr --output-chr MT \
+            --set-missing-var-ids @:# --keep {input.samples} \
+            --maf {params.maf} --geno {params.miss} \
+            --write-snplist --out {params.prefix} > {log} 2>&1
+        cp {params.prefix}.log {output}
+        rm -f {params.prefix}.log {params.prefix}.nosex {params.prefix}.hh {params.prefix}.snplist
         """
 
 rule compute_sample_het:
@@ -385,8 +414,16 @@ rule compute_snp_density_filtered:
 
 if HAS_FORMAT_DP:
     rule compute_depth_stats:
-        """Compute per-sample and per-site mean depth (only when FORMAT/DP field is present)."""
-        input:  vcf = W['vcf_filt']
+        """Per-sample and per-site mean FORMAT/DP of the raw input VCF, over the metadata's
+        samples (the keep-list calculate_sample_missing reads), before any filter: so the
+        samples the missingness filter drops have a depth too, and with Filter.min_depth /
+        max_depth set this is the depth before depth_filter masks calls. Until 2026-10-30 it
+        read W['vcf_filt'], which plink writes with GT only, so every depth was -nan (7ca55e).
+        vcftools --keep takes the FIRST field of a line as the ID, so the plink keep-list
+        (FID IID) is cut to its IIDs first; fed as is, it keeps no sample."""
+        input:
+            vcf     = f"{INDIR}{VCF_RAW}",
+            samples = W['samples_list']
         output:
             sample = O['qc_depth_sample'],
             site   = O['qc_depth_site']
@@ -394,11 +431,16 @@ if HAS_FORMAT_DP:
         log:    f"{LOGDIR}processing/compute_depth_stats.log"
         shell:
             """
-            /app/vcftools-0.1.16/bin/vcftools --vcf {input.vcf} --depth --out {params.prefix} > {log} 2>&1
-            /app/vcftools-0.1.16/bin/vcftools --vcf {input.vcf} --site-mean-depth --out {params.prefix} >> {log} 2>&1
+            case "{input.vcf}" in
+                *.gz) VCF_FLAG=--gzvcf ;;
+                *)    VCF_FLAG=--vcf ;;
+            esac
+            awk '{{print $2}}' {input.samples} > {params.prefix}.keep
+            /app/vcftools-0.1.16/bin/vcftools $VCF_FLAG {input.vcf} --keep {params.prefix}.keep --depth --out {params.prefix} > {log} 2>&1
+            /app/vcftools-0.1.16/bin/vcftools $VCF_FLAG {input.vcf} --keep {params.prefix}.keep --site-mean-depth --out {params.prefix} >> {log} 2>&1
             cp {params.prefix}.idepth {output.sample}
             cp {params.prefix}.ldepth.mean {output.site}
-            rm -f {params.prefix}.idepth {params.prefix}.ldepth.mean {params.prefix}.log
+            rm -f {params.prefix}.idepth {params.prefix}.ldepth.mean {params.prefix}.log {params.prefix}.keep
             """
 
 rule ld_prune:
@@ -544,7 +586,14 @@ rule plot_qc_processing:
         depth_sample     = O['qc_depth_sample'] if HAS_FORMAT_DP else [],
         depth_site       = O['qc_depth_site'] if HAS_FORMAT_DP else [],
         relatedness_pairs= O['qc_relatedness_pairs'],
-        relatedness_removed = O['qc_relatedness_removed'] if PI_HAT is not None else []
+        relatedness_removed = O['qc_relatedness_removed'] if PI_HAT is not None else [],
+        # 7ccf66 / 7e11b6 / 787ffe: the lists the sample filters wrote, plink's report of
+        # filter_vcf's SNP steps, and the input metadata (sites of every sample, dropped ones too)
+        metadata_raw     = f"{INDIR}{SAMPLES}",
+        samples_filtered = W['samples_filtered'],
+        samples_het      = W['samples_het_filtered'] if HET_OUTLIER_SD is not None else [],
+        samples_rel      = W['samples_rel_filtered'] if RELATEDNESS_REMOVE else [],
+        filter_steps     = O['qc_filter_steps']
     output:
         plot_sample_miss = O['qc_plot_sample_miss'],
         plot_het_miss    = O['qc_plot_het_miss'],
@@ -556,6 +605,7 @@ rule plot_qc_processing:
         sample_het       = O['qc_sample_het'],
         plot_relatedness = O['qc_plot_relatedness'],
         plot_relatedness_mds = O['qc_plot_relatedness_mds'],
+        site_qc          = O['qc_site_summary'],
         **({"plot_depth": O['qc_plot_depth']} if HAS_FORMAT_DP else {})
     params:
         sample_miss_thresh = SAMPLE_MISS,
@@ -569,7 +619,9 @@ rule plot_qc_processing:
         tables_dir         = f"{MOD_PROCESSING}tables/",
         pihat_thresh       = PI_HAT if PI_HAT is not None else 'NULL',
         relatedness_removed = O['qc_relatedness_removed'] if PI_HAT is not None else 'NULL',
-        relatedness_action = RELATEDNESS_ACTION
+        relatedness_action = RELATEDNESS_ACTION,
+        samples_het        = W['samples_het_filtered'] if HET_OUTLIER_SD is not None else 'NULL',
+        samples_rel        = W['samples_rel_filtered'] if RELATEDNESS_REMOVE else 'NULL'
     log: f"{LOGDIR}processing/plot_qc_processing.log"
     shell:
         """
@@ -598,5 +650,10 @@ rule plot_qc_processing:
             {input.relatedness_pairs} \
             {params.pihat_thresh} \
             {params.relatedness_removed} \
-            {params.relatedness_action} > {log} 2>&1
+            {params.relatedness_action} \
+            {input.metadata_raw} \
+            {input.samples_filtered} \
+            {params.samples_het} \
+            {params.samples_rel} \
+            {input.filter_steps} > {log} 2>&1
         """

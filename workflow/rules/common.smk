@@ -1452,6 +1452,10 @@ O = {
     'qc_sample_het':       f"{MOD_PROCESSING}tables/sample_heterozygosity.tsv",
     'qc_relatedness_pairs':   f"{MOD_PROCESSING}tables/relatedness_pairs.tsv",
     'qc_relatedness_removed': f"{MOD_PROCESSING}tables/relatedness_removed.tsv",
+    # Missing calls and depth per sampling site (787ffe), from plot_qc_processing
+    'qc_site_summary':     f"{MOD_PROCESSING}tables/sample_qc_by_site.tsv",
+    # plink's report of filter_vcf's --geno and --maf steps (7e11b6), from filter_vcf_steps
+    'qc_filter_steps':     f"{INTER}qc/filter_vcf_steps.log",
     'qc_maf_raw':          f"{INTER}qc/maf_raw.frq",
     'qc_maf_filtered':     f"{INTER}qc/maf_filtered.frq",
     'qc_maf_pos':          f"{INTER}qc/maf_pos.tsv",
@@ -3149,6 +3153,7 @@ def get_targets(mode):
             O['coord_missing_summary'],
             # QC outputs
             O['qc_raw_summary'], O['qc_filtering_summary'], O['qc_sample_het'],
+            O['qc_site_summary'],
             O['qc_plot_sample_miss'], O['qc_plot_het_miss'],
             O['qc_plot_maf'], O['qc_plot_snp_miss'],
             O['qc_plot_attrition'], O['qc_plot_snp_density'],
