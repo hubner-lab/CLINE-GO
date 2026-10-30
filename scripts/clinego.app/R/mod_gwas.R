@@ -242,6 +242,13 @@ mod_gwas_server <- function(id, project_data, run_trigger = NULL, config_state =
             )
         })
 
+        # Hits of one scan that tie on p across chromosomes, at the live thresholds
+        # (fct_warnings.R); a WZA window's p is not a single-marker test, so not read.
+        stripes <- shiny::reactive({
+            if (regime_wza()) return(NULL)
+            manhattan_stripes(effective_method_sigsnps())
+        })
+
         # Derived from bindCached combo_thresholds — no redundant full-vector scan.
         combined_threshold_y <- shiny::reactive({
             ct <- combo_thresholds()
@@ -441,7 +448,8 @@ mod_gwas_server <- function(id, project_data, run_trigger = NULL, config_state =
             }),
             note                 = shiny::reactive(htmltools::tagList(
                 help_note("manhattan_gwas_combined"),
-                no_sig_traits_note(setdiff(all_trait_names_rv(), traits()))
+                no_sig_traits_note(setdiff(all_trait_names_rv(), traits())),
+                stripe_note(stripes(), regime_wza())
             )),
             regions              = explorer$computed_regions,
             current_region_id    = explorer$selected_region_id,
@@ -506,7 +514,11 @@ mod_gwas_server <- function(id, project_data, run_trigger = NULL, config_state =
                 t <- per_method_trait()
                 if (!is.null(m) && !is.null(t)) paste0(m, " — ", t) else "Method Manhattan"
             }),
-            note                 = shiny::reactive(help_note("manhattan_gwas_method")),
+            note                 = shiny::reactive(htmltools::tagList(
+                help_note("manhattan_gwas_method"),
+                stripe_note(stripes_for(stripes(), active_method(), per_method_trait()),
+                            regime_wza())
+            )),
             show_regions_control = FALSE,
             threshold_y          = per_method_threshold_y
         )

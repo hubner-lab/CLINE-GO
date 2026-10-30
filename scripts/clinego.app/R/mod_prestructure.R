@@ -64,6 +64,10 @@ mod_prestructure_server <- function(id, project_data) {
                 title   = shiny::reactive("Cross-Entropy"),
                 dl_name = shiny::reactive("cross_entropy"),
                 note    = shiny::reactive({
+                    # No minimum in the tested range: read off the table beside the
+                    # plot shown (same K range), the best run per K as plotted.
+                    ce_warn <- cross_entropy_note(cross_entropy_no_minimum(
+                        load_cross_entropy_table(pd$name, kr$path)))
                     # Changing sNMF.k_start/k_end leaves the previous run's PNG in
                     # the same directory. find_k_range() now picks the one matching
                     # the config, but say the others are there — otherwise the folder
@@ -76,8 +80,9 @@ mod_prestructure_server <- function(id, project_data) {
                         paste(kr$stale, collapse = ", "),
                         ") — from an earlier K range, not this one.") else ""
                     if (is.null(k_best) || is.na(k_best)) {
-                        if (!nzchar(stale_txt)) return(NULL)
-                        return(help_note("cross_entropy", results = trimws(stale_txt)))
+                        if (!nzchar(stale_txt)) return(ce_warn)
+                        return(htmltools::tagList(
+                            help_note("cross_entropy", results = trimws(stale_txt)), ce_warn))
                     }
                     range_txt <- if (!is.na(kr$k_start) && !is.na(kr$k_end))
                         paste0(" Tested K ", kr$k_start, "–", kr$k_end, ".") else ""
@@ -93,7 +98,10 @@ mod_prestructure_server <- function(id, project_data) {
                               " Read the curve above and set sNMF.k_best to the K where it flattens.")
                     }
                     results_txt <- paste0(results_txt, stale_txt)
-                    help_note("cross_entropy", results = results_txt, label = paste0("K=", k_best))
+                    htmltools::tagList(
+                        help_note("cross_entropy", results = results_txt,
+                                  label = paste0("K=", k_best)),
+                        ce_warn)
                 })
             )
         })

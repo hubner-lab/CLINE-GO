@@ -614,6 +614,7 @@ aesthetic. Playwright replaces the *mechanical* half of that loop, not the judge
 - `fct_regions.R`, `fct_combine.R`, `fct_overlap.R` — on-the-fly regions, combine strategies and GEA x GWAS overlap for interactive exploration
 - `fct_threshold_rules.R`, `fct_region_params.R`, `fct_snp_sets.R` — per-cell significance rules; per-region parameter persistence; curated SNP sets
 - `fct_help_notes.R`, `fct_method_registry.R`, `fct_model_compare.R` — plot help notes; the GEA method registry bridged from Python; offset-model comparison (`compare_offsets.R`)
+- `fct_warnings.R` — amber warnings about data problems (Manhattan stripes, LD decay unreliable, identical / two-valued predictors and traits on the chips, samples without climate, aliased RDA-offset predictors, cross-entropy without a minimum, the dbMEM fallback): pure rules on exact equalities or the pipeline's own rule, rendered as `help_note()` badges whose texts are the `warn_*` entries of `HELP_NOTES`; they never change an analysis
 - `utils_ui.R`, `utils_dashboard.R` — `plot_placeholder()`, `region_info_bar()`, `help_note()` and the shared dashboard primitives
 - `utils_helpers.R` — `file_ok()`, `resolve_adjust()`, `make_project_data()`, `safe_datatable()`
 - `zzz.R` — loads the shared pipeline libraries into the package namespace at load time

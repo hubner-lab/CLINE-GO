@@ -211,12 +211,14 @@ wza_collapse_note <- function(stats) {
 #' @param class Bootstrap badge background class (default neutral "bg-secondary";
 #'   use "bg-danger"/"bg-success" only for a genuine status signal, not a fixed threshold)
 #' @param placement tooltip placement, passed to bslib::tooltip()
+#' @param icon Bootstrap icon on the badge ("exclamation-triangle-fill" for a warning)
 #' @noRd
-filter_note <- function(label, body, class = "bg-secondary", placement = "right") {
+filter_note <- function(label, body, class = "bg-secondary", placement = "right",
+                        icon = "info-circle-fill") {
     trigger <- htmltools::tags$span(
         class = paste("badge", class),
         style = "cursor:default; font-size:0.7rem; font-weight:500;",
-        bsicons::bs_icon("info-circle-fill", size = "0.75em"), " ", label
+        bsicons::bs_icon(icon, size = "0.75em"), " ", label
     )
     bslib::tooltip(trigger, body, placement = placement)
 }

@@ -515,7 +515,9 @@ build_config_input <- function(input_id, entry, value, project = NULL, config = 
                 }
             }
             render_bio_chips(input_id, display_val, invariant = inv,
-                             choices = predictor_chip_choices(config, display_val))
+                             choices = predictor_chip_choices(config, display_val),
+                             flags = if (is.null(project)) NULL
+                                     else load_predictor_flags(project))
         },
         "pheno_chips" = {
             render_pheno_chips(input_id, display_val, project)
@@ -1146,11 +1148,19 @@ predictor_chip_choices <- function(config, selected = character(0)) {
 #'
 #' Replaces the plain text input for climate.predictors with clickable pills.
 #' A hidden textInput (input_id) carries the comma-separated value for Shiny.
+#' Invariant predictors are struck and cannot be selected (LFMM and EMMAX fail on
+#' them, 130e0e). Identical and two-valued ones (predictor_flags()) are orange with a
+#' corner icon naming the reason and stay selectable: the choice is the user's. A
+#' legend badge under the grid explains the marks and turns amber while a marked
+#' chip is selected (chip_legend()).
 #' @param choices the chips, predictor_chip_choices()
+#' @param flags   predictor_flags() of the project, or NULL
 #' @noRd
 render_bio_chips <- function(input_id, display_val, invariant = character(0),
-                             choices = paste0("bio_", 1:19)) {
+                             choices = paste0("bio_", 1:19), flags = NULL) {
     all_bios <- choices
+    if (is.null(flags)) flags <- predictor_flags(NULL, NULL)
+    flags <- flags[flags$predictor %in% setdiff(all_bios, invariant), ]
 
     # Parse current value; default to all selected when empty/NULL
     selected <- if (!is.null(display_val) && nzchar(trimws(display_val))) {
@@ -1163,6 +1173,7 @@ render_bio_chips <- function(input_id, display_val, invariant = character(0),
 
     chips <- lapply(all_bios, function(b) {
         is_inv <- b %in% invariant
+        mine   <- flags[flags$predictor == b, ]
         cls <- if (is_inv) {
             "bc-chip bc-invariant"
         } else if (b %in% selected) {
@@ -1170,17 +1181,22 @@ render_bio_chips <- function(input_id, display_val, invariant = character(0),
         } else {
             "bc-chip"
         }
+        if (nrow(mine) > 0) cls <- paste(cls, "bc-flagged")
         htmltools::tags$button(
             type               = "button",
             class              = cls,
             `data-bio`         = b,
             `data-invariant`   = if (is_inv) "true" else NULL,
-            title              = if (is_inv) paste0(b, ": no variance in current map extent") else NULL,
-            b
+            `data-flag`        = if (nrow(mine) > 0) paste(mine$flag, collapse = " ") else NULL,
+            title              = if (is_inv) paste0(b, ": no variance in current map extent")
+                                 else if (nrow(mine) > 0) chip_flag_title(b, mine) else NULL,
+            b,
+            if (nrow(mine) > 0) chip_flag_icons(mine)
         )
     })
 
     container_id <- paste0(input_id, "_container")
+    legend_id    <- paste0(input_id, "_legend")
 
     js_code <- sprintf('
 (function() {
@@ -1194,6 +1210,7 @@ render_bio_chips <- function(input_id, display_val, invariant = character(0),
         var csv = vals.join(",");
         inputEl.value = csv;
         Shiny.setInputValue("%s", csv, {priority: "event"});
+        if (window.clinegoChipLegendSync) window.clinegoChipLegendSync(container);
     }
 
     container.addEventListener("click", function(e) {
@@ -1210,8 +1227,11 @@ render_bio_chips <- function(input_id, display_val, invariant = character(0),
     htmltools::tagList(
         htmltools::div(
             id    = container_id,
-            class = "bio-chips"
+            class = "bio-chips",
+            `data-legend` = legend_id
         ) |> htmltools::tagAppendChildren(.list = chips),
+        chip_legend(flags, struck = intersect(all_bios, invariant), selected = selected,
+                    legend_id = legend_id, id = "warn_predictor_chips", noun = "predictor"),
         # Hidden bridge: display:none via CSS class
         htmltools::div(
             class = "bio-chips-bridge",
@@ -1269,27 +1289,43 @@ render_pheno_chips <- function(input_id, display_val, project) {
         ))
     }
 
+    # Invariant traits (trait_invariant.tsv) are struck and cannot be selected, as
+    # invariant predictors are; identical traits are orange and stay selectable.
+    marks  <- load_trait_marks(project, all_traits)
+    struck <- marks$invariant
+    flags  <- marks$flags[marks$flags$predictor %in% setdiff(all_traits, struck), ]
+
     # Parse current selection; default to all selected when empty/NULL
     selected <- if (!is.null(display_val) && nzchar(trimws(as.character(display_val)))) {
         trimws(strsplit(as.character(display_val), ",")[[1]])
     } else {
         all_traits
     }
-    # Remove any saved traits no longer in metadata
-    selected <- intersect(selected, all_traits)
-    if (length(selected) == 0) selected <- all_traits
+    # Remove any saved traits no longer in metadata, and the struck ones
+    selected <- setdiff(intersect(selected, all_traits), struck)
+    if (length(selected) == 0) selected <- setdiff(all_traits, struck)
 
     chips <- lapply(all_traits, function(tr) {
-        cls <- if (tr %in% selected) "bc-chip bc-active" else "bc-chip"
+        is_inv <- tr %in% struck
+        mine   <- flags[flags$predictor == tr, ]
+        cls <- if (is_inv) "bc-chip bc-invariant"
+               else if (tr %in% selected) "bc-chip bc-active" else "bc-chip"
+        if (nrow(mine) > 0) cls <- paste(cls, "bc-flagged")
         htmltools::tags$button(
             type       = "button",
             class      = cls,
             `data-trait` = tr,
-            tr
+            `data-invariant` = if (is_inv) "true" else NULL,
+            `data-flag`  = if (nrow(mine) > 0) paste(mine$flag, collapse = " ") else NULL,
+            title      = if (is_inv) paste0(tr, ": does not vary, or has no values")
+                         else if (nrow(mine) > 0) chip_flag_title(tr, mine) else NULL,
+            tr,
+            if (nrow(mine) > 0) chip_flag_icons(mine)
         )
     })
 
     container_id <- paste0(input_id, "_container")
+    legend_id    <- paste0(input_id, "_legend")
 
     js_code <- sprintf('
 (function() {
@@ -1303,11 +1339,13 @@ render_pheno_chips <- function(input_id, display_val, project) {
         var csv = vals.join(",");
         inputEl.value = csv;
         Shiny.setInputValue("%s", csv, {priority: "event"});
+        if (window.clinegoChipLegendSync) window.clinegoChipLegendSync(container);
     }
 
     container.addEventListener("click", function(e) {
         var chip = e.target.closest(".bc-chip");
         if (!chip) return;
+        if (chip.dataset.invariant === "true") return;
         chip.classList.toggle("bc-active");
         syncValue();
     });
@@ -1317,8 +1355,11 @@ render_pheno_chips <- function(input_id, display_val, project) {
     htmltools::tagList(
         htmltools::div(
             id    = container_id,
-            class = "bio-chips"
+            class = "bio-chips",
+            `data-legend` = legend_id
         ) |> htmltools::tagAppendChildren(.list = chips),
+        chip_legend(flags, struck = struck, selected = selected, legend_id = legend_id,
+                    id = "warn_trait_chips", noun = "trait"),
         htmltools::div(
             class = "bio-chips-bridge",
             shiny::textInput(input_id, label = NULL,

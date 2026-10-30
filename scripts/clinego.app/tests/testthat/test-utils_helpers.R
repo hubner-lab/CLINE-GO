@@ -231,8 +231,25 @@ test_that("ld_decay_genome_wide_status reads ld_status of a group's genome-wide 
     expect_match(ld_decay_genome_wide_status(tbl)$reason, "1.50x")
     expect_identical(ld_decay_genome_wide_status(tbl, "C1")$status, "reliable")
     expect_null(ld_decay_genome_wide_status(tbl, "nowhere"))
-    expect_null(ld_decay_genome_wide_status(tbl[, !c("ld_status", "ld_status_reason")]))
     expect_null(ld_decay_genome_wide_status(data.table::data.table()))
+})
+
+test_that("a table without ld_status is judged as the pipeline judges it (96e4fd, 8bbdee)", {
+    tbl <- data.table::fread(ld_table_file(), colClasses = c(group = "character"))
+    old <- tbl[, !c("ld_status", "ld_status_reason")]
+    # short_r2 0.45 over background 0.06: 7.5x, reliable
+    expect_identical(ld_decay_genome_wide_status(old)$status, "reliable")
+    # Trifolium86MainK5hd's ratio, 1.72x: unreliable, not "not assessed"
+    k5hd <- data.table::copy(old)[, `:=`(short_r2 = 0.172, background_r2 = 0.1)]
+    gw <- ld_decay_genome_wide_status(k5hd)
+    expect_identical(gw$status, "unreliable")
+    expect_match(gw$reason, "1.72x")
+    # derived on a copy: the caller's table keeps its columns
+    expect_false("ld_status" %in% names(k5hd))
+    # no rule columns either (an estimator before PLINK): not assessed
+    pop <- old[, !c("short_r2", "background_r2", "decay_method")]
+    expect_identical(ld_decay_genome_wide_status(pop)$status, "not assessed")
+    expect_identical(ld_decay_table_status(pop)$ld_status, "not assessed")
 })
 
 # --- clumping_distance_state(): one value per project, saved only when moved -------

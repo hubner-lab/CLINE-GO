@@ -69,7 +69,10 @@ mod_climate_server <- function(id, project_data) {
                     error = function(e) data.table::data.table()
                 )
                 if (nrow(dt) == 0 || !"predictor" %in% names(dt)) return(NULL)
-                preds <- dt$predictor
+                # The table lists every layer, for the chips; the badge counts the
+                # selected predictors only (e83e54).
+                preds <- selected_invariant(dt$predictor, selected_predictors(pd$config))
+                if (length(preds) == 0) return(NULL)
                 items <- lapply(preds, function(pr) {
                     reason <- if ("reason" %in% names(dt)) {
                         r <- dt[dt$predictor == pr, ]$reason
@@ -93,6 +96,33 @@ mod_climate_server <- function(id, project_data) {
                     )
                 )
             })
+        })
+
+        # ── Predictor and sample warnings (fct_warnings.R) ───────────────────
+        # Counted over the selected predictors (e83e54); the chips in the sidebar mark
+        # every predictor, selected or not.
+        output$predictor_warnings <- shiny::renderUI({
+            pd <- project_data()
+            shiny::req(pd$name)
+            flags <- load_predictor_flags(pd$name)
+            sel   <- selected_predictors(pd$config)
+            notes <- list(identical_predictors_note(flags, sel),
+                          binary_predictors_note(flags, sel),
+                          if (!identical(config_regime(pd$config), "gwas_only"))
+                              climate_dropped_note(load_climate_dropped(pd$name)))
+            notes <- Filter(Negate(is.null), notes)
+            if (length(notes) == 0) return(NULL)
+            htmltools::div(class = "lab-warning-row d-flex flex-wrap justify-content-end gap-1 mb-2",
+                           notes)
+        })
+
+        # The geography term from the fallback dbMEM axis (1d2490's column); a table
+        # written before that column reads "unknown", never "no fallback".
+        output$dbmem_fallback_warning <- shiny::renderUI({
+            pd <- project_data()
+            note <- dbmem_selection_note(dbmem_selection_state(load_dbmem_selected(pd$name)))
+            if (is.null(note)) return(NULL)
+            htmltools::div(class = "lab-warning-row d-flex justify-content-end mb-2", note)
         })
 
         # ── Design adequacy ──────────────────────────────────────────────────
@@ -327,6 +357,7 @@ mod_climate_ui <- function(id) {
                 class = "lab-hero-col",
 
                 shiny::uiOutput(ns("climate_invariant_warning")),
+                shiny::uiOutput(ns("predictor_warnings")),
                 shiny::uiOutput(ns("design_adequacy_warning")),
                 lab_hero(mod_image_card_ui(ns("climate_heatmap"))),
 
@@ -335,6 +366,7 @@ mod_climate_ui <- function(id) {
                     shiny::uiOutput(ns("variance_explained_badge")),
                     shiny::uiOutput(ns("design_varpart_warning")),
                     shiny::uiOutput(ns("dbmem_skip_warning")),
+                    shiny::uiOutput(ns("dbmem_fallback_warning")),
                     shiny::uiOutput(ns("confounding_badge"))
                 ),
                 lab_hero(mod_image_card_ui(ns("varpart_venn")))

@@ -211,19 +211,11 @@ mod_structure_server <- function(id, project_data) {
                         "clumping_ld_rule."
                     )
                 )
-                # A genuine status signal: an unreliable 'All' curve gives no auto_* distance.
-                gw <- ld_decay_genome_wide_status(load_ld_decay_table(pd$name))
-                if (is.null(gw) || gw$status != "unreliable") return(info)
+                # A genuine status signal: an unreliable or unassessed 'All' curve gives no
+                # auto_* distance. A table without ld_status is judged as the pipeline
+                # judges it (96e4fd), not called "not assessed".
                 htmltools::tagList(
-                    filter_note(
-                        "unreliable",
-                        htmltools::p(
-                            htmltools::tags$strong("LD decay of 'All' is unreliable"),
-                            " — ", gw$reason, ". An auto_* clumping distance stops on it; ",
-                            "declare ", htmltools::tags$code("snp_clumping_distance"), " in bp."
-                        ),
-                        class = "bg-warning text-dark"
-                    ),
+                    ld_decay_note(ld_decay_genome_wide_status(load_ld_decay_table(pd$name))),
                     info
                 )
             })
@@ -245,11 +237,10 @@ mod_structure_server <- function(id, project_data) {
         # ── LD decay summary table (decay distances per group/scope) ──────────
         output$ld_decay_table <- DT::renderDataTable({
             pd  <- project_data()
-            tbl <- as.data.frame(load_ld_decay_table(pd$name))
+            tbl <- as.data.frame(ld_decay_table_status(load_ld_decay_table(pd$name)))
             ld_cols <- c("decay_critical_bp", "decay_half_bp", "decay_r2thr_bp")
             if (nrow(tbl) > 0 && all(ld_cols %in% names(tbl))) {
                 for (cc in ld_cols) tbl[[cc]] <- round(tbl[[cc]] / 1000, 2)
-                if (!"ld_status" %in% names(tbl)) tbl$ld_status <- "not assessed"
                 tbl <- tbl[, c("group", "scope", "ld_status", "decay_critical_bp", "decay_half_bp",
                                "decay_r2thr_bp", "short_r2", "background_r2",
                                "n_samples", "n_pairs")]

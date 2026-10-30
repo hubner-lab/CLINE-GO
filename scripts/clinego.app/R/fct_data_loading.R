@@ -53,16 +53,44 @@ load_ld_decay_table <- function(project) {
     )
 }
 
-#' Reliability of one group's genome-wide LD-decay curve (ld_status of ld_decay_analyze.R).
+#' The LD-decay table with ld_status on every row, as the pipeline reads it.
+#'
+#' A table written before the reliability check (2026-10-27) has no ld_status; the
+#' pipeline then derives each row's status from its own short_r2 / background_r2
+#' (.ld_table_status(), region_distance.R, 96e4fd), and so does this, on a copy (it
+#' assigns by reference). A table without those columns either, from the estimator before
+#' PLINK, reads "not assessed".
+#' @param tbl load_ld_decay_table().
+#' @return tbl with ld_status and ld_status_reason; tbl itself when empty or already so.
+#' @noRd
+ld_decay_table_status <- function(tbl) {
+    if (!nrow(tbl) || "ld_status" %in% names(tbl)) return(tbl)
+    out <- data.table::copy(data.table::as.data.table(tbl))
+    if (exists(".ld_table_status", mode = "function"))
+        out <- suppressMessages(.ld_table_status(out, "ld_decay_half_distances.tsv"))
+    if (!"ld_status" %in% names(out)) {
+        out[, `:=`(ld_status = "not assessed",
+                   ld_status_reason = paste0("the table has no short-range or background r² ",
+                                             "(an estimator before PLINK): re-run mode=structure"))]
+    }
+    out
+}
+
+#' Reliability of one group's genome-wide LD-decay curve, as the pipeline judges it.
 #' @param tbl LD-decay table (load_ld_decay_table()).
-#' @return list(status, reason), or NULL when the row or the column (an older table) is absent.
+#' @return list(status = "reliable" | "unreliable" | "not assessed", reason), or NULL
+#'   when there is no table or no genome-wide row for the group.
 #' @noRd
 ld_decay_genome_wide_status <- function(tbl, group = "All") {
-    if (!nrow(tbl) || !"ld_status" %in% names(tbl)) return(NULL)
-    want <- group
+    if (!nrow(tbl)) return(NULL)
+    tbl <- ld_decay_table_status(tbl)
+    want <- group  # inside [.data.table a bare `group` is the column, always equal to itself
     row <- tbl[tbl$group == want & tbl$scope == "genome_wide", ]
     if (!nrow(row)) return(NULL)
-    list(status = row$ld_status[1], reason = row$ld_status_reason[1])
+    st <- as.character(row$ld_status[1])
+    if (is.na(st) || !nzchar(st)) st <- "not assessed"
+    reason <- as.character(row$ld_status_reason[1])
+    list(status = st, reason = if (is.na(reason)) "" else reason)
 }
 
 #' Load sample heterozygosity table
@@ -1248,4 +1276,83 @@ load_cached <- function(cache_key, loader_fn, fingerprint = NULL) {
     val <- loader_fn()
     cache$set(safe_key, val)
     val
+}
+
+# ── Inputs of the data-problem warnings (fct_warnings.R) ──────────────────────
+
+#' Read a TSV for a warning; NULL when absent, empty or unreadable.
+#' @noRd
+read_warning_table <- function(path, ...) {
+    if (!file_ok(path)) return(NULL)
+    tryCatch(data.table::fread(path, sep = "\t", header = TRUE, ...),
+             error = function(e) NULL)
+}
+
+#' Identical and two-valued predictors of a project (predictor_flags()), from the
+#' per-sample climate table and the processed metadata. Zero rows before mode=structure.
+#' @noRd
+load_predictor_flags <- function(project) {
+    clim <- read_warning_table(climate_table_path(project, "present", "climate_present_site"),
+                               colClasses = c(sample = "character"))
+    meta <- read_warning_table(hap_metadata_path(project),
+                               colClasses = c(site = "character", sample = "character"))
+    predictor_flags(clim, meta)
+}
+
+#' Predictors climate_invariant_predictors.tsv names (all layers, not only selected).
+#' @noRd
+load_invariant_predictors <- function(project) {
+    dt <- read_warning_table(climate_invariant_path(project))
+    if (is.null(dt) || !"predictor" %in% names(dt)) character(0)
+    else as.character(dt$predictor)
+}
+
+#' Samples the climate analyses leave out (climate_dropped_samples()).
+#' @noRd
+load_climate_dropped <- function(project) {
+    climate_dropped_samples(
+        read_warning_table(qc_table_path(project, "coord_missing_summary.tsv"),
+                           colClasses = c(missing_samples = "character")),
+        read_warning_table(climate_table_path(project, "present", "climate_na_excluded"),
+                           colClasses = c(sample = "character", site = "character")))
+}
+
+#' An RDA offset run's own record (rda_offset_diagnostics.tsv, long key/value), as a
+#' named list; list() when absent. rda_offset_corrected writes the same file name.
+#' @noRd
+load_rda_offset_diagnostics <- function(project, suffix, method = "rda_offset") {
+    dt <- read_warning_table(mod_path(project, MOD_MALAD, "tables", method, suffix,
+                                      "rda_offset_diagnostics.tsv"),
+                             colClasses = "character")
+    if (is.null(dt) || !all(c("key", "value") %in% names(dt))) return(list())
+    stats::setNames(as.list(dt$value), dt$key)
+}
+
+#' The cross-entropy table beside a cross-entropy plot (same K range in its name).
+#' @param png_path find_k_range()$path.
+#' @noRd
+load_cross_entropy_table <- function(project, png_path) {
+    if (is.null(png_path) || !nzchar(png_path)) return(NULL)
+    read_warning_table(mod_path(project, MOD_PRESTRUCT, "tables",
+                                sub("\\.png$", ".tsv", basename(png_path))))
+}
+
+#' dbmem_selected.tsv (mode=climate); NULL when absent.
+#' @noRd
+load_dbmem_selected <- function(project) {
+    read_warning_table(climate_table_path(project, "varpart", "dbmem_selected"))
+}
+
+#' Trait chips' inputs: the traits Traits/tables/trait_invariant.tsv names (its column is
+#' `predictor`, shared with check_climate_variance) and identical traits (trait_flags()).
+#' @param traits Trait columns of the metadata.
+#' @noRd
+load_trait_marks <- function(project, traits) {
+    inv  <- read_warning_table(trait_table_path(project, "trait_invariant"))
+    meta <- read_warning_table(hap_metadata_path(project),
+                               colClasses = c(site = "character", sample = "character"))
+    list(invariant = if (is.null(inv) || !"predictor" %in% names(inv)) character(0)
+                     else intersect(as.character(inv$predictor), traits),
+         flags = if (is.null(meta)) trait_flags(data.table::data.table(), traits)
+                 else trait_flags(meta, traits))
 }

@@ -259,6 +259,13 @@ mod_gea_server <- function(id, project_data, run_trigger = NULL, module = MOD_GE
             )
         })
 
+        # Hits of one scan that tie on p across chromosomes, at the live thresholds
+        # (fct_warnings.R); a WZA window's p is not a single-marker test, so not read.
+        stripes <- shiny::reactive({
+            if (regime_wza()) return(NULL)
+            manhattan_stripes(effective_method_sigsnps())
+        })
+
         # ── Threshold y-value for live threshold line on Manhattan ────────────
         # Derived from the bindCached combo_thresholds — no redundant full-vector scan.
         # combined: min raw p threshold across all methods+traits → highest -log10 line
@@ -509,7 +516,8 @@ mod_gea_server <- function(id, project_data, run_trigger = NULL, module = MOD_GE
             }),
             note                 = shiny::reactive(htmltools::tagList(
                 help_note("manhattan_gea_combined"),
-                no_sig_traits_note(missing_traits())
+                no_sig_traits_note(missing_traits()),
+                stripe_note(stripes(), regime_wza())
             )),
             regions              = explorer$computed_regions,
             current_region_id    = explorer$selected_region_id,
@@ -587,7 +595,11 @@ mod_gea_server <- function(id, project_data, run_trigger = NULL, module = MOD_GE
                 if (!is.null(m) && !is.null(t)) paste0(m, " — ", t)
                 else "Method Manhattan"
             }),
-            note                 = shiny::reactive(help_note("manhattan_gea_method")),
+            note                 = shiny::reactive(htmltools::tagList(
+                help_note("manhattan_gea_method"),
+                stripe_note(stripes_for(stripes(), active_method(), per_method_trait()),
+                            regime_wza())
+            )),
             show_regions_control = FALSE,
             threshold_y          = per_method_threshold_y
         )

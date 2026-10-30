@@ -216,6 +216,18 @@ mod_maladaptation_server <- function(id, project_data, snp_sets_trigger = NULL) 
             gf_sensitivity_note(load_gf_sensitivity(pd$name, suf, method))
         })
 
+        # ── RDA offset: predictors its model aliased (0214e1) ────────────────
+        # rda_offset_diagnostics.tsv is the run's own record; an aliased predictor is
+        # one the offset was fitted without, dropped by column order.
+        output$rda_offset_badge <- shiny::renderUI({
+            suf    <- selected_suffix()
+            method <- selected_method()
+            pd     <- project_data()
+            if (is.null(suf) || is.null(pd) || !identical(mala_engine(method), "rda_offset"))
+                return(NULL)
+            rda_offset_note(load_rda_offset_diagnostics(pd$name, suf, method))
+        })
+
         # ── G2: Method run parameters badge (method-aware) ───────────────────
         output$method_params_badge <- shiny::renderUI({
             suf    <- selected_suffix()
@@ -940,6 +952,7 @@ mod_maladaptation_ui <- function(id) {
             shiny::uiOutput(ns("method_params_badge")),
             shiny::uiOutput(ns("climate_scenario_badge")),
             shiny::uiOutput(ns("sensitivity_badge")),
+            shiny::uiOutput(ns("rda_offset_badge")),
             htmltools::div(class = "ms-auto d-flex align-items-center gap-2",
                            shiny::uiOutput(ns("set_details_btn")),
                            shiny::uiOutput(ns("set_delete_btn")))

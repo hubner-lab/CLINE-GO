@@ -387,6 +387,20 @@
     }
 }
 
+// ── Warning badges (fct_warnings.R) in a column that can get narrow ───────────
+// A long label wraps inside the column instead of overflowing it: end-aligned flex
+// items wider than their row spill to the left, past the column's edge.
+.lab-warning-row {
+    min-width: 0;
+
+    .badge {
+        max-width: 100%;
+        white-space: normal;
+        text-align: left;
+        line-height: 1.25;
+    }
+}
+
 // ── Bio variable chips (climate.predictors) ───────────────────────────────────
 .bio-chips {
     display: grid;
@@ -400,6 +414,7 @@
 }
 
 .bc-chip {
+    position: relative;  // anchors the corner icon of a marked chip
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -447,6 +462,41 @@
             color: #dc3545;
         }
     }
+
+    // Marked (fct_warnings.R: identical or two-valued): orange and selectable; the
+    // corner icon names the reason, the chip's title the details.
+    &.bc-flagged {
+        background: rgba($warning, 0.10);
+        border-color: $warning;
+        color: darken($warning, 25%);
+
+        &.bc-active {
+            background: $warning;
+            border-color: $warning;
+            color: #1A2332;
+        }
+
+        &:hover:not(.bc-active) {
+            background: rgba($warning, 0.20);
+            border-color: $warning;
+            color: darken($warning, 25%);
+        }
+    }
+
+    .bc-flag-icons {
+        position: absolute;
+        top: -6px;
+        right: -5px;
+        display: inline-flex;
+        gap: 1px;
+        padding: 1px;
+        border-radius: 50%;
+        font-size: 0.6rem;
+        line-height: 1;
+        background: var(--bs-body-bg);
+        color: darken($warning, 20%);
+        pointer-events: none;
+    }
 }
 
 [data-bs-theme="dark"] {
@@ -480,6 +530,28 @@
                 border-color: rgba(220, 53, 69, 0.4);
                 color: #f87171;
             }
+        }
+
+        &.bc-flagged {
+            background: rgba($warning, 0.14);
+            border-color: $warning;
+            color: lighten($warning, 12%);
+
+            &.bc-active {
+                background: $warning;
+                border-color: $warning;
+                color: #1A2332;
+            }
+
+            &:hover:not(.bc-active) {
+                background: rgba($warning, 0.24);
+                border-color: $warning;
+                color: lighten($warning, 12%);
+            }
+        }
+
+        .bc-flag-icons {
+            color: lighten($warning, 12%);
         }
     }
 }

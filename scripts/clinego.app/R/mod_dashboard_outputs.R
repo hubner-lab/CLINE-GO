@@ -46,10 +46,16 @@ mod_prestructure_dashboard_outputs <- function(id, project_data) {
             k_best_txt <- if (!is.null(pd$k_best) && !is.na(pd$k_best))
                 as.character(pd$k_best) else "—"
 
+            # The cross-entropy card, which carries the warning, sits in a collapsed
+            # accordion: the strip says it too when the curve has no minimum.
+            kr <- find_k_range(pd$name, pd$config)
+            no_min <- cross_entropy_no_minimum(load_cross_entropy_table(pd$name, kr$path))
+
             bslib::layout_column_wrap(
                 width = 1 / 4, fill = FALSE,
                 lab_value_box("K best",  k_best_txt,  "primary", "diagram-3"),
-                lab_value_box("K tested", k_range_txt, "info",   "list-ol"),
+                lab_value_box("K tested", k_range_txt,
+                              if (is.null(no_min)) "info" else "warning", "list-ol"),
                 lab_value_box("Samples",
                               sv("processing", "samples_after_filtering"),
                               "success", "people-fill"),
@@ -102,6 +108,10 @@ mod_structure_dashboard_outputs <- function(id, project_data) {
             k_best <- sv("structure", "K_best")
             if (is.na(k_best)) k_best <- if (!is.na(pd$k_best)) pd$k_best else "—"
 
+            # Green only for a reliable 'All' curve, as the pipeline judges it (8bbdee).
+            ld_theme <- ld_decay_kpi_theme(
+                ld_decay_genome_wide_status(load_ld_decay_table(pd$name)))
+
             bslib::layout_column_wrap(
                 width = 1 / 4, fill = FALSE,
                 lab_value_box("K best", as.character(k_best), "primary", "diagram-3"),
@@ -110,7 +120,7 @@ mod_structure_dashboard_outputs <- function(id, project_data) {
                               "info", "thermometer-half"),
                 lab_value_box("LD decay, critical r²",
                               bp(sv("structure", "ld_decay_critical_genome_wide")),
-                              "success", "bar-chart-line"),
+                              ld_theme, "bar-chart-line"),
                 lab_value_box("LD half-decay",
                               bp(sv("structure", "ld_decay_half_decay_genome_wide")),
                               "info", "rulers")
@@ -150,7 +160,13 @@ mod_climate_dashboard_outputs <- function(id, project_data) {
                           else if (clim >= 5) "success"
                           else if (clim >= 1) "warning" else "danger"
 
-            n_inv       <- num(sv("n_invariant_predictors"))
+            # Counted over the selected predictors only (e83e54): the table lists every
+            # layer, for the chips. A tree before the table falls back to the summary,
+            # which counts Climate.predictors since d0dc9c4.
+            inv_layers <- load_invariant_predictors(pd$name)
+            n_inv <- if (file_ok(climate_invariant_path(pd$name)))
+                length(selected_invariant(inv_layers, selected_predictors(pd$config)))
+            else num(sv("n_invariant_predictors"))
             n_inv_theme <- if (!is.na(n_inv) && n_inv > 0) "warning" else "success"
 
             bslib::layout_column_wrap(
@@ -158,7 +174,7 @@ mod_climate_dashboard_outputs <- function(id, project_data) {
                 lab_value_box("Climate unique (R²adj)", clim_txt, clim_theme, "thermometer-half"),
                 lab_value_box("Unexplained", unexp_txt, unexp_theme, "pie-chart"),
                 lab_value_box("Invariant predictors",
-                              as.character(sv("n_invariant_predictors", "—")),
+                              if (is.na(n_inv)) "—" else as.character(n_inv),
                               n_inv_theme, "exclamation-triangle"),
                 lab_value_box("dbMEM vectors",
                               as.character(sv("dbMEM_n_mem_positive", "—")),

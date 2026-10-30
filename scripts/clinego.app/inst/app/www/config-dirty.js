@@ -4,6 +4,20 @@
 // Toggles a .config-dirty-badge span inside the sidebar title element.
 // The sidebar title selector targets the bslib sidebar panel's header.
 
+// clinegoChipLegendSync — the legend badge under a chip grid (chip_legend() in
+// fct_warnings.R) is neutral, and amber while a marked (orange) chip is selected.
+// The grid names its legend in data-legend; the legend carries both class sets.
+window.clinegoChipLegendSync = function(container) {
+    var legend = container && document.getElementById(container.dataset.legend);
+    var badge  = legend && legend.querySelector(".badge");
+    if (!badge) return;
+    var amber   = container.querySelector(".bc-chip.bc-flagged.bc-active") !== null;
+    var drop    = (amber ? legend.dataset.neutral : legend.dataset.amber).split(" ");
+    var add     = (amber ? legend.dataset.amber : legend.dataset.neutral).split(" ");
+    drop.forEach(function(c) { badge.classList.remove(c); });
+    add.forEach(function(c) { badge.classList.add(c); });
+};
+
 // bio_chips_reset — sync chip active states when Reset is clicked
 // Receives: { container_id, input_id, value: "bio_1,bio_3,bio_12" }
 Shiny.addCustomMessageHandler("bio_chips_reset", function(msg) {
@@ -25,6 +39,7 @@ Shiny.addCustomMessageHandler("bio_chips_reset", function(msg) {
         var active = selected.indexOf(chip.dataset.bio) !== -1;
         chip.classList.toggle("bc-active", active);
     });
+    window.clinegoChipLegendSync(container);
 
     // Sync the hidden bridge input too
     if (inputEl) {
@@ -40,13 +55,18 @@ Shiny.addCustomMessageHandler("pheno_chips_reset", function(msg) {
     var inputEl   = document.getElementById(msg.input_id);
     if (!container) return;
 
-    // Parse selected traits; empty = all selected
+    // Parse selected traits; empty = all selected. Struck (invariant) chips are never
+    // selected, as in render_pheno_chips().
     var selected = msg.value ? msg.value.split(",").map(function(s) { return s.trim(); }).filter(Boolean) : [];
-    var allChips = container.querySelectorAll(".bc-chip");
+    var allChips = Array.from(container.querySelectorAll(".bc-chip")).filter(function(chip) {
+        return chip.dataset.invariant !== "true";
+    });
+    var offered = allChips.map(function(c) { return c.dataset.trait; });
+    selected = selected.filter(function(t) { return offered.indexOf(t) !== -1; });
     if (selected.length === 0) {
         // Default: select all
         allChips.forEach(function(chip) { chip.classList.add("bc-active"); });
-        var all = Array.from(allChips).map(function(c) { return c.dataset.trait; });
+        var all = allChips.map(function(c) { return c.dataset.trait; });
         if (inputEl) {
             inputEl.value = all.join(",");
             Shiny.setInputValue(msg.input_id, all.join(","), {priority: "event"});
@@ -60,6 +80,7 @@ Shiny.addCustomMessageHandler("pheno_chips_reset", function(msg) {
             Shiny.setInputValue(msg.input_id, selected.join(","), {priority: "event"});
         }
     }
+    window.clinegoChipLegendSync(container);
 });
 
 // plot_rearm — re-arm the Manhattan loading overlay when the project changes.
