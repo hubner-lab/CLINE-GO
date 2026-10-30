@@ -12,9 +12,12 @@ Shiny.addCustomMessageHandler("bio_chips_reset", function(msg) {
     if (!container) return;
 
     var selected = msg.value ? msg.value.split(",").map(function(s) { return s.trim(); }) : [];
-    // If empty, default to all selected
+    // If empty, default to every chip this project offers (not bio_1..bio_19: a
+    // custom climate has its own list, 50838f)
     if (selected.length === 0) {
-        for (var i = 1; i <= 19; i++) selected.push("bio_" + i);
+        container.querySelectorAll(".bc-chip").forEach(function(chip) {
+            if (chip.dataset.invariant !== "true") selected.push(chip.dataset.bio);
+        });
     }
 
     container.querySelectorAll(".bc-chip").forEach(function(chip) {

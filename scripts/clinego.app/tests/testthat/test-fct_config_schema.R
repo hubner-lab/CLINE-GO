@@ -142,3 +142,29 @@ test_that("schema_for_tab and schema_split partition the schema", {
     # Every entry lands in exactly one half.
     expect_identical(length(split$mandatory) + length(split$optional), length(entries))
 })
+
+# --- Map.resolution and the predictor chips (2a, 50838f) ---------------------------
+
+test_that("Map.resolution offers WorldClim's four resolutions and writes a number", {
+    e <- Filter(function(x) identical(x$key, "Map.resolution"), config_schema())[[1]]
+    expect_identical(e$type, "select_numeric")
+    expect_identical(e$choices, c("0.5", "2.5", "5", "10"))
+    expect_identical(input_to_config_value("2.5", "select_numeric"), 2.5)
+    expect_identical(input_to_config_value("10", "select_numeric"), 10L)
+    # an existing YAML value pre-selects its choice
+    expect_identical(normalize_display_value(10L, "select_numeric"), "10")
+    expect_identical(normalize_display_value(0.5, "select_numeric"), "0.5")
+})
+
+test_that("predictor chips come from the project's own climate predictors", {
+    expect_identical(predictor_chip_choices(list()), paste0("bio_", 1:19))
+    custom <- list(Climate = list(source = "custom",
+                                  custom = list(columns = "bio_21,bio_3,bio_12")))
+    expect_identical(predictor_chip_choices(custom), c("bio_3", "bio_12", "bio_21"))
+    # custom.columns unset: Climate.predictors, the pipeline's fallback
+    fallback <- list(Climate = list(source = "custom", predictors = "bio_2,bio_1"))
+    expect_identical(predictor_chip_choices(fallback), c("bio_1", "bio_2"))
+    # a configured predictor outside the list stays a chip, so a click never drops it
+    expect_identical(predictor_chip_choices(list(), "bio_1,bio_25")[c(1, 20)],
+                     c("bio_1", "bio_25"))
+})

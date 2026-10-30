@@ -218,47 +218,71 @@ mod_traits_dashboard_outputs <- function(id, project_data) {
 }
 
 
-#' KPI strip shared by the GEA and GWAS tabs: significant SNPs, regions, genes,
-#' methods, and the sNMF.imputed_maf filter (tested SNPs before -> after).
+#' KPI strip shared by the GEA and GWAS tabs: significant SNPs (or windows),
+#' regions, traits with hits, methods, and the sNMF.imputed_maf filter (tested SNPs
+#' before -> after).
+#'
+#' The first three are the tab's live counts, at the threshold, matrix selection,
+#' strategy and clumping its controls hold, as the Manhattan below them; the
+#' pipeline_summary.tsv counts are at the configured rules and contradicted the
+#' controls whenever these moved (1c6896). The pipeline's own gene count has no
+#' live counterpart here: the Region explorer lists each region's genes.
+#'
 #' @param s pipeline_summary as a data.frame (step / metric / value)
 #' @param step "gea" or "gwas"
+#' @param kpis the module server's live counts: values of n_hits, n_regions,
+#'   traits_hit, traits_all, n_methods and wza (assoc_live_kpis())
 #' @noRd
-assoc_summary_boxes <- function(s, step) {
-    sv <- function(metric, default = NA) {
-        if (nrow(s) == 0) return(default)
-        row <- s[s$step == step & s$metric == metric, ]
-        if (nrow(row) == 0) default else row$value[1]
-    }
-    num <- function(x) suppressWarnings(as.numeric(x))
-
-    meth <- if (nrow(s) == 0) character(0) else
-        s$metric[s$step == step & grepl("^sig_snps_", s$metric)]
-    n_snps     <- num(sv("selected_snps_total"))
-    snps_theme <- if (is.na(n_snps)) "secondary"
-                  else if (n_snps == 0) "danger" else "primary"
+assoc_summary_boxes <- function(s, step, kpis) {
+    hits_theme <- if (kpis$n_hits == 0) "danger" else "primary"
+    traits_theme <- if (kpis$traits_all > 0 && kpis$traits_hit < kpis$traits_all) "warning"
+                    else "success"
 
     bslib::layout_column_wrap(
         width = 1 / 5, fill = FALSE,
         imputed_maf_value_box(imputed_maf_counts(s, step)),
-        lab_value_box("Significant SNPs",
-                      as.character(sv("selected_snps_total", "\u2014")),
-                      snps_theme, "bullseye"),
-        lab_value_box("Regions", as.character(sv("regions_combined", "\u2014")),
-                      "info", "geo-alt"),
-        lab_value_box("Genes", as.character(sv("genes_found", "\u2014")),
-                      "success", "diagram-2"),
+        lab_value_box(if (kpis$wza) "Significant windows" else "Significant SNPs",
+                      format(kpis$n_hits, big.mark = ","), hits_theme, "bullseye"),
+        lab_value_box("Regions", format(kpis$n_regions, big.mark = ","), "info", "geo-alt"),
+        lab_value_box("Traits with hits",
+                      if (kpis$traits_all > 0) paste0(kpis$traits_hit, " / ", kpis$traits_all)
+                      else "\u2014",
+                      traits_theme, "diagram-2"),
         lab_value_box("Methods",
-                      if (length(meth) > 0) as.character(length(meth)) else "\u2014",
+                      if (kpis$n_methods > 0) as.character(kpis$n_methods) else "\u2014",
                       "info", "layers")
     )
 }
 
+#' The live counts a GEA or GWAS module server hands its KPI strip.
+#'
+#' @param sigsnps   Reactive: the tab's significant SNPs after the matrix, strategy
+#'   and clumping (interactive_sigsnps()).
+#' @param regions   Reactive: the Region explorer's regions.
+#' @param traits_hit,traits_all Reactives: traits with a hit at the threshold; all.
+#' @param methods   Reactive: the methods with p-value tables.
+#' @param wza       Reactive logical: WZA windows instead of SNPs.
+#' @return A reactive list of plain values.
+#' @noRd
+assoc_live_kpis <- function(sigsnps, regions, traits_hit, traits_all, methods, wza) {
+    shiny::reactive({
+        hits <- sigsnps()
+        list(n_hits     = if (is.null(hits) || nrow(hits) == 0) 0L
+                          else data.table::uniqueN(hits$SNPID),
+             n_regions  = nrow(regions() %||% data.frame()),
+             traits_hit = length(traits_hit()),
+             traits_all = length(traits_all()),
+             n_methods  = length(methods()),
+             wza        = isTRUE(wza()))
+    })
+}
 
-mod_gea_dashboard_outputs <- function(id, project_data) {
+
+mod_gea_dashboard_outputs <- function(id, project_data, kpis) {
     shiny::moduleServer(id, function(input, output, session) {
         output$summary_boxes <- shiny::renderUI({
             pd <- project_data()
-            assoc_summary_boxes(as.data.frame(load_pipeline_summary(pd$name)), "gea")
+            assoc_summary_boxes(as.data.frame(load_pipeline_summary(pd$name)), "gea", kpis())
         })
 
         for (out_id in c("threshold_bar", "filter_bar", "wza_collapse_note")) {
@@ -275,36 +299,34 @@ mod_gea_dashboard_outputs <- function(id, project_data) {
 }
 
 
-mod_gwas_dashboard_outputs <- function(id, project_data) {
+mod_gwas_dashboard_outputs <- function(id, project_data, kpis) {
     shiny::moduleServer(id, function(input, output, session) {
         output$summary_boxes <- shiny::renderUI({
             pd <- project_data()
-            assoc_summary_boxes(as.data.frame(load_pipeline_summary(pd$name)), "gwas")
+            assoc_summary_boxes(as.data.frame(load_pipeline_summary(pd$name)), "gwas", kpis())
         })
     })
 }
 
 
-mod_geaxgwas_dashboard_outputs <- function(id, project_data) {
+#' The GEAxGWAS KPI strip: each side's live hits and regions, at that side's
+#' filter bar (1c6896), and the overlap regions the explorer lists.
+#' @param kpis Reactive list of plain values: gea_hits, gea_regions, gwas_hits,
+#'   gwas_regions, overlaps.
+#' @noRd
+mod_geaxgwas_dashboard_outputs <- function(id, project_data, kpis) {
     shiny::moduleServer(id, function(input, output, session) {
         output$summary_boxes <- shiny::renderUI({
-            pd <- project_data()
-            s  <- as.data.frame(load_pipeline_summary(pd$name))
-            sv <- function(step, metric, default = "—") {
-                if (nrow(s) == 0) return(default)
-                row <- s[s$step == step & s$metric == metric, ]
-                if (nrow(row) == 0) default else as.character(row$value[1])
-            }
+            k <- kpis()
+            n <- function(x) format(x, big.mark = ",")
             bslib::layout_column_wrap(
-                width = 1 / 4, fill = FALSE,
-                lab_value_box("GEA SNPs",  sv("gea",  "selected_snps_total"),
-                              "primary", "arrow-up"),
-                lab_value_box("GEA regions", sv("gea", "regions_combined"),
-                              "info", "geo-alt"),
-                lab_value_box("GWAS SNPs", sv("gwas", "selected_snps_total"),
-                              "success", "arrow-down"),
-                lab_value_box("GWAS regions", sv("gwas", "regions_combined"),
-                              "info", "geo-alt")
+                width = 1 / 5, fill = FALSE,
+                lab_value_box("GEA hits",  n(k$gea_hits), "primary", "arrow-up"),
+                lab_value_box("GEA regions", n(k$gea_regions), "info", "geo-alt"),
+                lab_value_box("GWAS hits", n(k$gwas_hits), "success", "arrow-down"),
+                lab_value_box("GWAS regions", n(k$gwas_regions), "info", "geo-alt"),
+                lab_value_box("Overlapping", n(k$overlaps),
+                              if (k$overlaps == 0) "secondary" else "primary", "intersect")
             )
         })
     })

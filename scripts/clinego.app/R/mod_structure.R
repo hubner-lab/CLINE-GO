@@ -94,17 +94,29 @@ mod_structure_server <- function(id, project_data) {
             mantel_p <- file.path(stats_dir, "mantel_test.png")
             amova_p  <- file.path(stats_dir, "amova.png")
 
+            # Why a card is empty: the pipeline writes both only when
+            # Population.calc_stats is on (c0c726)
+            stats_on <- isTRUE(as.logical(config_get(pd$config, "Population", "calc_stats",
+                                                     default = FALSE)))
+            empty_msg <- if (stats_on) "Not computed yet" else "Population statistics are off"
+            empty_tip <- if (stats_on) "Run Structure to compute it."
+                         else "Tick \u201cCalculate pop stats\u201d in the Structure sidebar (Pop Stats), then run Structure."
+
             mod_image_card_server("mantel",
-                path    = shiny::reactive(if (file_ok(mantel_p)) mantel_p else NULL),
-                title   = shiny::reactive("Mantel Test"),
-                dl_name = shiny::reactive("mantel_test"),
-                note    = shiny::reactive(help_note("mantel"))
+                path        = shiny::reactive(if (file_ok(mantel_p)) mantel_p else NULL),
+                title       = shiny::reactive("Mantel Test"),
+                dl_name     = shiny::reactive("mantel_test"),
+                placeholder = shiny::reactive(empty_msg),
+                suggestion  = shiny::reactive(empty_tip),
+                note        = shiny::reactive(help_note("mantel"))
             )
             mod_image_card_server("amova",
-                path    = shiny::reactive(if (file_ok(amova_p)) amova_p else NULL),
-                title   = shiny::reactive("AMOVA"),
-                dl_name = shiny::reactive("amova"),
-                note    = shiny::reactive(help_note("amova"))
+                path        = shiny::reactive(if (file_ok(amova_p)) amova_p else NULL),
+                title       = shiny::reactive("AMOVA"),
+                dl_name     = shiny::reactive("amova"),
+                placeholder = shiny::reactive(empty_msg),
+                suggestion  = shiny::reactive(empty_tip),
+                note        = shiny::reactive(help_note("amova"))
             )
             # C3: Population statistics sample counts
             output$pop_stats_info <- shiny::renderUI({

@@ -87,6 +87,26 @@ clumping_issue_note <- function(pd, source) {
     )
 }
 
+#' Amber note when the config's region_clumping_distance cannot be read.
+#'
+#' The pipeline stops on such a distance (an auto_* value on an unreliable LD-decay
+#' curve); the app then merges regions at the clumping distance, and says so.
+#'
+#' @param region_merge config_region_clumping_distance()'s list(bp, error).
+#' @noRd
+region_clumping_issue_note <- function(region_merge) {
+    msg <- region_merge$error
+    if (is.null(msg)) return(NULL)
+    filter_note(
+        "region distance",
+        htmltools::p(
+            htmltools::tags$strong("The pipeline cannot read this project's region_clumping_distance"),
+            " — ", msg, ". Regions here merge at the clumping distance instead."
+        ),
+        class = "bg-warning text-dark"
+    )
+}
+
 #' Info-circle popover explaining WZA window size and how to change it
 #'
 #' @param context One of "gea", "gwas", or "overlap"

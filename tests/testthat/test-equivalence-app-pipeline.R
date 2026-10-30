@@ -172,8 +172,8 @@ test_that("region GEOMETRY is identical (the shared code path)", {
     r <- regions_both_sides()
 
     geom <- c("chr", "start", "end", "length", "snp_count", "snp_ids")
-    # Sorted copies: the app's join does not preserve row order (see the next
-    # test), so a positional comparison would fail for the wrong reason.
+    # Sorted copies: the geometry is compared as sets here; the order has its own
+    # test below.
     p <- data.table::setorder(r$pipe[, ..geom], chr, start)
     a <- data.table::setorder(r$app[, ..geom], chr, start)
 
@@ -225,17 +225,12 @@ test_that("the pipeline adds per-trait/per-method SNP-count columns the app has 
     expect_false(any(grepl("_snps$", names(r$app))))
 })
 
-test_that("KNOWN DIVERGENCE: the app's join breaks the shared chr/start ordering", {
-    # CORRECT behaviour, deliberately not made to pass.
-    # cluster_snps_to_regions() ends with setorder(regions, chr, start)
-    # (regions.R:102). fct_regions.R:51 then does
-    # `regions <- trait_methods[regions, on = "region_id"]`, a data.table right
-    # join keyed by region_id, which does not preserve that order. The pipeline
-    # path keeps it. Anything reading the app's table positionally (a "first
-    # region" pick, a head()) gets a different region than the pipeline would.
-    # Filed 2026-09-10 in docs/pipeline_improvement_requests.md.
-    skip("known divergence: app compute_all_regions loses chr/start order — filed 2026-09-10")
-
+test_that("the app's regions keep the shared chr/start ordering", {
+    # cluster_snps_to_regions() ends with setorder(regions, chr, start); the app's
+    # compute_all_regions() then joins its traits/methods on by region_id and lost
+    # that order until it re-sorted after the join (a79341, filed 2026-09-10).
+    # Anything reading the app's table positionally (a "first region" pick, a
+    # head()) now gets the region the pipeline would.
     skip_without_app()
     r <- regions_both_sides()
     expect_identical(r$app$chr,   r$pipe$chr)

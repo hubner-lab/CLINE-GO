@@ -219,7 +219,12 @@ for (i in seq_len(nrow(regions))) {
   # Run crosshap with comprehensive error handling
   hap_result <- tryCatch({
     message("Reading VCF for crosshap...")
-    vcf_obj <- read_vcf(region_vcf)
+    # crosshap::read_vcf() is data.table::fread(), which takes the header from a sample of
+    # lines: a region with fewer SNPs than the VCF has ## meta lines was read as two
+    # columns ("Column POS not found", a 3-SNP SIMDATA region). It needs only #CHROM.
+    crosshap_vcf <- file.path(tmp_dir, "region_crosshap.vcf")
+    writeLines(grep("^##", readLines(region_vcf), value = TRUE, invert = TRUE), crosshap_vcf)
+    vcf_obj <- read_vcf(crosshap_vcf)
 
     # Ensure unique SNP IDs (crosshap requires this)
     if (any(duplicated(vcf_obj$ID)) || all(vcf_obj$ID == ".")) {

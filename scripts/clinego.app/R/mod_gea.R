@@ -137,23 +137,15 @@ mod_gea_server <- function(id, project_data, run_trigger = NULL, module = MOD_GE
                                pvalue_fingerprint(),
                                threshold_overrides_key(threshold_overrides(), registry_defaults()))
 
-        # Strategy: defaults to "All"; persisted to region_params.json so the GEAxGWAS
-        # "Fill from GEA tab" button can read the user's last-chosen value.
-        default_strategy <- shiny::reactive({
-            pd    <- project_data()
-            rp    <- read_region_params(pd$name)
-            saved <- get_global_param(rp, module, "combine_strategy")
-            if (!is.null(saved)) .normalize_strategy(saved) else "All"
-        })
+        # ── Filter-bar state: threshold rule, strategy, regime ─────────────────
+        # Each starts at the value saved in region_params.json, else at the config
+        # (the strategy at Union), and is saved only when the user moves it
+        # (filter_bar_state()); the GEAxGWAS "Fill from GEA tab" button reads the
+        # saved values. The controls render from these reactives, not from their inputs.
+        bar <- filter_bar_state(input, project_data, module, source = module,
+                                registry_defaults = registry_defaults)
 
-        shiny::observeEvent(input$combine_strategy, {
-            pd <- project_data(); if (is.null(pd)) return()
-            rp <- read_region_params(pd$name)
-            rp <- set_global_param(rp, module, "combine_strategy", input$combine_strategy)
-            save_region_params(pd$name, rp)
-        }, ignoreInit = TRUE)
-
-        active_strategy <- shiny::reactive(input$combine_strategy %||% default_strategy())
+        active_strategy <- shiny::reactive(input$combine_strategy %||% bar$strategy())
 
         # ── SNP clumping distance (single param for both merging and overlap) ───
         # Starts at the saved value, else at the project's own distance (its LD-decay
@@ -163,24 +155,16 @@ mod_gea_server <- function(id, project_data, run_trigger = NULL, module = MOD_GE
         snp_clumping_distance <- clumping_distance_state(
             input, project_data, "snp_clumping_distance", MOD_GEA, "snp_clumping_distance", MOD_GEA)
 
-        # ── Regime (per-SNP vs WZA) ────────────────────────────────────────────
-        shiny::observe({
-            pd    <- project_data()
-            rp    <- read_region_params(pd$name)
-            saved <- get_global_param(rp, MOD_GEA, "regime")
-            if (!is.null(saved))
-                bslib::update_switch("regime", value = isTRUE(saved), session = session)
-        })
-
-        shiny::observeEvent(input$regime, {
+        # The region merge: the config's region_clumping_distance when it sets one,
+        # else the clumping distance above, as the pipeline merges (acff31).
+        region_merge <- shiny::reactive({
             pd <- project_data()
-            if (is.null(pd)) return()
-            rp <- read_region_params(pd$name)
-            rp <- set_global_param(rp, MOD_GEA, "regime", isTRUE(input$regime))
-            save_region_params(pd$name, rp)
-        }, ignoreInit = TRUE)
+            config_region_clumping_distance(pd$config, MOD_GEA, ld_decay_table_path(pd$name))
+        })
+        region_clumping_distance <- shiny::reactive(region_merge()$bp %||% snp_clumping_distance())
 
-        regime_wza <- shiny::reactive(isTRUE(input$regime))
+        # ── Regime (per-SNP vs WZA) ────────────────────────────────────────────
+        regime_wza <- shiny::reactive(isTRUE(input$regime %||% bar$regime()))
 
         # ── WZA collapse note (appears when regime switch is ON) ───────────────
         output$wza_collapse_note <- shiny::renderUI({
@@ -189,51 +173,12 @@ mod_gea_server <- function(id, project_data, run_trigger = NULL, module = MOD_GE
         })
 
         # ── Threshold type + value (interactive significance level) ───────────
-        shiny::observe({
-            pd      <- project_data()
-            cfg     <- pd$config
-            rp      <- read_region_params(pd$name)
-            saved_t <- get_global_param(rp, module, "threshold_type")
-            saved_v <- get_global_param(rp, module, "threshold_value")
-            if (!is.null(saved_t)) {
-                shiny::updateSelectInput(session,  "threshold_type",  selected = saved_t)
-            } else {
-                def <- default_threshold(cfg, module)
-                shiny::updateSelectInput(session,  "threshold_type",  selected = def$type)
-            }
-            if (!is.null(saved_v)) {
-                shiny::updateNumericInput(session, "threshold_value", value = as.numeric(saved_v))
-            } else if (is.null(saved_t)) {
-                def <- default_threshold(cfg, module)
-                shiny::updateNumericInput(session, "threshold_value", value = def$value)
-            }
-        })
-
-        shiny::observeEvent(input$threshold_type, {
-            pd <- project_data(); if (is.null(pd)) return()
-            rp <- read_region_params(pd$name)
-            rp <- set_global_param(rp, module, "threshold_type", input$threshold_type)
-            save_region_params(pd$name, rp)
-        }, ignoreInit = TRUE)
-
-        shiny::observeEvent(input$threshold_value, {
-            v  <- input$threshold_value
-            pd <- project_data(); if (is.null(pd) || is.null(v) || is.na(v)) return()
-            rp <- read_region_params(pd$name)
-            rp <- set_global_param(rp, module, "threshold_value", as.numeric(v))
-            save_region_params(pd$name, rp)
-        }, ignoreInit = TRUE)
-
-        threshold_type_raw <- shiny::reactive(input$threshold_type %||% "bonf")
+        threshold_type_raw <- shiny::reactive(input$threshold_type %||% bar$threshold_type())
         # Debounce type so switching to "qval" doesn't fire the full 2M-row scan instantly
         threshold_type  <- shiny::debounce(threshold_type_raw, 500)
         threshold_value_raw <- shiny::reactive({
             v <- input$threshold_value
-            if (is.null(v) || is.na(v) || v <= 0) {
-                default_threshold(project_data()$config, module)$value
-            } else {
-                as.numeric(v)
-            }
+            if (is.null(v) || is.na(v) || v <= 0) bar$threshold_value() else as.numeric(v)
         })
         # Debounce threshold value to avoid firing qval computation on every keystroke
         threshold_value <- shiny::debounce(threshold_value_raw, 500)
@@ -250,7 +195,8 @@ mod_gea_server <- function(id, project_data, run_trigger = NULL, module = MOD_GE
             threshold_type = threshold_type, threshold_value = threshold_value,
             registry_defaults = registry_defaults, config_rules = config_rules,
             config_state = config_state,
-            config_module_key = if (identical(module, MOD_GWAS)) "GWAS" else "GEA"
+            config_module_key = if (identical(module, MOD_GWAS)) "GWAS" else "GEA",
+            combo_counts = combo_counts
         )
         threshold_overrides <- matrix_rules$overrides
 
@@ -281,14 +227,13 @@ mod_gea_server <- function(id, project_data, run_trigger = NULL, module = MOD_GE
 
         # ── Always-present threshold bar (regime + threshold type/value) ─────
         output$threshold_bar <- shiny::renderUI({
-            pd <- project_data()
+            project_data()
             shiny::isolate({
                 build_threshold_bar_ui(
                     ns                    = ns,
-                    regime_value          = isTRUE(input$regime),
-                    threshold_type_value  = input$threshold_type  %||% "bonf",
-                    threshold_value_value = input$threshold_value %||%
-                        default_threshold(pd$config, module)$value,
+                    regime_value          = bar$regime(),
+                    threshold_type_value  = bar$threshold_type(),
+                    threshold_value_value = bar$threshold_value(),
                     regime_context        = "gea",
                     show_apply_to_config  = !is.null(config_state)
                 )
@@ -356,7 +301,10 @@ mod_gea_server <- function(id, project_data, run_trigger = NULL, module = MOD_GE
                 config_badge("significance",
                              format_threshold_rule(threshold_type(), threshold_value())),
                 config_badge("clumping", .format_bp(snp_clumping_distance())),
+                if (!is.null(region_merge()$bp))
+                    config_badge("region merge", .format_bp(region_merge()$bp)),
                 clumping_issue_note(pd, MOD_GEA),
+                region_clumping_issue_note(region_merge()),
                 # Always shown, both ways: the regime is one of two states, and a
                 # badge that only appears when WZA is on leaves per-SNP implicit.
                 if (regime_wza()) config_badge("regime", "WZA windows", "bg-info")
@@ -382,8 +330,11 @@ mod_gea_server <- function(id, project_data, run_trigger = NULL, module = MOD_GE
                 trait_colors                = trait_colors(),
                 combo_counts                = combo_counts(),
                 combo_thresholds            = combo_thresholds(),
-                default_strategy_value      = default_strategy(),
+                # isolate()d: the radio holds the user's move; a re-render must not
+                # be triggered by it, only seeded from it
+                default_strategy_value      = shiny::isolate(bar$strategy()),
                 snp_clumping_distance_value = snp_clumping_distance(),
+                region_clumping_distance_value = region_merge()$bp,
                 # isolate()d: the matrix's own on/off selection must survive a
                 # re-render triggered by combo_counts/combo_thresholds changing
                 # (e.g. a master threshold edit) — see setup_matrix_rules_server().
@@ -533,7 +484,7 @@ mod_gea_server <- function(id, project_data, run_trigger = NULL, module = MOD_GE
             project_data        = project_data,
             module              = module,
             interactive_sigsnps = interactive_sigsnps,
-            region_distance     = snp_clumping_distance,
+            region_distance     = region_clumping_distance,
             regime              = regime_wza
         )
 
@@ -664,6 +615,11 @@ mod_gea_server <- function(id, project_data, run_trigger = NULL, module = MOD_GE
             note    = shiny::reactive(help_note("qq_plot_gea"))
         )
 
+        # Live counts for the KPI strip (mod_gea_dashboard_outputs(), 1c6896)
+        list(kpis = assoc_live_kpis(
+            sigsnps = interactive_sigsnps, regions = explorer$computed_regions,
+            traits_hit = traits, traits_all = all_trait_names_rv,
+            methods = methods, wza = regime_wza))
     })
 }
 
@@ -686,7 +642,7 @@ mod_gea_ui <- function(id) {
         # Safe to collapse: mod_gea_server() has exactly one req() in 729 lines
         # (on project_data(), inside the save observer), and every control input
         # it reads is guarded by `%||%` fallback -- input$threshold_type %||%
-        # "bonf", input$combine_strategy %||% default_strategy(), and so on. A
+        # bar$threshold_type(), input$combine_strategy %||% bar$strategy(), and so on. A
         # suspended control bar therefore yields pipeline defaults rather than a
         # blocked plot. mod_gea_dashboard_outputs() additionally un-suspends them so
         # the values saved in region_params.json still reach them.

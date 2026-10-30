@@ -331,3 +331,115 @@ test_that("a box that already holds the new project's value takes a move at once
         expect_null(saved_distance(a))
     })
 })
+
+# --- filter_bar_state(): the threshold rule, strategy and regime (ac8228) ----------
+#
+# The bars saved threshold_type, threshold_value, combine_strategy and regime into
+# region_params.json on first render: every re-rendered control's report counted as a
+# change. Each is now a filter_param_state(), saved only when the user moves it.
+
+bar_server <- function(id, project_data, registry_defaults = shiny::reactive(list())) {
+    shiny::moduleServer(id, function(input, output, session) {
+        bar <- filter_bar_state(input, project_data, MOD_GEA, source = MOD_GEA,
+                                registry_defaults = registry_defaults)
+    })
+}
+
+saved_bar <- function(project, key) get_global_param(read_region_params(project), MOD_GEA, key)
+
+two_rule_cfg <- function(first = "LFMM") {
+    cfgs <- list(LFMM  = list(method = "LFMM",  adjust = "qval", threshold = "0.1"),
+                 EMMAX = list(method = "EMMAX", adjust = "bonf", threshold = "0.05"))
+    list(GEA = list(configs = unname(cfgs[c(first, setdiff(names(cfgs), first))])))
+}
+
+test_that("the bar starts at the config and writes nothing until a control moves", {
+    a <- paste0("fbs_a_", as.integer(Sys.time()))
+    withr::defer(unlink(file.path(CLINEGO_TEST_ROOT, paste0(a, "_results")), recursive = TRUE))
+    proj <- shiny::reactiveVal(list(name = a, config = two_rule_cfg()))
+    shiny::testServer(bar_server, args = list(project_data = proj), {
+        expect_identical(bar$threshold_type(), "bonf")        # EMMAX's: the tie's first method
+        expect_identical(bar$threshold_value(), 0.05)
+        expect_identical(bar$strategy(), "Union")
+        expect_false(bar$regime())
+        # the bar binding: every control reports the value it was rendered with
+        session$setInputs(threshold_type = "bonf", threshold_value = 0.05,
+                          combine_strategy = "Union", regime = FALSE)
+        expect_false(file.exists(region_params_path(a)))      # first show writes nothing
+        session$setInputs(threshold_type = "qval")            # a move
+        expect_identical(saved_bar(a, "threshold_type"), "qval")
+        expect_null(saved_bar(a, "threshold_value"))
+        session$setInputs(combine_strategy = "Cross-method", regime = TRUE)
+        expect_identical(saved_bar(a, "combine_strategy"), "Cross-method")
+        expect_true(isTRUE(saved_bar(a, "regime")))
+    })
+})
+
+test_that("the bar's start does not depend on the order of GEA.configs (230a79)", {
+    a <- paste0("fbs_b_", as.integer(Sys.time()))
+    withr::defer(unlink(file.path(CLINEGO_TEST_ROOT, paste0(a, "_results")), recursive = TRUE))
+    for (first in c("LFMM", "EMMAX")) {
+        proj <- shiny::reactiveVal(list(name = a, config = two_rule_cfg(first)))
+        shiny::testServer(bar_server, args = list(project_data = proj), {
+            expect_identical(bar$threshold_type(), "bonf")
+            expect_identical(bar$threshold_value(), 0.05)
+        })
+    }
+})
+
+test_that("a late report of the previous project's rule is not saved into the next", {
+    a <- paste0("fbs_c_", as.integer(Sys.time()))
+    b <- paste0("fbs_d_", as.integer(Sys.time()))
+    withr::defer(unlink(file.path(CLINEGO_TEST_ROOT, paste0(c(a, b), "_results")), recursive = TRUE))
+    cfg_top <- list(GEA = list(configs = list(list(method = "EMMAX", adjust = "top", threshold = "100"))))
+    proj <- shiny::reactiveVal(list(name = a, config = cfg_top))
+    shiny::testServer(bar_server, args = list(project_data = proj), {
+        session$setInputs(threshold_type = "top", threshold_value = 100)
+        proj(list(name = b, config = two_rule_cfg()))
+        session$flushReact()
+        session$setInputs(threshold_type = "top", threshold_value = 100)   # a's controls, late
+        expect_identical(bar$threshold_type(), "bonf")
+        expect_false(file.exists(region_params_path(b)))
+        session$setInputs(threshold_type = "bonf", threshold_value = 0.05) # b's controls bind
+        session$setInputs(threshold_value = 0.01)                          # now a move
+        expect_identical(saved_bar(b, "threshold_value"), 0.01)
+        expect_false(file.exists(region_params_path(a)))
+    })
+})
+
+# --- config_region_clumping_distance(): the region merge's own distance (acff31) ---
+
+test_that("the region merge distance is read only when the config sets one", {
+    expect_null(config_region_clumping_distance(list(GEA = list(snp_clumping_distance = 5000L)))$bp)
+    expect_null(config_region_clumping_distance(
+        list(GEA = list(region_clumping_distance = "none")))$bp)
+    expect_identical(config_region_clumping_distance(
+        list(GEA = list(snp_clumping_distance = 2707L, region_clumping_distance = 100000L)))$bp,
+        100000L)
+    # GWAS inherits GEA's unless it sets its own, as resolve_region_params() reads it
+    cfg <- list(GEA = list(region_clumping_distance = 100000L), GWAS = list())
+    expect_identical(config_region_clumping_distance(cfg, MOD_GWAS)$bp, 100000L)
+    cfg$GWAS$region_clumping_distance <- 50000L
+    expect_identical(config_region_clumping_distance(cfg, MOD_GWAS)$bp, 50000L)
+})
+
+# --- parse_csv_list() / project_files_stamp() --------------------------------------
+
+test_that("parse_csv_list reads a comma-separated string, a YAML list and a vector alike", {
+    expect_identical(parse_csv_list("a, b,,c "), c("a", "b", "c"))
+    expect_identical(parse_csv_list(list("a", "b")), c("a", "b"))
+    expect_identical(parse_csv_list(c("a,b", "c")), c("a", "b", "c"))
+    expect_identical(parse_csv_list(NULL), character(0))
+    expect_length(parse_csv_list("ACCESS-CM2, MIROC6 ,MPI-ESM1-2-HR"), 3L)   # d976ad: 3 GCMs
+})
+
+test_that("project_files_stamp moves when the config is written (fb53fe)", {
+    a <- paste0("pfs_", as.integer(Sys.time()))
+    cfg <- file.path(CLINEGO_TEST_ROOT, paste0("config_", a, ".yaml"))
+    withr::defer(unlink(cfg))
+    writeLines("project_name: x", cfg)
+    s1 <- project_files_stamp(a)
+    Sys.setFileTime(cfg, Sys.time() + 5)
+    expect_false(identical(project_files_stamp(a), s1))
+    expect_identical(project_files_stamp(NULL), "")
+})

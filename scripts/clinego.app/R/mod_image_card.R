@@ -1,7 +1,7 @@
 #' Generic image card module UI
 #'
 #' Displays a static PNG/SVG image in a card with full-screen expansion
-#' and SVG/PNG download buttons.
+#' and PNG download, plus SVG when the pipeline wrote one.
 #'
 #' @param id module namespace id
 #' @param height card body height (default "auto")
@@ -17,14 +17,7 @@ mod_image_card_ui <- function(id, height = "auto") {
                 shiny::textOutput(ns("title"), inline = TRUE),
                 shiny::uiOutput(ns("note"), inline = TRUE)
             ),
-            bslib::popover(
-                trigger = bsicons::bs_icon("download", title = "Download plot"),
-                title = "Download",
-                shiny::downloadButton(ns("dl_svg"), "SVG",
-                                      class = "btn-sm btn-outline-secondary"),
-                shiny::downloadButton(ns("dl_png"), "PNG",
-                                      class = "btn-sm btn-outline-secondary")
-            )
+            shiny::uiOutput(ns("downloads"), inline = TRUE)
         ),
         bslib::card_body(
             fillable = FALSE,
@@ -75,14 +68,33 @@ mod_image_card_server <- function(id, path, title = shiny::reactive("Plot"),
             list(src = p, contentType = mime, width = "100%", alt = title())
         }, deleteFile = FALSE)
 
-        # Download handlers — try SVG first, fall back to PNG
+        # The SVG the pipeline wrote beside the PNG, or NULL when it wrote none
+        svg_file <- shiny::reactive({
+            p <- path()
+            if (!file_ok(p)) return(NULL)
+            svg <- sub("\\.png$", ".svg", p, ignore.case = TRUE)
+            if (file_ok(svg)) svg else NULL
+        })
+
+        # The SVG button only when there is an SVG: without one it served the PNG's
+        # bytes under a .svg name (c5e6e2; the Processing QC plots, overall_importance)
+        output$downloads <- shiny::renderUI({
+            bslib::popover(
+                trigger = bsicons::bs_icon("download", title = "Download plot"),
+                title = "Download",
+                if (!is.null(svg_file()))
+                    shiny::downloadButton(ns("dl_svg"), "SVG",
+                                          class = "btn-sm btn-outline-secondary"),
+                shiny::downloadButton(ns("dl_png"), "PNG",
+                                      class = "btn-sm btn-outline-secondary")
+            )
+        })
+
         output$dl_svg <- shiny::downloadHandler(
             filename = function() paste0(dl_name(), ".svg"),
             content  = function(file) {
-                p <- path()
-                svg_path <- sub("\\.png$", ".svg", p, ignore.case = TRUE)
-                src <- if (file_ok(svg_path)) svg_path else p
-                if (file_ok(src)) file.copy(src, file) else writeLines("", file)
+                src <- svg_file()
+                if (!is.null(src)) file.copy(src, file) else writeLines("", file)
             }
         )
 

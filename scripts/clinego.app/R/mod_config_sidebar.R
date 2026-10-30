@@ -282,6 +282,30 @@ mod_config_sidebar_server <- function(id, config_state, tab_name, snp_sets_trigg
             })
         }
 
+        # ── Chips follow working: Climate.predictors has a copy on the GEA and the
+        # Climate tab, each rendered once per project. An edit on one tab left the
+        # other's chips as they were, and its next click wrote that stale state back
+        # over the edit (33ae2b). So whenever working differs from what a copy's chips
+        # hold, the copy is reset to it; its own clicks already agree.
+        chip_entries <- Filter(function(e) identical(e$type, "bio_chips"), entries)
+        for (entry in chip_entries) {
+            local({
+                e   <- entry
+                iid <- gsub("\\.", "_", e$key)
+                shiny::observe({
+                    want <- parse_csv_list(config_get_by_path(config_state$working, e$key))
+                    have <- parse_csv_list(shiny::isolate(input[[iid]]))
+                    if (length(want) == 0 || is.null(shiny::isolate(input[[iid]])) ||
+                        setequal(want, have)) return()
+                    session$sendCustomMessage("bio_chips_reset", list(
+                        container_id = paste0(session$ns(iid), "_container"),
+                        input_id     = session$ns(iid),
+                        value        = paste(want, collapse = ",")
+                    ))
+                })
+            })
+        }
+
         # ── Reset button: restore working from saved for this tab's fields ────
         shiny::observeEvent(input$reset_btn, {
             new_working <- config_state$working
@@ -438,7 +462,8 @@ build_config_input <- function(input_id, entry, value, project = NULL, config = 
             input_id, label = NULL, value = display_val,
             placeholder = entry$placeholder %||% "", width = "100%"
         ),
-        "select" = shiny::selectInput(
+        "select" = ,
+        "select_numeric" = shiny::selectInput(
             input_id, label = NULL,
             choices = entry$choices %||% character(0),
             selected = display_val, width = "100%"
@@ -489,7 +514,8 @@ build_config_input <- function(input_id, entry, value, project = NULL, config = 
                     )
                 }
             }
-            render_bio_chips(input_id, display_val, invariant = inv)
+            render_bio_chips(input_id, display_val, invariant = inv,
+                             choices = predictor_chip_choices(config, display_val))
         },
         "pheno_chips" = {
             render_pheno_chips(input_id, display_val, project)
@@ -548,7 +574,8 @@ update_sidebar_inputs <- function(session, entries, saved_config) {
         switch(e$type,
             "numeric"         = shiny::updateNumericInput(session, iid, value = dv),
             "text"            = shiny::updateTextInput(session, iid, value = dv %||% ""),
-            "select"          = shiny::updateSelectInput(session, iid, selected = dv %||% ""),
+            "select"          = ,
+            "select_numeric"  = shiny::updateSelectInput(session, iid, selected = dv %||% ""),
             "checkbox"        = shiny::updateCheckboxInput(session, iid, value = isTRUE(dv)),
             "checkbox_invert" = shiny::updateCheckboxInput(session, iid, value = !isTRUE(dv)),
             "textarea"        = shiny::updateTextAreaInput(session, iid, value = dv %||% "")
@@ -1090,17 +1117,44 @@ render_method_editor <- function(input_id, local_id, configs_list,
     )
 }
 
-#' Render a grid of bio_1..bio_19 toggle chips
+#' The predictors a project's chips offer.
+#'
+#' The pipeline's own list (common.smk ALL_BIO): bio_1..bio_19 for WorldClim; for
+#' Climate.source custom, Climate.custom.columns, else Climate.predictors (its
+#' fallback there), the bio_<N> names custom tables must use (50838f). A selected
+#' predictor outside that list is kept as a chip, so a click never drops it from the
+#' config. bio_<N> in numeric order, any other name after them.
+#'
+#' @param config   Project config.
+#' @param selected Predictors the chip field holds now.
+#' @return Character vector.
+#' @noRd
+predictor_chip_choices <- function(config, selected = character(0)) {
+    source <- tolower(as.character(config_get(config, "Climate", "source",
+                                              default = "worldclim") %||% "worldclim"))
+    universe <- if (identical(source, "custom")) {
+        parse_csv_list(config_get(config, "Climate", "custom", "columns", default = NULL) %||%
+                             config_get(config, "Climate", "predictors", default = NULL))
+    } else paste0("bio_", 1:19)
+    all <- unique(c(universe, parse_csv_list(selected)))
+    n   <- suppressWarnings(as.integer(sub("^bio_", "", all)))
+    n[!grepl("^bio_[0-9]+$", all)] <- NA_integer_
+    all[order(is.na(n), n, all)]
+}
+
+#' Render a grid of predictor toggle chips
 #'
 #' Replaces the plain text input for climate.predictors with clickable pills.
 #' A hidden textInput (input_id) carries the comma-separated value for Shiny.
+#' @param choices the chips, predictor_chip_choices()
 #' @noRd
-render_bio_chips <- function(input_id, display_val, invariant = character(0)) {
-    all_bios <- paste0("bio_", 1:19)
+render_bio_chips <- function(input_id, display_val, invariant = character(0),
+                             choices = paste0("bio_", 1:19)) {
+    all_bios <- choices
 
     # Parse current value; default to all selected when empty/NULL
     selected <- if (!is.null(display_val) && nzchar(trimws(display_val))) {
-        trimws(strsplit(as.character(display_val), ",")[[1]])
+        parse_csv_list(display_val)
     } else {
         all_bios
     }

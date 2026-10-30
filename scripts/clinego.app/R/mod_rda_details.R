@@ -174,7 +174,8 @@ mod_rda_details_server <- function(id, project_data, methods) {
                             "n_zero_variance_dropped", "adj_r_squared", "max_vif",
                             "vif_flagged_predictors", "aliased_terms",
                             "axes_requested", "axis_alpha", "rda_axes", "rda_axes_max",
-                            "K_selection", "K_floored", "permutations", "seed",
+                            "K_selection", "K_floored", "anova_axis_margin",
+                            "n_margin_rows_degenerate", "permutations", "seed",
                             "k_best", "cpu", "marker_envelope_status")),
                         htmltools::tagList(
                             .kv_table("Applied significance rule", c(
@@ -212,6 +213,14 @@ mod_rda_details_server <- function(id, project_data, methods) {
             )
         })
 
+        # With a fixed axes count rda.R runs the full-model anova only (release 5,
+        # 7bf0ff) and records anova_axis_margin = not_run_axes_fixed (c2e79a)
+        axes_fixed <- shiny::reactive(identical(d("anova_axis_margin", ""), "not_run_axes_fixed"))
+        output$anova_card_header <- shiny::renderUI({
+            if (axes_fixed()) "ANOVA (full model; by-axis and by-margin not run: axes fixed)"
+            else "ANOVA (full / by-axis / by-margin)"
+        })
+
         # ── ANOVA table (degenerate rows highlighted) ────────────────────────
         output$anova_table <- DT::renderDT({
             shiny::req(has_rda())
@@ -234,9 +243,10 @@ mod_rda_details_server <- function(id, project_data, methods) {
                 title = shiny::reactive("RDA Screeplot"),
                 dl_name = shiny::reactive("rda_screeplot"),
                 suggestion = shiny::reactive("Run GEA with RDA in GEA.configs"),
-                note = shiny::reactive(help_note("rda_screeplot", results = sprintf(
+                note = shiny::reactive(help_note("rda_screeplot", results = paste0(sprintf(
                     "K=%s (max %s), condition_pcs=%s", d("rda_axes", "?"), d("rda_axes_max", "?"),
-                    d("condition_pcs", "?"))))
+                    d("condition_pcs", "?")),
+                    if (axes_fixed()) "; axes fixed, so no per-axis p is computed or drawn" else "")))
             )
             mod_image_card_server(
                 "pval_hist",
@@ -298,7 +308,7 @@ mod_rda_details_server <- function(id, project_data, methods) {
                     mod_image_card_ui(ns("biplot"))
                 ),
                 bslib::card(
-                    bslib::card_header("ANOVA (full / by-axis / by-margin)"),
+                    bslib::card_header(shiny::uiOutput(ns("anova_card_header"), inline = TRUE)),
                     DT::DTOutput(ns("anova_table"))
                 ),
                 bslib::card(

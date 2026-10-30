@@ -1,10 +1,10 @@
 # R/fct_pipeline.R — the Snakemake run-log readers.
 #
-# pipeline_read_progress() is the largest untested parser in the app: a ~110-line
-# single-pass state machine over Snakemake's log, driving the Run tab's progress
-# bar and rule list. It is NOT extracted from its file reader, so these tests
-# write a log file rather than passing lines — the extraction is filed as a
-# request rather than done here.
+# pipeline_parse_progress() is the app's largest parser: a ~110-line single-pass
+# state machine over Snakemake's log, driving the Run tab's progress bar and rule
+# list. pipeline_read_progress() reads the log file and hands it the lines; since
+# f8a481 the parser is pure, so the newer tests below pass lines directly, and the
+# older ones still go through a written log, which also covers the reader.
 #
 # The invariant that does NOT hold, and is pinned below so nobody "fixes" it:
 # `done` and `failed` are LOG-EVENT COUNTERS while `rules` is a JOBID REGISTRY.
@@ -13,8 +13,9 @@
 # done != sum(status == "done") by design.
 #
 # Two parsing rules are asymmetric and easy to reverse:
-#   "N of M steps" is UNANCHORED and last-wins, taking nums[2] positionally over
-#   the whole line; "^total N" is first-wins, guarded by is.na(total).
+#   "N of M steps" is last-wins, M captured from the phrase itself (a8501b: it was
+#   the line's second number, so a timestamp prefix moved it); "^total N" is
+#   first-wins, guarded by is.na(total).
 
 write_log <- function(lines) {
     project <- basename(tempfile("PL_"))
@@ -194,12 +195,50 @@ test_that("'total N' seen FIRST is overwritten by a later steps line", {
     expect_identical(got$total, 12L)
 })
 
-test_that("a timestamp prefix on the steps line corrupts total", {
-    # The regex is UNANCHORED and nums[2] is positional over the WHOLE line, so
-    # leading digits shift the window. Characterisation of a real fragility:
-    # here total becomes 12 (from the time) rather than 20.
-    got <- pipeline_read_progress(write_log("[Fri Sep 12 10:00:00 2026] 3 of 20 steps (15%) done"))
-    expect_false(identical(got$total, 20L))
+test_that("a timestamp prefix on the steps line leaves total alone (a8501b)", {
+    # The time's digits used to be the line's second number: total read 12, not 20.
+    got <- pipeline_parse_progress("[Fri Sep 12 10:00:00 2026] 3 of 20 steps (15%) done")
+    expect_identical(got$total, 20L)
+})
+
+test_that("pipeline_parse_progress reads a Snakemake 9 log as the reader does", {
+    # The shape of a real mode=maladaptation run (Snakemake 9.27.1): the job-stats
+    # table's total, localrule blocks with their log, Finished lines, the steps lines
+    # and the all rule (jobid 0, counted in done, never registered).
+    lines <- c(
+        "Job stats:", "job                                 count",
+        "gradient_forest_random               1", "all                                  1",
+        "total                                3", "",
+        "Select jobs to execute...", "Execute 2 jobs...", "",
+        "[Fri Oct 30 17:12:32 2026]",
+        "localrule gradient_forest_random:",
+        "    input: /pipeline/P_results/a.lfmm",
+        "    log: /pipeline/P_logs/maladaptation/gf_random.log",
+        "    jobid: 65",
+        "    reason: Missing output files: /pipeline/P_results/x.qs",
+        "    resources: tmpdir=/pipeline/P_results/_intermediate/tmp",
+        "[Fri Oct 30 17:12:32 2026]",
+        "rule write_summary:",
+        "    jobid: 7",
+        "[Fri Oct 30 17:12:39 2026]",
+        "Finished jobid: 65 (Rule: gradient_forest_random)",
+        "1 of 3 steps (33%) done",
+        "[Fri Oct 30 17:12:40 2026]",
+        "Finished jobid: 7 (Rule: write_summary)",
+        "2 of 3 steps (67%) done",
+        "[Fri Oct 30 17:14:40 2026]",
+        "localrule all:", "    input: /pipeline/P_results/x.qs", "    jobid: 0",
+        "[Fri Oct 30 17:14:40 2026]",
+        "Finished jobid: 0 (Rule: all)",
+        "3 of 3 steps (100%) done")
+    got <- pipeline_parse_progress(lines)
+    expect_identical(got$total, 3L)
+    expect_identical(got$done, 3L)
+    expect_identical(got$failed, 0L)
+    expect_identical(vapply(got$rules, `[[`, "", "rule"), c("gradient_forest_random", "write_summary"))
+    expect_identical(vapply(got$rules, `[[`, "", "status"), c("done", "done"))
+    expect_identical(got$rules[[1]]$log_file, "/pipeline/P_logs/maladaptation/gf_random.log")
+    expect_identical(pipeline_parse_progress(character(0))$total, NA_integer_)
 })
 
 # ---------------------------------------------------------------- pipeline_cmd

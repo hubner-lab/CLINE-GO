@@ -216,96 +216,39 @@ mod_gea_x_gwas_server <- function(id, project_data, run_trigger = NULL) {
         gwas_snp_clumping_distance <- clumping_distance_state(
             input, project_data, "gwas_snp_clumping_distance", module, "gwas_snp_clumping_distance", MOD_GWAS)
 
-        # ── Regime (independent per side) ─────────────────────────────────────
-        .init_regime_param <- function(input_id, rp_key) {
-            shiny::observe({
-                pd    <- project_data()
-                rp    <- read_region_params(pd$name)
-                saved <- get_global_param(rp, module, rp_key)
-                if (!is.null(saved))
-                    bslib::update_switch(input_id, value = isTRUE(saved), session = session)
-            })
-            shiny::observeEvent(input[[input_id]], {
-                pd <- project_data()
-                if (is.null(pd)) return()
-                rp <- read_region_params(pd$name)
-                rp <- set_global_param(rp, module, rp_key, isTRUE(input[[input_id]]))
-                save_region_params(pd$name, rp)
-            }, ignoreInit = TRUE)
-        }
+        # Each side's region merge: its config's region_clumping_distance when set, else
+        # its clumping distance, as the pipeline merges (acff31).
+        .region_merge <- function(src) shiny::reactive({
+            pd <- project_data()
+            config_region_clumping_distance(pd$config, src, ld_decay_table_path(pd$name))
+        })
+        gea_region_merge  <- .region_merge(MOD_GEA)
+        gwas_region_merge <- .region_merge(MOD_GWAS)
 
-        .init_regime_param("gea_regime", "gea_regime")
-        .init_regime_param("gwas_regime", "gwas_regime")
+        # ── Threshold rule, strategy and regime per side ──────────────────────
+        # Each side's controls start at their saved value, else at their source's
+        # config (the strategy at Union), and are saved only when the user moves them
+        # (filter_bar_state()). The bars render from these reactives.
+        side_keys <- function(prefix) c(
+            threshold_type   = paste0(prefix, "threshold_type"),
+            threshold_value  = paste0(prefix, "threshold_value"),
+            combine_strategy = paste0(prefix, "strategy"),
+            regime           = paste0(prefix, "regime"))
+        gea_bar  <- filter_bar_state(input, project_data, module, source = MOD_GEA,
+                                     registry_defaults = gea_registry_defaults,
+                                     prefix = "gea_", rp_keys = side_keys("gea_"))
+        gwas_bar <- filter_bar_state(input, project_data, module, source = MOD_GWAS,
+                                     registry_defaults = gwas_registry_defaults,
+                                     prefix = "gwas_", rp_keys = side_keys("gwas_"))
 
-        gea_regime_wza  <- shiny::reactive(isTRUE(input$gea_regime))
-        gwas_regime_wza <- shiny::reactive(isTRUE(input$gwas_regime))
-
-        # ── Threshold params per side ──────────────────────────────────────────
-        .init_threshold_param <- function(type_id, value_id, rp_type_key, rp_value_key,
-                                          config_src_module) {
-            shiny::observe({
-                pd  <- project_data(); cfg <- pd$config; rp <- read_region_params(pd$name)
-                saved_t <- get_global_param(rp, module, rp_type_key)
-                saved_v <- get_global_param(rp, module, rp_value_key)
-                if (!is.null(saved_t)) {
-                    shiny::updateSelectInput(session, type_id, selected = saved_t)
-                } else {
-                    def <- default_threshold(cfg, config_src_module)
-                    shiny::updateSelectInput(session, type_id, selected = def$type)
-                }
-                if (!is.null(saved_v)) {
-                    shiny::updateNumericInput(session, value_id, value = as.numeric(saved_v))
-                } else if (is.null(saved_t)) {
-                    def <- default_threshold(cfg, config_src_module)
-                    shiny::updateNumericInput(session, value_id, value = def$value)
-                }
-            })
-            shiny::observeEvent(input[[type_id]], {
-                pd <- project_data(); if (is.null(pd)) return()
-                rp <- read_region_params(pd$name)
-                rp <- set_global_param(rp, module, rp_type_key, input[[type_id]])
-                save_region_params(pd$name, rp)
-            }, ignoreInit = TRUE)
-            shiny::observeEvent(input[[value_id]], {
-                v <- input[[value_id]]; pd <- project_data()
-                if (is.null(pd) || is.null(v) || is.na(v)) return()
-                rp <- read_region_params(pd$name)
-                rp <- set_global_param(rp, module, rp_value_key, as.numeric(v))
-                save_region_params(pd$name, rp)
-            }, ignoreInit = TRUE)
-        }
-
-        .init_threshold_param("gea_threshold_type", "gea_threshold_value",
-            "gea_threshold_type", "gea_threshold_value", MOD_GEA)
-        .init_threshold_param("gwas_threshold_type", "gwas_threshold_value",
-            "gwas_threshold_type", "gwas_threshold_value", MOD_GWAS)
-
-        # ── Strategy persistence per side ─────────────────────────────────────
-        # Mirrors .init_regime_param; strategy is the radioButton input not a switch.
-        .init_strategy_param <- function(input_id, rp_key) {
-            shiny::observe({
-                pd    <- project_data()
-                rp    <- read_region_params(pd$name)
-                saved <- get_global_param(rp, module, rp_key)
-                if (!is.null(saved))
-                    shiny::updateRadioButtons(session, input_id,
-                                              selected = .normalize_strategy(saved))
-            })
-            shiny::observeEvent(input[[input_id]], {
-                pd <- project_data(); if (is.null(pd)) return()
-                rp <- read_region_params(pd$name)
-                rp <- set_global_param(rp, module, rp_key, input[[input_id]])
-                save_region_params(pd$name, rp)
-            }, ignoreInit = TRUE)
-        }
-
-        .init_strategy_param("gea_combine_strategy", "gea_strategy")
-        .init_strategy_param("gwas_combine_strategy", "gwas_strategy")
+        gea_regime_wza  <- shiny::reactive(isTRUE(input$gea_regime  %||% gea_bar$regime()))
+        gwas_regime_wza <- shiny::reactive(isTRUE(input$gwas_regime %||% gwas_bar$regime()))
 
         # ── Fill from GEA / GWAS tab buttons ─────────────────────────────────
         # Reads the currently persisted params from the source module's region_params.json
-        # keys and pushes them into the prefixed GEAxGWAS filter-bar inputs.
-        # The existing .init_* observeEvent handlers auto-persist the copied values.
+        # keys and pushes them into the prefixed GEAxGWAS filter-bar inputs; each
+        # control reports the copied value as a move, so its filter_param_state()
+        # saves it.
         # threshold_overrides and the matrix selection have no Shiny input to
         # update*() through (they're reactiveVals inside setup_matrix_rules_server,
         # driven by JS bridges/modals, not plain widgets) — copied directly at
@@ -316,10 +259,10 @@ mod_gea_x_gwas_server <- function(id, project_data, run_trigger = NULL) {
             rp  <- read_region_params(pd$name)
             cfg <- pd$config
 
-            tt <- get_global_param(rp, src_module, "threshold_type") %||%
-                      default_threshold(cfg, src_module)$type
-            tv <- as.numeric(get_global_param(rp, src_module, "threshold_value") %||%
-                      default_threshold(cfg, src_module)$value)
+            src_rule <- default_threshold(cfg, src_module,
+                if (identical(src_module, MOD_GWAS)) gwas_registry_defaults() else gea_registry_defaults())
+            tt <- get_global_param(rp, src_module, "threshold_type") %||% src_rule$type
+            tv <- as.numeric(get_global_param(rp, src_module, "threshold_value") %||% src_rule$value)
             cd <- as.integer(get_global_param(rp, src_module, "snp_clumping_distance") %||%
                       default_clumping_distance(cfg, src_module, ld_decay_table_path(pd$name)))
             rg <- isTRUE(get_global_param(rp, src_module, "regime"))
@@ -354,23 +297,22 @@ mod_gea_x_gwas_server <- function(id, project_data, run_trigger = NULL) {
         shiny::observeEvent(input$fill_gea,  .fill_from(MOD_GEA,  "gea_",  gea_matrix_rules))
         shiny::observeEvent(input$fill_gwas, .fill_from(MOD_GWAS, "gwas_", gwas_matrix_rules))
 
-        gea_threshold_type_raw  <- shiny::reactive(input$gea_threshold_type  %||% "bonf")
-        gwas_threshold_type_raw <- shiny::reactive(input$gwas_threshold_type %||% "bonf")
+        gea_threshold_type_raw  <- shiny::reactive(input$gea_threshold_type  %||% gea_bar$threshold_type())
+        gwas_threshold_type_raw <- shiny::reactive(input$gwas_threshold_type %||% gwas_bar$threshold_type())
         # Debounce type so switching to "qval" doesn't fire the full 2M-row scan instantly
         gea_threshold_type  <- shiny::debounce(gea_threshold_type_raw,  500)
         gwas_threshold_type <- shiny::debounce(gwas_threshold_type_raw, 500)
 
-        .make_threshold_value <- function(input_id, src_module) {
+        .make_threshold_value <- function(input_id, side_bar) {
             raw <- shiny::reactive({
                 v <- input[[input_id]]
-                if (is.null(v) || is.na(v) || v <= 0)
-                    default_threshold(project_data()$config, src_module)$value
+                if (is.null(v) || is.na(v) || v <= 0) side_bar$threshold_value()
                 else as.numeric(v)
             })
             shiny::debounce(raw, 500)
         }
-        gea_threshold_value  <- .make_threshold_value("gea_threshold_value",  MOD_GEA)
-        gwas_threshold_value <- .make_threshold_value("gwas_threshold_value", MOD_GWAS)
+        gea_threshold_value  <- .make_threshold_value("gea_threshold_value",  gea_bar)
+        gwas_threshold_value <- .make_threshold_value("gwas_threshold_value", gwas_bar)
 
         # ── Per-cell threshold overrides, matrix selection, rule popup ──────────
         # One call per side — module = MOD_GEAXGWAS (both sides), input_prefix
@@ -384,7 +326,7 @@ mod_gea_x_gwas_server <- function(id, project_data, run_trigger = NULL) {
             methods = gea_methods, all_traits = gea_all_trait_names,
             threshold_type = gea_threshold_type, threshold_value = gea_threshold_value,
             registry_defaults = gea_registry_defaults, config_rules = gea_config_rules,
-            config_state = NULL
+            config_state = NULL, combo_counts = gea_combo_counts
         )
         gwas_matrix_rules <- setup_matrix_rules_server(
             input, output, session, ns, input_prefix = "gwas_",
@@ -392,7 +334,7 @@ mod_gea_x_gwas_server <- function(id, project_data, run_trigger = NULL) {
             methods = gwas_methods, all_traits = gwas_all_trait_names,
             threshold_type = gwas_threshold_type, threshold_value = gwas_threshold_value,
             registry_defaults = gwas_registry_defaults, config_rules = gwas_config_rules,
-            config_state = NULL
+            config_state = NULL, combo_counts = gwas_combo_counts
         )
         gea_threshold_overrides  <- gea_matrix_rules$overrides
         gwas_threshold_overrides <- gwas_matrix_rules$overrides
@@ -426,67 +368,55 @@ mod_gea_x_gwas_server <- function(id, project_data, run_trigger = NULL) {
 
         # ── Always-present threshold bars ─────────────────────────────────────
         output$gea_threshold_bar <- shiny::renderUI({
-            pd <- project_data()
+            project_data()
             shiny::isolate({
                 build_threshold_bar_ui(
                     ns                    = ns,
                     input_prefix          = "gea_",
-                    regime_value          = isTRUE(input$gea_regime),
-                    threshold_type_value  = input$gea_threshold_type  %||% "bonf",
-                    threshold_value_value = input$gea_threshold_value %||%
-                        default_threshold(pd$config, MOD_GEA)$value,
+                    regime_value          = gea_bar$regime(),
+                    threshold_type_value  = gea_bar$threshold_type(),
+                    threshold_value_value = gea_bar$threshold_value(),
                     regime_context        = "overlap"
                 )
             })
         })
         output$gwas_threshold_bar <- shiny::renderUI({
-            pd <- project_data()
+            project_data()
             shiny::isolate({
                 build_threshold_bar_ui(
                     ns                    = ns,
                     input_prefix          = "gwas_",
-                    regime_value          = isTRUE(input$gwas_regime),
-                    threshold_type_value  = input$gwas_threshold_type  %||% "bonf",
-                    threshold_value_value = input$gwas_threshold_value %||%
-                        default_threshold(pd$config, MOD_GWAS)$value,
+                    regime_value          = gwas_bar$regime(),
+                    threshold_type_value  = gwas_bar$threshold_type(),
+                    threshold_value_value = gwas_bar$threshold_value(),
                     regime_context        = "overlap"
                 )
             })
         })
 
-        # ── Overlap bounds (persisted) ─────────────────────────────────────────
+        # ── Overlap bounds (saved only when moved, filter_param_state()) ──────
+        # A file written before the choice values were fixed holds "gea"/"gwas",
+        # which is not one of the radio's values any more: .normalize_bounds() maps
+        # them onto the canonical names, so restoring never leaves the group unselected.
+        bounds_state <- filter_param_state(
+            input, project_data, "overlap_bounds", module, "overlap_bounds",
+            start_fn = function(pd, saved) {
+                tryCatch(.normalize_bounds(saved), error = function(e) NULL) %||% "union"
+            },
+            coerce = function(v) tryCatch(.normalize_bounds(v), error = function(e) NULL))
         shiny::observe({
-            pd  <- project_data()
-            rp  <- read_region_params(pd$name)
-            val <- get_global_param(rp, module, "overlap_bounds")
-            # A file written before the choice values were fixed holds "gea"/"gwas",
-            # which is not one of the radio's values any more: restoring it verbatim
-            # would leave the group unselected.
-            val <- tryCatch(.normalize_bounds(val), error = function(e) NULL)
-            if (!is.null(val)) shiny::updateRadioButtons(session, "overlap_bounds", selected = val)
+            shiny::updateRadioButtons(session, "overlap_bounds", selected = bounds_state())
         })
-        shiny::observeEvent(input$overlap_bounds, {
-            pd <- project_data()
-            if (is.null(pd)) return()
-            rp <- read_region_params(pd$name)
-            rp <- set_global_param(rp, module, "overlap_bounds", input$overlap_bounds)
-            save_region_params(pd$name, rp)
-        }, ignoreInit = TRUE)
 
         overlap_bounds <- shiny::reactive({
-            # .normalize_bounds() maps the legacy "gea"/"gwas" values that older
-            # region_params.json files still carry onto the canonical names.
-            .normalize_bounds(input$overlap_bounds %||% "union")
+            .normalize_bounds(input$overlap_bounds %||% bounds_state())
         })
 
         # ── GEA filter bar UI (matrix + strategy + clumping) ──────────────────
         output$gea_filter_bar <- shiny::renderUI({
-            pd <- project_data()
-            shiny::isolate({
-                rp           <- read_region_params(pd$name)
-                saved_strat  <- get_global_param(rp, module, "gea_strategy")
-                strat_val    <- if (!is.null(saved_strat)) .normalize_strategy(saved_strat) else "Union"
-            })
+            project_data()
+            # isolate()d: seeded from the user's move, never re-rendered by it
+            strat_val <- shiny::isolate(gea_bar$strategy())
             build_filter_bar_ui(
                 ns                          = ns,
                 traits                      = gea_all_trait_names(),
@@ -496,6 +426,7 @@ mod_gea_x_gwas_server <- function(id, project_data, run_trigger = NULL) {
                 combo_thresholds            = gea_combo_thresholds(),
                 default_strategy_value      = strat_val,
                 snp_clumping_distance_value = gea_snp_clumping_distance(),
+                region_clumping_distance_value = gea_region_merge()$bp,
                 input_prefix                = "gea_",
                 # isolate()d — see setup_matrix_rules_server()
                 selected_pairs              = shiny::isolate(gea_matrix_rules$selected_pairs()),
@@ -508,12 +439,9 @@ mod_gea_x_gwas_server <- function(id, project_data, run_trigger = NULL) {
 
         # ── GWAS filter bar UI (matrix + strategy + clumping) ─────────────────
         output$gwas_filter_bar <- shiny::renderUI({
-            pd <- project_data()
-            shiny::isolate({
-                rp           <- read_region_params(pd$name)
-                saved_strat  <- get_global_param(rp, module, "gwas_strategy")
-                strat_val    <- if (!is.null(saved_strat)) .normalize_strategy(saved_strat) else "Union"
-            })
+            project_data()
+            # isolate()d: seeded from the user's move, never re-rendered by it
+            strat_val <- shiny::isolate(gwas_bar$strategy())
             build_filter_bar_ui(
                 ns                          = ns,
                 traits                      = gwas_all_trait_names(),
@@ -523,6 +451,7 @@ mod_gea_x_gwas_server <- function(id, project_data, run_trigger = NULL) {
                 combo_thresholds            = gwas_combo_thresholds(),
                 default_strategy_value      = strat_val,
                 snp_clumping_distance_value = gwas_snp_clumping_distance(),
+                region_clumping_distance_value = gwas_region_merge()$bp,
                 input_prefix                = "gwas_",
                 # isolate()d — see setup_matrix_rules_server()
                 selected_pairs              = shiny::isolate(gwas_matrix_rules$selected_pairs()),
@@ -540,7 +469,7 @@ mod_gea_x_gwas_server <- function(id, project_data, run_trigger = NULL) {
                 tm_selection_json   = input$gea_tm_selection,
                 combo_counts        = gea_combo_counts(),
                 known_traits        = gea_all_trait_names(),
-                strategy            = input$gea_combine_strategy %||% "Union",
+                strategy            = input$gea_combine_strategy %||% gea_bar$strategy(),
                 clumping_distance   = gea_snp_clumping_distance(),
                 project_name        = project_data()$name,
                 module              = MOD_GEA
@@ -553,7 +482,7 @@ mod_gea_x_gwas_server <- function(id, project_data, run_trigger = NULL) {
                 tm_selection_json   = input$gwas_tm_selection,
                 combo_counts        = gwas_combo_counts(),
                 known_traits        = gwas_all_trait_names(),
-                strategy            = input$gwas_combine_strategy %||% "Union",
+                strategy            = input$gwas_combine_strategy %||% gwas_bar$strategy(),
                 clumping_distance   = gwas_snp_clumping_distance(),
                 project_name        = project_data()$name,
                 module              = MOD_GWAS
@@ -564,13 +493,13 @@ mod_gea_x_gwas_server <- function(id, project_data, run_trigger = NULL) {
         gea_regions <- shiny::reactive({
             snps <- gea_interactive_sigsnps()
             if (is.null(snps) || nrow(snps) == 0) return(.empty_regions())
-            compute_all_regions(snps, gea_snp_clumping_distance())
+            compute_all_regions(snps, gea_region_merge()$bp %||% gea_snp_clumping_distance())
         })
 
         gwas_regions <- shiny::reactive({
             snps <- gwas_interactive_sigsnps()
             if (is.null(snps) || nrow(snps) == 0) return(.empty_regions())
-            compute_all_regions(snps, gwas_snp_clumping_distance())
+            compute_all_regions(snps, gwas_region_merge()$bp %||% gwas_snp_clumping_distance())
         })
 
         # ── Overlap detection ──────────────────────────────────────────────────
@@ -720,10 +649,10 @@ mod_gea_x_gwas_server <- function(id, project_data, run_trigger = NULL) {
                 k              = k,
                 gea_thr_type   = gea_threshold_type(),
                 gea_thr_value  = gea_threshold_value(),
-                gea_regime     = isTRUE(input$gea_regime),
+                gea_regime     = gea_regime_wza(),
                 gwas_thr_type  = gwas_threshold_type(),
                 gwas_thr_value = gwas_threshold_value(),
-                gwas_regime    = isTRUE(input$gwas_regime),
+                gwas_regime    = gwas_regime_wza(),
                 gea_window     = gea_snp_clumping_distance(),
                 gwas_window    = gwas_snp_clumping_distance(),
                 min_snps       = as.integer(
@@ -740,6 +669,16 @@ mod_gea_x_gwas_server <- function(id, project_data, run_trigger = NULL) {
             gwas_sigsnps    = gwas_effective_sigsnps,
             pairwise_params = pairwise_params
         )
+
+        # Live counts for the KPI strip (mod_geaxgwas_dashboard_outputs(), 1c6896)
+        n_hits <- function(dt) if (is.null(dt) || nrow(dt) == 0) 0L else data.table::uniqueN(dt$SNPID)
+        list(kpis = shiny::reactive(list(
+            gea_hits     = n_hits(gea_interactive_sigsnps()),
+            gea_regions  = nrow(gea_regions()),
+            gwas_hits    = n_hits(gwas_interactive_sigsnps()),
+            gwas_regions = nrow(gwas_regions()),
+            overlaps     = nrow(overlap_regions() %||% data.frame())
+        )))
     })
 }
 

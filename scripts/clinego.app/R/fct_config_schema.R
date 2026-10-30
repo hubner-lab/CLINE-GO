@@ -148,9 +148,9 @@ config_schema <- function() {
           min = 0, max = 10, step = 0.5,
           help = "Degrees of buffer around sample coordinates (auto extent only)"),
         s("Map.resolution",     "Resolution (min)",  "structure", "Map",
-          "numeric", TRUE,
-          min = 0.5, max = 10, step = 0.5,
-          help = "WorldClim resolution in arc-minutes (lower = finer but slower)"),
+          "select_numeric", TRUE,
+          choices = c("0.5", "2.5", "5", "10"),
+          help = "WorldClim resolution in arc-minutes (lower = finer but slower); WorldClim publishes these four"),
         s("Map.zoom_extent",    "Zoom extent",       "structure", "Map",
           "text",    FALSE,
           help = "Optional zoom region for piemaps: xmin,xmax,ymin,ymax",
@@ -598,11 +598,13 @@ config_set_by_path <- function(config, key_path, value) {
 #' Coerce a sidebar input value back to the appropriate R type for YAML
 #'
 #' @param raw_value the raw value from input[[id]]
-#' @param type schema type: numeric | text | select | checkbox | textarea | method_table
+#' @param type schema type: numeric | text | select | select_numeric | checkbox | textarea | method_table
 #' @return R value suitable for yaml::write_yaml()
 #' @noRd
 input_to_config_value <- function(raw_value, type) {
     switch(type,
+        # A select whose values are numbers (Map.resolution): written as the number
+        "select_numeric" = ,
         "numeric" = {
             n <- suppressWarnings(as.numeric(raw_value))
             if (length(n) == 0 || is.na(n)) return(NULL)

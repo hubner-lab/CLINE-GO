@@ -73,11 +73,22 @@ HELP_NOTES <- list(
         config = "Population.calc_stats"
     ),
     qq_plot_gea = list(
-        desc   = "Observed vs expected p-value quantiles — calibration check for this method/trait.",
-        config = "GEA.configs"
+        desc   = paste(
+            "Observed vs expected p-value quantiles — calibration check for this method/trait.",
+            "The panel prints lambda_GC, the genomic inflation factor (median observed chi-square",
+            "over its expected 0.455): above 1 the p-values are inflated (structure or relatedness",
+            "left in), below 1 deflated. LFMM with genomic_control on and RDA (rdadapt) divide their",
+            "statistics by their own inflation factor, so their lambda is 1 by construction and the",
+            "panel says so instead of a calibration result. Plots made before 2026-10-30 carry no",
+            "lambda: re-run GEA."),
+        config = "GEA.configs (LFMM genomic_control)"
     ),
     qq_plot_gwas = list(
-        desc   = "Observed vs expected p-value quantiles — calibration check for this method/trait.",
+        desc   = paste(
+            "Observed vs expected p-value quantiles — calibration check for this method/trait.",
+            "The panel prints lambda_GC, the genomic inflation factor (median observed chi-square",
+            "over its expected 0.455): above 1 the p-values are inflated (structure or relatedness",
+            "left in), below 1 deflated. Plots made before 2026-10-30 carry no lambda: re-run GWAS."),
         config = "GWAS.configs"
     ),
     enrich_dotplot = list(
@@ -89,8 +100,8 @@ HELP_NOTES <- list(
         config = "Enrichment.top_terms, GFF.go_field"
     ),
     regionplot_img = list(
-        desc   = "Zoomed regional Manhattan with gene track.",
-        config = "Filter bar → Clumping distance (bp); fixed 100 kb default, tune interactively"
+        desc   = "Zoomed regional Manhattan with gene track: the region plus its merge distance on each side, the region's edges dotted, one threshold line per method at its configured rule.",
+        config = "GEA.configs / GWAS.configs (rules); filter bar → Clumping distance, or region_clumping_distance (window)"
     ),
     hap_clustree_mg = list(
         desc   = "Marker-group cluster stability across scanned epsilon values.",
@@ -189,7 +200,7 @@ HELP_NOTES <- list(
         config = "GWAS.configs"
     ),
     rda_screeplot = list(
-        desc   = "Constrained RDA eigenvalues of the one RDA fit (partial, i.e. structure-corrected, when condition_pcs > 0); retained axes (green) vs dropped (red), per-axis anova.cca(by=\"axis\") p annotated above each bar.",
+        desc   = "Constrained RDA eigenvalues of the one RDA fit (partial, i.e. structure-corrected, when condition_pcs > 0); retained axes (green) vs dropped (red). With axes: auto the per-axis anova.cca(by=\"axis\") p is annotated above each bar; a fixed axes count skips that test, so the bars carry no p.",
         config = "GEA.configs (RDA method params: axes, axis_alpha, condition_pcs)"
     ),
     rda_pval_hist = list(
@@ -311,7 +322,7 @@ HELP_NOTES <- list(
         config = "Climate.Varpart.response"
     ),
     pregea_transfer_guard = list(
-        desc   = "LFMM/EMMAX lambda re-estimated on the FULL marker set at the recommended hyperparameters, compared against the LD-pruned ladder value. Only the TREND is expected to transfer — lambda is not scale-free (Yang et al. 2011), so a large jump does not necessarily mean the recommended hyperparameter is wrong.",
+        desc   = "LFMM/EMMAX lambda re-estimated on the FULL marker set at the recommended hyperparameters, compared against the LD-pruned ladder value. Verdict: transfers when the full-set lambda is within 0.3 of the pruned one AND inside the calibration band [0.90, 1.15]; diverges otherwise; unavailable when either fit failed. Only the TREND is expected to transfer — lambda is not scale-free (Yang et al. 2011), so a large jump does not necessarily mean the recommended hyperparameter is wrong.",
         config = "PreGEA.TransferGuard.enabled, .lfmm_k, .emmax_n_pcs"
     )
 )

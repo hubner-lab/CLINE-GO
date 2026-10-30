@@ -160,17 +160,23 @@ mod_pregea_server <- function(id, project_data) {
                 return(htmltools::p(class = "text-muted small mb-0",
                     "No RDA models yet — run PreGEA."))
             }
+            # No RDA/condition_pcs row (or a non-integer one) leaves no recommendation:
+            # it used to stop the selector ("missing value where TRUE/FALSE needed") or
+            # label every model "0NA" (8ac075)
             recs <- pregea_recommendations_lookup(pd$name)
-            recommended <- suppressWarnings(as.integer(recs$RDA$condition_pcs$value))
+            recommended <- suppressWarnings(as.integer(recs$RDA$condition_pcs$value %||% NA))[1]
+            has_rec <- !is.na(recommended) && recommended %in% models
             default_sel <- if (!is.null(rda_selected_pc()) && rda_selected_pc() %in% models) {
                 rda_selected_pc()
-            } else if (!is.na(recommended) && recommended %in% models) {
+            } else if (has_rec) {
                 recommended
             } else {
                 models[1]
             }
             choices <- setNames(models, paste0("Condition PCs = ", models,
-                                               ifelse(models == recommended, " (recommended)", "")))
+                                               if (has_rec) ifelse(models == recommended,
+                                                                   " (recommended)", "")
+                                               else ""))
             shiny::selectInput(ns("rda_model_pc"), "RDA model", choices = choices, selected = default_sel, width = "300px")
         })
         shiny::observeEvent(input$rda_model_pc, rda_selected_pc(input$rda_model_pc), ignoreInit = TRUE)

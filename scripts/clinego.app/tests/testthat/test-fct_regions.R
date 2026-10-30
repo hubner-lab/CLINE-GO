@@ -177,25 +177,46 @@ test_that(".build_trait_method_arg returns NULL on empty input", {
         data.table::data.table(trait = character(), method = character())))
 })
 
+bonf <- function(m) "bonf_0.05"
+
 test_that(".build_assoc_tables_arg builds one colon-separated entry per file", {
     files <- c("/p/GEA/tables/methods/EMMAX/EMMAX_pvalues_K3.tsv",
                "/p/GEA/tables/methods/LFMM/LFMM_pvalues_K3.tsv")
     expect_equal(
-        .build_assoc_tables_arg(files),
+        .build_assoc_tables_arg(files, bonf),
         paste0("EMMAX:bonf_0.05:", files[1], ",LFMM:bonf_0.05:", files[2])
     )
 })
 
+test_that(".build_assoc_tables_arg gives each method its own rule (4f7b91)", {
+    files <- c("/p/GEA/tables/methods/EMMAX/EMMAX_pvalues_K3.tsv",
+               "/p/GEA/tables/methods/RDA/RDA_pvalues_K3.tsv")
+    cfg <- list(GEA = list(configs = list(
+        list(method = "EMMAX", adjust = "bonf", threshold = "0.05"),
+        list(method = "RDA",   adjust = "qval", threshold = "0.05"))))
+    expect_equal(
+        .build_assoc_tables_arg(files, function(m) .configured_adjust(cfg, m, MOD_GEA)),
+        paste0("EMMAX:bonf_0.05:", files[1], ",RDA:qval_0.05:", files[2]))
+})
+
 test_that(".build_assoc_tables_arg SILENTLY DROPS files that do not match the pattern", {
-    # Current behaviour (fct_regions.R:1113-1119). A sig_snps file or a renamed
-    # p-value table vanishes from the regionplot arg with no warning.
+    # A sig_snps file or a renamed p-value table vanishes from the regionplot arg
+    # with no warning.
     files <- c("/p/EMMAX_pvalues_K3.tsv",
                "/p/EMMAX_pvalues_K3_sig_snps_bonf_0.05.tsv",   # dropped
                "/p/something_else.tsv")                        # dropped
-    expect_equal(.build_assoc_tables_arg(files),
+    expect_equal(.build_assoc_tables_arg(files, bonf),
                  "EMMAX:bonf_0.05:/p/EMMAX_pvalues_K3.tsv")
-    expect_null(.build_assoc_tables_arg(files[2:3]))
-    expect_null(.build_assoc_tables_arg(character()))
+    expect_null(.build_assoc_tables_arg(files[2:3], bonf))
+    expect_null(.build_assoc_tables_arg(character(), bonf))
+})
+
+test_that("the region plot's cache key changes with the rules and the flank", {
+    a <- regionplot_cache_hash("bio_1:EMMAX", "snp", "EMMAX:bonf_0.05:/p/x.tsv", 0L)
+    expect_identical(a, regionplot_cache_hash("bio_1:EMMAX", "snp", "EMMAX:bonf_0.05:/p/x.tsv", 0))
+    expect_false(identical(a, regionplot_cache_hash("bio_1:EMMAX", "snp", "EMMAX:qval_0.05:/p/x.tsv", 0L)))
+    expect_false(identical(a, regionplot_cache_hash("bio_1:EMMAX", "snp", "EMMAX:bonf_0.05:/p/x.tsv", 5000L)))
+    expect_false(identical(a, regionplot_cache_hash("bio_1:EMMAX", "wza", "EMMAX:bonf_0.05:/p/x.tsv", 0L)))
 })
 
 # ── compute_all_regions() — needs the mounted shared lib ──────────────────────
@@ -255,4 +276,21 @@ test_that("compute_all_regions returns the typed empty skeleton on empty input",
     expect_s3_class(out, "data.table")
     expect_equal(nrow(out), 0L)
     expect_equal(names(out), names(.empty_regions()))
+})
+
+test_that("hap_viz_map_args reads the Climate, Piemap and Map blocks (e3d10e)", {
+    cfg <- list(Climate = list(predictors = "bio_12,bio_1"),
+                Piemap  = list(alpha = 0.6, show_labels = FALSE, label_size = 8,
+                               pie_scale = 1.0, use_points = TRUE),
+                Map     = list(zoom_extent = "34.5,35.5,31,32.5"))
+    a <- hap_viz_map_args(cfg)
+    expect_identical(a$raster_layer, "bio_12")
+    expect_identical(a$piemap_args, "0.6,F,8,1,T")
+    expect_identical(a$zoom_extent, "34.5,35.5,31,32.5")
+    # lowercase blocks are not the config's: the pipeline's defaults apply
+    d <- hap_viz_map_args(list(piemap = list(alpha = 0.1), map = list(zoom_extent = "1,2,3,4")))
+    expect_identical(d$piemap_args, "0.6,F,10,1,F")
+    expect_identical(d$zoom_extent, "NULL")
+    expect_identical(d$raster_layer, "bio_1")
+    expect_identical(hap_viz_map_args(list(Map = list(zoom_extent = "NULL")))$zoom_extent, "NULL")
 })

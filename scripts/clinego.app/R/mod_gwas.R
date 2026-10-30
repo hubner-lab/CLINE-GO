@@ -1,5 +1,22 @@
 
 
+#' Is the GWAS missing-data alert a warning (154411)?
+#'
+#' Dropping the samples that miss a trait (DROP, complete case) is the standard
+#' handling of a missing outcome, while filling it with the trait's MEAN or MEDIAN
+#' shrinks the effect estimates. So a trait filled where values were missing, or one
+#' with under half its samples, is the warning; DROP alone is information.
+#' prepare_phenotypes.R counts n_available before any fill.
+#' @param dt phenotype_missing_summary.tsv (trait, n_total, n_available, strategy)
+#' @noRd
+pheno_missing_alert_warns <- function(dt) {
+    strat_col <- if ("missing_strategy" %in% names(dt)) "missing_strategy" else "strategy"
+    low    <- any(dt$n_available / dt$n_total < 0.5, na.rm = TRUE)
+    filled <- any(toupper(dt[[strat_col]]) %in% c("MEAN", "MEDIAN") &
+                  dt$n_available < dt$n_total, na.rm = TRUE)
+    low || filled
+}
+
 #' Phenotype Association tab server
 #'
 #' @param id module namespace id
@@ -115,23 +132,13 @@ mod_gwas_server <- function(id, project_data, run_trigger = NULL, config_state =
                                pvalue_fingerprint(),
                                threshold_overrides_key(threshold_overrides(), registry_defaults()))
 
-        # Strategy: defaults to "All"; persisted to region_params.json so the GEAxGWAS
-        # "Fill from GWAS tab" button can read the user's last-chosen value.
-        default_strategy <- shiny::reactive({
-            pd    <- project_data()
-            rp    <- read_region_params(pd$name)
-            saved <- get_global_param(rp, module, "combine_strategy")
-            if (!is.null(saved)) .normalize_strategy(saved) else "All"
-        })
+        # ── Filter-bar state: threshold rule, strategy, regime ─────────────────
+        # Saved values else the config (strategy Union), saved only when moved
+        # (filter_bar_state()); the GEAxGWAS "Fill from GWAS tab" button reads them.
+        bar <- filter_bar_state(input, project_data, module, source = module,
+                                registry_defaults = registry_defaults)
 
-        shiny::observeEvent(input$combine_strategy, {
-            pd <- project_data(); if (is.null(pd)) return()
-            rp <- read_region_params(pd$name)
-            rp <- set_global_param(rp, module, "combine_strategy", input$combine_strategy)
-            save_region_params(pd$name, rp)
-        }, ignoreInit = TRUE)
-
-        active_strategy <- shiny::reactive(input$combine_strategy %||% default_strategy())
+        active_strategy <- shiny::reactive(input$combine_strategy %||% bar$strategy())
 
         # ── SNP clumping distance (single param for both merging and overlap) ───
         # Starts at the saved value, else at the project's own distance (its LD-decay
@@ -141,24 +148,16 @@ mod_gwas_server <- function(id, project_data, run_trigger = NULL, config_state =
         snp_clumping_distance <- clumping_distance_state(
             input, project_data, "snp_clumping_distance", MOD_GWAS, "snp_clumping_distance", MOD_GWAS)
 
-        # ── Regime (per-SNP vs WZA) ────────────────────────────────────────────
-        shiny::observe({
-            pd    <- project_data()
-            rp    <- read_region_params(pd$name)
-            saved <- get_global_param(rp, MOD_GWAS, "regime")
-            if (!is.null(saved))
-                bslib::update_switch("regime", value = isTRUE(saved), session = session)
-        })
-
-        shiny::observeEvent(input$regime, {
+        # The region merge: the config's region_clumping_distance when it sets one,
+        # else the clumping distance above, as the pipeline merges (acff31).
+        region_merge <- shiny::reactive({
             pd <- project_data()
-            if (is.null(pd)) return()
-            rp <- read_region_params(pd$name)
-            rp <- set_global_param(rp, MOD_GWAS, "regime", isTRUE(input$regime))
-            save_region_params(pd$name, rp)
-        }, ignoreInit = TRUE)
+            config_region_clumping_distance(pd$config, MOD_GWAS, ld_decay_table_path(pd$name))
+        })
+        region_clumping_distance <- shiny::reactive(region_merge()$bp %||% snp_clumping_distance())
 
-        regime_wza <- shiny::reactive(isTRUE(input$regime))
+        # ── Regime (per-SNP vs WZA) ────────────────────────────────────────────
+        regime_wza <- shiny::reactive(isTRUE(input$regime %||% bar$regime()))
 
         # ── WZA collapse note (appears when regime switch is ON) ───────────────
         output$wza_collapse_note <- shiny::renderUI({
@@ -167,46 +166,12 @@ mod_gwas_server <- function(id, project_data, run_trigger = NULL, config_state =
         })
 
         # ── Threshold type + value ────────────────────────────────────────────
-        shiny::observe({
-            pd  <- project_data(); cfg <- pd$config; rp <- read_region_params(pd$name)
-            saved_t <- get_global_param(rp, module, "threshold_type")
-            saved_v <- get_global_param(rp, module, "threshold_value")
-            if (!is.null(saved_t)) {
-                shiny::updateSelectInput(session,  "threshold_type",  selected = saved_t)
-            } else {
-                def <- default_threshold(cfg, module)
-                shiny::updateSelectInput(session,  "threshold_type",  selected = def$type)
-            }
-            if (!is.null(saved_v)) {
-                shiny::updateNumericInput(session, "threshold_value", value = as.numeric(saved_v))
-            } else if (is.null(saved_t)) {
-                def <- default_threshold(cfg, module)
-                shiny::updateNumericInput(session, "threshold_value", value = def$value)
-            }
-        })
-
-        shiny::observeEvent(input$threshold_type, {
-            pd <- project_data(); if (is.null(pd)) return()
-            rp <- read_region_params(pd$name)
-            rp <- set_global_param(rp, module, "threshold_type", input$threshold_type)
-            save_region_params(pd$name, rp)
-        }, ignoreInit = TRUE)
-
-        shiny::observeEvent(input$threshold_value, {
-            v <- input$threshold_value; pd <- project_data()
-            if (is.null(pd) || is.null(v) || is.na(v)) return()
-            rp <- read_region_params(pd$name)
-            rp <- set_global_param(rp, module, "threshold_value", as.numeric(v))
-            save_region_params(pd$name, rp)
-        }, ignoreInit = TRUE)
-
-        threshold_type_raw <- shiny::reactive(input$threshold_type %||% "bonf")
+        threshold_type_raw <- shiny::reactive(input$threshold_type %||% bar$threshold_type())
         # Debounce type so switching to "qval" doesn't fire the full 2M-row scan instantly
         threshold_type  <- shiny::debounce(threshold_type_raw, 500)
         threshold_value_raw <- shiny::reactive({
             v <- input$threshold_value
-            if (is.null(v) || is.na(v) || v <= 0) default_threshold(project_data()$config, module)$value
-            else as.numeric(v)
+            if (is.null(v) || is.na(v) || v <= 0) bar$threshold_value() else as.numeric(v)
         })
         threshold_value <- shiny::debounce(threshold_value_raw, 500)
 
@@ -219,7 +184,8 @@ mod_gwas_server <- function(id, project_data, run_trigger = NULL, config_state =
             methods = methods, all_traits = all_trait_names_rv,
             threshold_type = threshold_type, threshold_value = threshold_value,
             registry_defaults = registry_defaults, config_rules = config_rules,
-            config_state = config_state, config_module_key = "GWAS"
+            config_state = config_state, config_module_key = "GWAS",
+            combo_counts = combo_counts
         )
         threshold_overrides <- matrix_rules$overrides
 
@@ -246,14 +212,13 @@ mod_gwas_server <- function(id, project_data, run_trigger = NULL, config_state =
 
         # ── Always-present threshold bar ──────────────────────────────────────
         output$threshold_bar <- shiny::renderUI({
-            pd <- project_data()
+            project_data()
             shiny::isolate({
                 build_threshold_bar_ui(
                     ns                    = ns,
-                    regime_value          = isTRUE(input$regime),
-                    threshold_type_value  = input$threshold_type  %||% "bonf",
-                    threshold_value_value = input$threshold_value %||%
-                        default_threshold(pd$config, module)$value,
+                    regime_value          = bar$regime(),
+                    threshold_type_value  = bar$threshold_type(),
+                    threshold_value_value = bar$threshold_value(),
                     regime_context        = "gwas",
                     show_apply_to_config  = !is.null(config_state)
                 )
@@ -307,13 +272,18 @@ mod_gwas_server <- function(id, project_data, run_trigger = NULL, config_state =
             # filter-bar selector), not GWAS.combine_method from the YAML — that key
             # governs the static pipeline tables only and the two can disagree.
             cmb     <- .normalize_strategy(active_strategy())
-            missing_strat <- config_get(cfg, "GWAS", "missing_strategy", default = "MEAN")
+            # DROP when unset: the pipeline's default (common.smk), so the badge names
+            # the strategy the tables were made with (1cbc36)
+            missing_strat <- config_get(cfg, "GWAS", "missing_strategy", default = "DROP")
             config_badges_bar(
                 if (!is.na(k)) config_badge("K", k, "bg-primary"),
                 config_badge("combine", cmb),
                 config_badge("missing", missing_strat),
                 if (regime_wza()) config_badge("regime", "WZA", "bg-info"),
-                clumping_issue_note(pd, MOD_GWAS)
+                if (!is.null(region_merge()$bp))
+                    config_badge("region merge", .format_bp(region_merge()$bp)),
+                clumping_issue_note(pd, MOD_GWAS),
+                region_clumping_issue_note(region_merge())
             )
         })
 
@@ -325,18 +295,10 @@ mod_gwas_server <- function(id, project_data, run_trigger = NULL, config_state =
             req_cols <- c("trait", "n_total", "n_available", "strategy")
             if (!all(req_cols %in% names(dt))) return(NULL)
 
-            # Determine alert severity: warning if any trait <50% data or uses DROP
-            has_low   <- any(dt$n_available / dt$n_total < 0.5, na.rm = TRUE)
-            has_drop  <- "missing_strategy" %in% names(dt) &&
-                         any(toupper(dt$missing_strategy) == "DROP", na.rm = TRUE)
-            if (!has_low && !"missing_strategy" %in% names(dt)) {
-                has_drop <- any(toupper(dt$strategy) == "DROP", na.rm = TRUE)
-                has_low  <- any(dt$n_available / dt$n_total < 0.5, na.rm = TRUE)
-            }
-            alert_class <- if (has_low || has_drop) "alert-warning" else "alert-info"
-            icon_name   <- if (has_low || has_drop) "exclamation-triangle-fill" else "info-circle-fill"
-
-            strat_col <- if ("missing_strategy" %in% names(dt)) "missing_strategy" else "strategy"
+            warn        <- pheno_missing_alert_warns(dt)
+            alert_class <- if (warn) "alert-warning" else "alert-info"
+            icon_name   <- if (warn) "exclamation-triangle-fill" else "info-circle-fill"
+            strat_col   <- if ("missing_strategy" %in% names(dt)) "missing_strategy" else "strategy"
 
             rows <- lapply(seq_len(nrow(dt)), function(i) {
                 row      <- dt[i, ]
@@ -362,29 +324,6 @@ mod_gwas_server <- function(id, project_data, run_trigger = NULL, config_state =
             )
         })
 
-        # ── D5: Traits with zero significant SNPs warning ──────────────────────
-        output$no_sig_snps_warning <- shiny::renderUI({
-            all_traits <- all_trait_names_rv()
-            sig_traits <- traits()
-            missing    <- setdiff(all_traits, sig_traits)
-            if (length(missing) == 0) return(NULL)
-            items <- lapply(missing, function(tr)
-                htmltools::tags$li(htmltools::tags$code(tr)))
-            htmltools::div(
-                class = "alert alert-warning d-flex gap-2 align-items-start mb-2",
-                bsicons::bs_icon("exclamation-triangle-fill", class = "flex-shrink-0 mt-1"),
-                htmltools::div(
-                    htmltools::tags$strong(
-                        length(missing),
-                        if (length(missing) == 1) "trait" else "traits",
-                        "yielded no significant SNPs/windows at current threshold"
-                    ),
-                    ". Adjust the Significance threshold or switch to FDR/top-N mode.",
-                    htmltools::tags$ul(class = "mb-0 mt-1", items)
-                )
-            )
-        })
-
         # ── Filter bar UI (matrix + strategy + clumping) ──────────────────────
         output$filter_bar <- shiny::renderUI({
             build_filter_bar_ui(
@@ -394,8 +333,10 @@ mod_gwas_server <- function(id, project_data, run_trigger = NULL, config_state =
                 trait_colors                = trait_colors(),
                 combo_counts                = combo_counts(),
                 combo_thresholds            = combo_thresholds(),
-                default_strategy_value      = default_strategy(),
+                # isolate()d: seeded from the user's move, never re-rendered by it
+                default_strategy_value      = shiny::isolate(bar$strategy()),
                 snp_clumping_distance_value = snp_clumping_distance(),
+                region_clumping_distance_value = region_merge()$bp,
                 # isolate()d — see setup_matrix_rules_server(): the matrix's
                 # on/off selection must survive a re-render triggered by
                 # combo_counts/combo_thresholds changing (master threshold edit).
@@ -475,7 +416,7 @@ mod_gwas_server <- function(id, project_data, run_trigger = NULL, config_state =
             project_data        = project_data,
             module              = module,
             interactive_sigsnps = interactive_sigsnps,
-            region_distance     = snp_clumping_distance,
+            region_distance     = region_clumping_distance,
             regime              = regime_wza
         )
 
@@ -498,7 +439,10 @@ mod_gwas_server <- function(id, project_data, run_trigger = NULL, config_state =
             title_label          = shiny::reactive({
                 if (regime_wza()) "Combined GWAS Manhattan (WZA)" else "Combined GWAS Manhattan"
             }),
-            note                 = shiny::reactive(help_note("manhattan_gwas_combined")),
+            note                 = shiny::reactive(htmltools::tagList(
+                help_note("manhattan_gwas_combined"),
+                no_sig_traits_note(setdiff(all_trait_names_rv(), traits()))
+            )),
             regions              = explorer$computed_regions,
             current_region_id    = explorer$selected_region_id,
             show_regions_control = FALSE,
@@ -586,6 +530,11 @@ mod_gwas_server <- function(id, project_data, run_trigger = NULL, config_state =
             note    = shiny::reactive(help_note("qq_plot_gwas"))
         )
 
+        # Live counts for the KPI strip (mod_gwas_dashboard_outputs(), 1c6896)
+        list(kpis = assoc_live_kpis(
+            sigsnps = interactive_sigsnps, regions = explorer$computed_regions,
+            traits_hit = traits, traits_all = all_trait_names_rv,
+            methods = methods, wza = regime_wza))
     })
 }
 
@@ -616,8 +565,6 @@ mod_gwas_ui <- function(id) {
             class = "lab-gea-hero",
             mod_manhattan_overlay_ui(ns("combined_manhattan"), height = "100%")
         ),
-
-        shiny::uiOutput(ns("no_sig_snps_warning")),
 
         bslib::layout_columns(
             col_widths = c(5, 7),

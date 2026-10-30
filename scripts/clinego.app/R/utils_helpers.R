@@ -24,6 +24,15 @@ keep_merged_method_files <- function(files, regime = "snp") {
     files[keep]
 }
 
+#' A config list as a character vector: a comma-separated string (Climate.predictors,
+#' Future.models), a YAML list or a vector; entries trimmed, empty ones dropped.
+#' @noRd
+parse_csv_list <- function(x) {
+    if (is.null(x)) return(character(0))
+    v <- trimws(unlist(strsplit(as.character(unlist(x)), ",")))
+    v[nzchar(v)]
+}
+
 #' Check if a file path exists and is non-empty
 #' @noRd
 file_ok <- function(path) {
@@ -83,6 +92,18 @@ make_project_data <- function(project, pipeline_path = get_pipeline_path()) {
         k_best  = k_best,
         status  = check_module_status(project)
     )
+}
+
+#' What make_project_data() reads from disk, as a cache key part.
+#'
+#' The modification times of the project's config file and pipeline_summary.tsv:
+#' a project bundle cached under an older key is stale (a config saved, a run
+#' finished in another session or on the command line), fb53fe.
+#' @noRd
+project_files_stamp <- function(project, pipeline_path = get_pipeline_path()) {
+    if (is.null(project) || length(project) != 1 || !nzchar(project)) return("")
+    paths <- c(config_file_path(project, pipeline_path), pipeline_summary_path(project))
+    paste(format(file.mtime(paths), "%Y%m%d%H%M%OS6"), collapse = "|")
 }
 
 #' Map Shiny tab name to Snakemake mode string
@@ -164,9 +185,26 @@ clumping_distance_issue <- function(cfg, source = MOD_GEA, ld_table = "NULL") {
     .resolve_config_clumping(cfg, source, ld_table)$error
 }
 
+#' The region merge's own distance from the config, when it sets one.
+#'
+#' The pipeline merges significant SNPs into regions at `region_clumping_distance`
+#' when the config sets it (GWAS inheriting GEA's, as resolve_region_params() reads
+#' it), else at the clumping distance (acff31). Read as default_clumping_distance()
+#' reads the clumping distance, an auto_* value genome-wide from the LD-decay table.
+#'
+#' @inheritParams default_clumping_distance
+#' @return list(bp, error): both NULL when the config sets no region distance;
+#'   `error` the reason an auto_* distance could not be read.
+#' @noRd
+config_region_clumping_distance <- function(cfg, source = MOD_GEA, ld_table = "NULL") {
+    .resolve_config_clumping(cfg, source, ld_table, key = "region_clumping_distance")
+}
+
 # The config's clumping distance of `source` in bp (`bp`), or the reason it could not be
-# read (`error`); both NULL for a spec that is neither bp nor auto_*.
-.resolve_config_clumping <- function(cfg, source, ld_table) {
+# read (`error`); both NULL for a spec that is neither bp nor auto_*. `key` is
+# snp_clumping_distance (unset = the pipeline's auto_genome_wide default) or
+# region_clumping_distance (unset, null or "none" = not set: both NULL).
+.resolve_config_clumping <- function(cfg, source, ld_table, key = "snp_clumping_distance") {
     group_keys <- function(group) {
         d <- config_get(cfg, group, default = list())
         if (!is.list(d)) d <- list()
@@ -178,7 +216,9 @@ clumping_distance_issue <- function(cfg, source = MOD_GEA, ld_table = "NULL") {
     gea <- group_keys("GEA")
     pick <- function(key, default) own[[key]] %||% gea[[key]] %||% default
 
-    spec <- pick("snp_clumping_distance", "auto_genome_wide")
+    spec <- pick(key, if (identical(key, "snp_clumping_distance")) "auto_genome_wide")
+    if (is.null(spec) || tolower(trimws(as.character(spec)))[1] %in% c("", "none", "null"))
+        return(list(bp = NULL, error = NULL))
     bp <- suppressWarnings(as.numeric(spec))
     if (length(bp) == 1 && !is.na(bp)) return(list(bp = as.integer(bp), error = NULL))
     if (!tolower(trimws(as.character(spec)))[1] %in%
@@ -193,56 +233,59 @@ clumping_distance_issue <- function(cfg, source = MOD_GEA, ld_table = "NULL") {
         error = function(e) list(bp = NULL, error = conditionMessage(e)))
 }
 
-#' A filter bar's clumping distance: one value per project, saved only when moved.
+#' A filter-bar control's value: one per project, saved only when the user moves it.
 #'
-#' Call from a module server; the box must be rendered from the returned reactive,
-#' never from its own input. The start is the value saved under `module`/`rp_key`,
-#' else default_clumping_distance() for `source`. A move is kept for the session and
-#' saved under the project it was made in; nothing else is saved, so opening a tab
-#' writes nothing.
+#' Call from a module server; the control must be rendered (or updated) from the
+#' returned reactive, never from its own input. The start is `start_fn(pd, saved)`,
+#' where `saved` is the value region_params.json holds under `module`/`rp_key` (NULL
+#' when none). A move is kept for the session and saved under the project it was made
+#' in; nothing else is saved, so opening a tab writes nothing.
 #'
-#' Every re-render binds a new box, which reports its own starting value, and on a cold
-#' app that report can arrive after a project switch. Taken as a move, the previous
-#' project's value was saved into the new project's region_params.json and the bar
-#' re-rendered in a loop between the two values (measured 2026-10-26, once per-project
-#' starting values made them differ). So after the app puts a value in the box, every
-#' report is an echo until the box reports that value back.
+#' Every re-render binds a new control, which reports its own starting value, and on a
+#' cold app that report can arrive after a project switch. Taken as a move, the
+#' previous project's value was saved into the new project's region_params.json and
+#' the bar re-rendered in a loop between the two values (measured 2026-10-26 on the
+#' clumping distance, once per-project starting values made them differ), and every
+#' control wrote its starting value on first show (ac8228). So after the app puts a
+#' value in the control, every report is an echo until the control reports that value
+#' back.
 #'
 #' @param input        The module's input.
 #' @param project_data Reactive project bundle (make_project_data()).
-#' @param input_id     The box's input id (un-namespaced).
+#' @param input_id     The control's input id (un-namespaced).
 #' @param module       region_params.json module key (MOD_GEA, MOD_GWAS, MOD_GEAXGWAS).
 #' @param rp_key       Key under `module`.
-#' @param source       MOD_GEA or MOD_GWAS: whose config distance is the start.
-#' @return Reactive integer bp.
+#' @param start_fn     function(pd, saved): the project's starting value; `pd` is NULL
+#'   before a project is loaded.
+#' @param coerce       function(v): the control's report as the stored value, or NULL
+#'   for a report to ignore (an empty or invalid box).
+#' @return Reactive value.
 #' @noRd
-clumping_distance_state <- function(input, project_data, input_id, module, rp_key, source) {
+filter_param_state <- function(input, project_data, input_id, module, rp_key,
+                               start_fn, coerce = identity) {
     start <- shiny::reactive({
         pd <- project_data()
-        if (is.null(pd)) return(DEFAULT_CLUMPING_DISTANCE)
-        saved <- get_global_param(read_region_params(pd$name), module, rp_key)
-        if (!is.null(saved)) as.integer(saved)
-        else default_clumping_distance(pd$config, source, ld_decay_table_path(pd$name))
+        if (is.null(pd)) return(start_fn(NULL, NULL))
+        start_fn(pd, get_global_param(read_region_params(pd$name), module, rp_key))
     })
     moved <- shiny::reactiveVal(list())   # this session's moves, by project name
     value <- shiny::reactive({
         pd <- project_data()
         (if (!is.null(pd)) moved()[[pd$name]]) %||% start()
     })
-    # The value the app last put in the box that the box has not reported back yet;
-    # NULL once it has, or when the box already held it.
+    # The value the app last put in the control that the control has not reported back
+    # yet; NULL once it has, or when the control already held it.
     pending <- NULL
     shiny::observe({
         now <- value()
         cur <- shiny::isolate(input[[input_id]])
-        held <- !is.null(cur) && !is.na(cur) && identical(as.integer(cur), now)
+        held <- !is.null(cur) && identical(coerce(cur), now)
         pending <<- if (held) NULL else now
     })
     shiny::observeEvent(input[[input_id]], {
-        v  <- input[[input_id]]
         pd <- project_data()
-        if (is.null(v) || is.na(v) || v < 1L || is.null(pd)) return()
-        v <- as.integer(v)
+        v  <- coerce(input[[input_id]])
+        if (is.null(v) || is.null(pd)) return()
         if (!is.null(pending)) {
             if (identical(v, pending)) pending <<- NULL
             return()
@@ -255,6 +298,88 @@ clumping_distance_state <- function(input, project_data, input_id, module, rp_ke
         save_region_params(pd$name, set_global_param(rp, module, rp_key, v))
     }, ignoreInit = TRUE)
     value
+}
+
+#' A filter bar's clumping distance (bp), saved only when moved (filter_param_state()).
+#'
+#' The start is the value saved under `module`/`rp_key`, else default_clumping_distance()
+#' for `source`.
+#'
+#' @inheritParams filter_param_state
+#' @param source MOD_GEA or MOD_GWAS: whose config distance is the start.
+#' @return Reactive integer bp.
+#' @noRd
+clumping_distance_state <- function(input, project_data, input_id, module, rp_key, source) {
+    filter_param_state(
+        input, project_data, input_id, module, rp_key,
+        start_fn = function(pd, saved) {
+            if (is.null(pd)) return(DEFAULT_CLUMPING_DISTANCE)
+            if (!is.null(saved)) as.integer(saved)
+            else default_clumping_distance(pd$config, source, ld_decay_table_path(pd$name))
+        },
+        coerce = function(v) {
+            if (is.null(v) || length(v) != 1 || is.na(v) || v < 1L) NULL else as.integer(v)
+        })
+}
+
+#' The four controls of a GEA/GWAS threshold and filter bar, saved only when moved.
+#'
+#' The threshold rule (type and value), the combine strategy and the regime switch,
+#' each a filter_param_state(). The ids are `prefix` + "threshold_type",
+#' "threshold_value", "combine_strategy", "regime"; the region_params.json keys are the
+#' same names unless `rp_keys` renames them (GEAxGWAS keeps its historic
+#' "gea_strategy" / "gwas_strategy").
+#'
+#' @inheritParams filter_param_state
+#' @param prefix            Input-id prefix ("" or "gea_" / "gwas_").
+#' @param source            MOD_GEA or MOD_GWAS: whose config rule is the start.
+#' @param registry_defaults Reactive method -> list(adjust, threshold, family).
+#' @param default_strategy  Strategy when none is saved.
+#' @param rp_keys           Named character: region_params.json key per control.
+#' @return list(threshold_type, threshold_value, strategy, regime), each a reactive.
+#' @noRd
+filter_bar_state <- function(input, project_data, module, source, registry_defaults,
+                             prefix = "", default_strategy = "Union",
+                             rp_keys = c(threshold_type = "threshold_type",
+                                         threshold_value = "threshold_value",
+                                         combine_strategy = "combine_strategy",
+                                         regime = "regime")) {
+    key <- function(name) {
+        k <- rp_keys[[name]]
+        if (is.null(k)) paste0(prefix, name) else k
+    }
+    config_rule <- function(pd) {
+        if (is.null(pd)) return(list(type = "bonf", value = 0.05))
+        default_threshold(pd$config, source, registry_defaults())
+    }
+    list(
+        threshold_type = filter_param_state(
+            input, project_data, paste0(prefix, "threshold_type"), module, key("threshold_type"),
+            start_fn = function(pd, saved) {
+                if (!is.null(saved)) as.character(saved) else config_rule(pd)$type
+            },
+            coerce = function(v) {
+                if (is.null(v) || length(v) != 1 || !nzchar(v)) NULL else as.character(v)
+            }),
+        threshold_value = filter_param_state(
+            input, project_data, paste0(prefix, "threshold_value"), module, key("threshold_value"),
+            start_fn = function(pd, saved) {
+                if (!is.null(saved)) as.numeric(saved) else config_rule(pd)$value
+            },
+            coerce = function(v) {
+                if (is.null(v) || length(v) != 1 || is.na(v) || v <= 0) NULL else as.numeric(v)
+            }),
+        strategy = filter_param_state(
+            input, project_data, paste0(prefix, "combine_strategy"), module, key("combine_strategy"),
+            start_fn = function(pd, saved) .normalize_strategy(saved %||% default_strategy),
+            coerce = function(v) {
+                if (is.null(v) || length(v) != 1 || !nzchar(v)) NULL else .normalize_strategy(v)
+            }),
+        regime = filter_param_state(
+            input, project_data, paste0(prefix, "regime"), module, key("regime"),
+            start_fn = function(pd, saved) isTRUE(saved),
+            coerce = function(v) if (is.null(v)) NULL else isTRUE(v))
+    )
 }
 
 #' Reactive wrapper that only propagates when the VALUE actually changes.

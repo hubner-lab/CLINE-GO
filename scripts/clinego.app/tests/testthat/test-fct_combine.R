@@ -10,13 +10,34 @@
 # pipeline's implementation in tests/testthat/test-equivalence-app-pipeline.R,
 # which is the stronger assertion.
 
-test_that("default_threshold reads the FIRST configs entry", {
+test_that("default_threshold reads the configured rule, whatever the entry order", {
     cfg <- list(GEA = list(configs = list(
         list(method = "EMMAX", adjust = "qval", threshold = "0.1"),
         list(method = "LFMM",  adjust = "bonf", threshold = "0.05"))))
-    got <- default_threshold(cfg, MOD_GEA)
-    expect_identical(got$type, "qval")
-    expect_identical(got$value, 0.1)
+    rev_cfg <- list(GEA = list(configs = rev(cfg$GEA$configs)))
+    # one method each: the tie goes to the alphabetically first method, EMMAX
+    expect_identical(default_threshold(cfg, MOD_GEA), list(type = "qval", value = 0.1))
+    expect_identical(default_threshold(rev_cfg, MOD_GEA), list(type = "qval", value = 0.1))
+})
+
+test_that("default_threshold takes the rule most univariate methods share", {
+    cfg <- list(GEA = list(configs = list(
+        list(method = "EMMAX", adjust = "qval", threshold = "0.1"),
+        list(method = "LFMM",  adjust = "bonf", threshold = "0.05"),
+        list(method = "GLM",   adjust = "bonf", threshold = 0.05))))
+    expect_identical(default_threshold(cfg, MOD_GEA), list(type = "bonf", value = 0.05))
+})
+
+test_that("default_threshold skips a method the registry pins to its own rule", {
+    # RDA first in the YAML used to seed the master that EMMAX follows (230a79)
+    cfg <- list(GEA = list(configs = list(
+        list(method = "RDA",   adjust = "qval", threshold = "0.05"),
+        list(method = "EMMAX", adjust = "bonf", threshold = "0.01"))))
+    reg <- list(RDA   = list(adjust = "qval", threshold = "0.05", family = "multivariate_pvalue"),
+                EMMAX = list(adjust = "bonf", threshold = "0.05", family = "univariate_pvalue"))
+    expect_identical(default_threshold(cfg, MOD_GEA, reg), list(type = "bonf", value = 0.01))
+    only_rda <- list(GEA = list(configs = cfg$GEA$configs[1]))
+    expect_identical(default_threshold(only_rda, MOD_GEA, reg), list(type = "bonf", value = 0.05))
 })
 
 test_that("default_threshold reads GWAS.configs for the GWAS module", {
@@ -257,18 +278,13 @@ test_that("tm_selection_json = character(0) errors rather than falling back", {
 })
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# default_threshold() vs resolve_adjust() — fct_combine.R:69 and
-# utils_helpers.R:61.
+# default_threshold() vs resolve_adjust() — fct_combine.R and utils_helpers.R.
 #
-# Both read the SAME config block, {GEA|GWAS}.configs, by two different rules:
-# default_threshold takes configs[[1]] and is method-agnostic; resolve_adjust
-# matches on cfg$method. The pipeline has no first-entry notion at all —
-# common.smk:584-598 builds a strictly per-method dict and raises on duplicate
-# methods — so resolve_adjust agrees with it and default_threshold does not.
-#
-# Consequence on one render: the app opens a method's p-value file at the
-# threshold resolve_adjust returns, while seeding the interactive threshold
-# control from the FIRST config entry.
+# Both read the SAME config block, {GEA|GWAS}.configs, per method, as the
+# pipeline's per-method dict does (common.smk raises on duplicate methods).
+# default_threshold took configs[[1]] until 230a79, so reordering the YAML moved
+# the master threshold without moving any file; it now takes the rule most
+# univariate methods share, a tie going to the alphabetically first method.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 two_method_config <- function() {
@@ -287,13 +303,16 @@ test_that("resolve_adjust returns NULL for a method absent from the configs", {
     expect_null(resolve_adjust(two_method_config(), "RDA", "GEA"))
 })
 
-test_that("default_threshold ignores the method and always takes the FIRST entry", {
-    # The divergence, pinned. For this config the app opens EMMAX's file at
-    # bonf_0.05 while seeding the threshold control with qval/0.1.
-    got <- default_threshold(two_method_config(), MOD_GEA)
-    expect_identical(got$type, "qval")
-    expect_identical(got$value, 0.1)
-    expect_false(identical(got$type, "bonf"))
+test_that("default_threshold no longer depends on the configs order", {
+    # The 230a79 config: LFMM first used to seed qval/0.1 while EMMAX's file is bonf_0.05.
+    # Either order now seeds EMMAX's rule (the tie's alphabetically first method).
+    cfg     <- two_method_config()
+    rev_cfg <- list(GEA = list(configs = rev(cfg$GEA$configs)))
+    expect_identical(default_threshold(cfg, MOD_GEA), list(type = "bonf", value = 0.05))
+    expect_identical(default_threshold(rev_cfg, MOD_GEA), default_threshold(cfg, MOD_GEA))
+    expect_identical(paste0(default_threshold(cfg, MOD_GEA)$type, "_",
+                            default_threshold(cfg, MOD_GEA)$value),
+                     resolve_adjust(cfg, "EMMAX", "GEA"))
 })
 
 test_that("default_threshold falls back to bonf/0.05 when the module has no configs", {
@@ -320,7 +339,7 @@ test_that("default_threshold repairs a non-numeric or non-positive threshold", {
 
 test_that("MOD_GEAXGWAS resolves to the GEA block on both paths", {
     cfg <- two_method_config()
-    expect_identical(default_threshold(cfg, MOD_GEAXGWAS)$type, "qval")
+    expect_identical(default_threshold(cfg, MOD_GEAXGWAS)$type, "bonf")
     expect_identical(resolve_adjust(cfg, "EMMAX", MOD_GEAXGWAS), "bonf_0.05")
 })
 

@@ -113,11 +113,14 @@ mod_pipeline_runner_ui <- function(id, btn_label = NULL, mode_override = NULL) {
 #' @param config_state reactiveValues from app_server ($saved, $working, $project)
 #' @param pipeline_running reactiveVal (logical) — global run lock
 #' @param project_data_trigger reactiveVal — increment to force project_data refresh
+#'   and the modules' p-value reload (a run that succeeded)
+#' @param project_files_trigger reactiveVal — increment to re-read the project's
+#'   config and status only (the config written, a run ended either way)
 #' @param tab_name tab name for mode derivation
 #' @param mode_override character — override derived mode (for haplotype)
 #' @noRd
 mod_pipeline_runner_server <- function(id, config_state, pipeline_running,
-                                        project_data_trigger,
+                                        project_data_trigger, project_files_trigger,
                                         tab_name, mode_override = NULL,
                                         snp_sets_trigger = NULL) {
     shiny::moduleServer(id, function(input, output, session) {
@@ -157,7 +160,51 @@ mod_pipeline_runner_server <- function(id, config_state, pipeline_running,
                 )
                 return()
             }
+            # A Snakemake lock on the results folder is the one guard that spans
+            # sessions: it may belong to a command-line run, another browser tab, or
+            # this app's run from before a page reload. Never cleared without asking
+            # (ac6ab8); the user removes it only when they know no run is active.
+            if (pipeline_is_locked(config_state$project, get_pipeline_path())) {
+                shiny::showModal(shiny::modalDialog(
+                    title = htmltools::tagList(
+                        bsicons::bs_icon("lock-fill", class = "text-warning"),
+                        " Results folder is locked"),
+                    htmltools::p(
+                        "Snakemake has locked ", htmltools::tags$code(paste0(
+                            config_state$project, "_results/")),
+                        ". Another run may be working on this project: from the command",
+                        " line, from another browser tab, or from this app before the page",
+                        " was reloaded. Two runs on one results folder can corrupt it."),
+                    htmltools::p(
+                        "Remove the lock only if you know no run is active, e.g. one",
+                        " was stopped by a crash or a killed container."),
+                    footer = htmltools::tagList(
+                        shiny::modalButton("Cancel"),
+                        shiny::actionButton(ns("unlock_and_run"), "Remove lock and run",
+                                            class = "btn btn-danger")
+                    ),
+                    easyClose = TRUE
+                ))
+                return()
+            }
+            launch_run()
+        })
 
+        shiny::observeEvent(input$unlock_and_run, {
+            shiny::removeModal()
+            shiny::req(!pipeline_running(), !is.null(config_state$project))
+            pipeline_unlock(config_state$project, mode, get_pipeline_path())
+            if (pipeline_is_locked(config_state$project, get_pipeline_path())) {
+                shiny::showNotification(
+                    "Could not remove the lock: Snakemake --unlock failed.",
+                    type = "error", duration = 8)
+                return()
+            }
+            launch_run()
+        })
+
+        # Write the working config and start Snakemake (the folder is unlocked).
+        launch_run <- function() {
             project  <- config_state$project
             cpu      <- config_get_by_path(config_state$working, "cpu") %||% max(1L, parallel::detectCores() - 2L)
             pip_path <- get_pipeline_path()
@@ -188,14 +235,7 @@ mod_pipeline_runner_server <- function(id, config_state, pipeline_running,
             }
 
             config_state$saved <- config_state$working
-
-            # Notify if a stale lock will be auto-cleared (pipeline_run handles the actual unlock)
-            if (pipeline_is_locked(project, pip_path)) {
-                shiny::showNotification(
-                    "Cleared a stale lock from a previously interrupted run. Resuming now.",
-                    type = "warning", duration = 6
-                )
-            }
+            project_files_trigger(project_files_trigger() + 1L)
 
             p <- tryCatch(
                 pipeline_run(mode, project, as.integer(cpu), pip_path),
@@ -230,7 +270,7 @@ mod_pipeline_runner_server <- function(id, config_state, pipeline_running,
             shinyjs::show("stop_btn")
             shinyjs::show("progress_container")
             shinyjs::disable("run_btn")
-        })
+        }
 
         # ── Stop button ─────────────────────────────────────────────────────────
         shiny::observeEvent(input$stop_btn, {
@@ -301,6 +341,8 @@ mod_pipeline_runner_server <- function(id, config_state, pipeline_running,
             exit_code <- tryCatch(p$get_exit_status(), error = function(e) -1L)
             proc(NULL)
             pipeline_running(FALSE)
+            # A failed run may still have written a mode's outputs and its summary
+            project_files_trigger(project_files_trigger() + 1L)
             # Final progress read — updates label + rule list one last time, then stops
             cached_progress(pipeline_read_progress(config_state$project))
             shinyjs::hide("stop_btn")

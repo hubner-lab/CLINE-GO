@@ -52,12 +52,11 @@ pipeline_run <- function(mode, project, cpu,
 
     args <- pipeline_cmd(mode, project, cpu, pipeline_path)
 
-    # Auto-clear any stale lock left by a prior crash / docker stop / kill signal.
-    # Safe: the app's global pipeline_running lock ensures no other in-app snakemake
-    # is running by the time we reach here, so any on-disk lock is necessarily stale.
-    if (pipeline_is_locked(project, pipeline_path)) {
-        pipeline_unlock(project, mode, pipeline_path)
-    }
+    # Never clear a lock here: it may belong to a run this session cannot see -- a
+    # command-line run, another browser tab, or this app's own run from before a page
+    # reload (ac6ab8). The runner asks the user before pipeline_unlock() removes one.
+    if (pipeline_is_locked(project, pipeline_path))
+        stop("the results folder is locked by another Snakemake run")
 
     # Find snakemake on PATH (pipx installs to ~/.local/bin, also /root/.local/bin)
     smk <- Sys.which("snakemake")
@@ -91,9 +90,9 @@ pipeline_is_running <- function(proc) {
 
 #' Run snakemake --unlock for a project's working directory
 #'
-#' Safe to call even when no lock exists. Used both by pipeline_kill() (Stop button)
-#' and pipeline_run() (auto-clear stale lock from a prior crash/docker stop).
-#' mode is required by Snakemake to parse the Snakefile config block.
+#' Safe to call even when no lock exists. Used by pipeline_kill() (Stop button) and
+#' by the runner's "Remove lock" confirmation (a lock a prior crash or docker stop
+#' left behind). mode is required by Snakemake to parse the Snakefile config block.
 #'
 #' @param project project name
 #' @param mode pipeline mode string (e.g. "gea") — required for Snakefile config parsing
@@ -165,13 +164,22 @@ pipeline_is_locked <- function(project, pipeline_path = get_pipeline_path()) {
 #' @noRd
 pipeline_read_progress <- function(project, pipeline_path = get_pipeline_path()) {
     log_path <- pipeline_run_log_path(project, pipeline_path)
+    lines <- if (file.exists(log_path))
+        tryCatch(readLines(log_path, warn = FALSE), error = function(e) character(0))
+    else character(0)
+    pipeline_parse_progress(lines)
+}
 
+#' Parse the lines of a Snakemake 9 run log into progress (see pipeline_read_progress()).
+#'
+#' Pure: no file access, so a test passes the lines themselves (f8a481).
+#'
+#' @param lines character vector, one log line each
+#' @return list(total, done, failed, current_rule, rules)
+#' @noRd
+pipeline_parse_progress <- function(lines) {
     empty <- list(total = NA_integer_, done = 0L, failed = 0L,
                   current_rule = "", rules = list())
-
-    if (!file.exists(log_path)) return(empty)
-
-    lines <- tryCatch(readLines(log_path, warn = FALSE), error = function(e) character(0))
     if (length(lines) == 0) return(empty)
 
     total        <- NA_integer_
@@ -254,10 +262,10 @@ pipeline_read_progress <- function(project, pipeline_path = get_pipeline_path())
         }
 
         # ── "N of M steps (P%) done" → update total ─────────────────────────────
-        if (grepl("\\d+ of \\d+ steps", line)) {
-            nums <- regmatches(line, gregexpr("\\d+", line))[[1]]
-            if (length(nums) >= 2) total <- as.integer(nums[2])
-        }
+        # M is captured from the phrase itself: taking the line's second number
+        # read a timestamp prefix's digits instead (a8501b).
+        steps <- regmatches(line, regexec("(\\d+) of (\\d+) steps", line))[[1]]
+        if (length(steps) == 3) total <- as.integer(steps[3])
 
         # ── "total  N" from Job stats table ─────────────────────────────────────
         if (grepl("^total\\s+\\d+", line) && is.na(total)) {

@@ -613,12 +613,8 @@ REGION_LD_RULE       = CLUMPING_LD_RULE
 REGION_LD_DECAY_GROUP = CLUMPING_LD_DECAY_GROUP
 GO_FIELD           = _gff.get('go_field', 'NULL')
 
-# ENRICHMENT parameters
-_enrich = config.get('Enrichment', {})
-ENRICHMENT_TOP_TERMS = _enrich.get('top_terms', 20)
-ENRICHMENT_PLOT_WIDTH = _enrich.get('plot_width', 12)
-ENRICHMENT_PLOT_HEIGHT = _enrich.get('plot_height', 10)
-ENRICHMENT_CNET_LABEL = _enrich.get('cnet_label', 'gene_id')
+# Enrichment.* is read only by the app's on-demand GO enrichment (ENRICHMENT_DEFAULTS in
+# scripts/clinego.app/R/fct_regions.R); no rule reads it (1f23dd).
 
 # FUTURE parameters
 _future = config.get('Future', {})

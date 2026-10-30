@@ -207,6 +207,17 @@ mod_region_explorer_server <- function(id, project_data, module = MOD_GEA,
             region_params(read_region_params(pd$name))
         })
 
+        # Save a finished scan's or viz's params. Read from disk at write time: the
+        # in-memory copy is from the last project load, and writing it back erased every
+        # filter-bar setting the tabs saved since (146e62). Saved under the project the
+        # job ran for, which a project switch during the run does not change.
+        persist_hap_params <- function(h, type) {
+            proj <- h$project %||% shiny::isolate(project_data()$name)
+            rp <- set_region_param(read_region_params(proj), module, h$region_id, type, h$params)
+            save_region_params(proj, rp)
+            if (identical(proj, shiny::isolate(project_data()$name))) region_params(rp)
+        }
+
         # Persists user-chosen metadata type across renderUI re-renders (NULL = use config default)
         user_meta_type <- shiny::reactiveVal(NULL)
 
@@ -279,15 +290,24 @@ mod_region_explorer_server <- function(id, project_data, module = MOD_GEA,
             rid
         })
 
-        # combo_hash: deterministic 8-char hash of sorted trait/method pairs + regime.
-        # Different filter state or regime → different hash → different cache key and disk path.
+        # The flank is the distance the region was merged at, so a SNP that would
+        # have joined it falls inside the window; overlap regions (GEAxGWAS) have
+        # no one such distance and are drawn as they are.
+        regionplot_flank <- shiny::reactive({
+            if (is.null(override_regions())) region_distance() else 0L
+        })
+
+        # combo_hash: regionplot_cache_hash() of the trait/method pairs, regime, tables
+        # with their rules and flank -- the key the launcher writes under. Different
+        # filter state or regime → different hash → different cache key and disk path.
         combo_hash <- shiny::reactive({
             snps <- region_snps()
             if (is.null(snps) || nrow(snps) == 0) return(NULL)
             arg <- .build_trait_method_arg(snps)
             if (is.null(arg)) return(NULL)
             regime_str <- if (isTRUE(regime())) "wza" else "snp"
-            substr(digest::digest(paste0(arg, "__", regime_str), algo = "md5"), 1, 8)
+            regionplot_cache_hash(arg, regime_str, regionplot_assoc_tables(project_data(), module),
+                                  regionplot_flank())
         })
 
         rplot_key <- shiny::reactive({
@@ -491,12 +511,7 @@ mod_region_explorer_server <- function(id, project_data, module = MOD_GEA,
                         if (!file.exists(flag_path))
                             file.create(flag_path, showWarnings = FALSE)
                         # Persist scan params to region_params.json
-                        if (!is.null(h$params)) {
-                            rp <- region_params()
-                            rp <- set_region_param(rp, module, h$region_id, "hap_scan", h$params)
-                            save_region_params(project_data()$name, rp)
-                            region_params(rp)
-                        }
+                        if (!is.null(h$params)) persist_hap_params(h, "hap_scan")
                     }
                     # key for hap_scan is stored with __scan suffix
                     base_key <- sub("__scan$", "", key)
@@ -512,12 +527,7 @@ mod_region_explorer_server <- function(id, project_data, module = MOD_GEA,
                         result$log_tail <- paste(utils::tail(log_lines, 10), collapse = "\n")
                     }
                     # Persist viz params to region_params.json
-                    if (is.null(result$error) && !is.null(h$params)) {
-                        rp <- region_params()
-                        rp <- set_region_param(rp, module, h$region_id, "hap_viz", h$params)
-                        save_region_params(project_data()$name, rp)
-                        region_params(rp)
-                    }
+                    if (is.null(result$error) && !is.null(h$params)) persist_hap_params(h, "hap_viz")
                     base_key <- sub("__viz$", "", key)
                     hap_viz_cache[[base_key]] <- result
 
@@ -839,7 +849,8 @@ mod_region_explorer_server <- function(id, project_data, module = MOD_GEA,
             if (is.null(snps) || nrow(snps) == 0) return()
 
             handle <- launch_regionplot_subprocess(row, snps, project_data(), module,
-                                                     regime = if (isTRUE(regime())) "wza" else "snp")
+                                                     regime = if (isTRUE(regime())) "wza" else "snp",
+                                                     flank  = regionplot_flank())
             if (!is.null(handle$error)) {
                 regionplot_cache[[key]] <- handle   # store error immediately
             } else {

@@ -53,6 +53,10 @@ compute_all_regions <- function(sig_snps, distance = 2000000L) {
     data.table::setcolorder(regions,
         c("region_id", "chr", "start", "end", "length",
           "snp_count", "snp_ids", "traits", "methods", "min_pvalue"))
+    # Genomic order, as cluster_snps_to_regions() and the pipeline's
+    # regions_combined.tsv keep it: a positional pick ("the third region") must
+    # name the same region in both (a79341)
+    data.table::setorder(regions, chr, start)
     regions
 }
 
@@ -107,214 +111,13 @@ find_genes_in_region <- function(gff_genes, region_row) {
     ov
 }
 
-#' Run GO enrichment for a single region via processx subprocess
-#'
-#' Calls scripts/run_enrichment.R then scripts/plot_enrichment.R.
-#' Results written to a session-specific temp directory.
-#'
-#' @param genes_dt data.table of genes for this region (from find_genes_in_region())
-#' @param region_id character combined region_id (e.g. "1_1000000-2000000")
-#' @param trait character trait name (for per-trait enrichment)
-#' @param project_data reactive project data bundle (name, config)
-#' @return list(table, dotplot_path, emapplot_path) or NULL on failure
-#' @noRd
-run_enrichment_subprocess <- function(genes_dt, region_id, trait, project_data) {
-    pd <- project_data
-
-    go_field   <- config_get(pd$config, "GFF",        "go_field",   default = NULL)
-    gff_feat   <- config_get(pd$config, "GFF",        "feature",    default = "mRNA")
-    top_terms  <- config_get(pd$config, "Enrichment", "top_terms",  default = 10L)
-    plot_w     <- config_get(pd$config, "Enrichment", "plot_width",  default = 10L)
-    plot_h     <- config_get(pd$config, "Enrichment", "plot_height", default = 8L)
-    cnet_label <- config_get(pd$config, "Enrichment", "cnet_label", default = "gene_id")
-
-    if (is.null(go_field) || go_field == "" || go_field == "NULL") {
-        return(list(error = "GO field not configured (GFF.go_field)"))
-    }
-
-    gff <- .resolve_gff_path(pd)
-    if (!file_ok(gff)) {
-        return(list(error = paste0("GFF not found: ", gff)))
-    }
-
-    if (is.null(genes_dt) || nrow(genes_dt) == 0) {
-        return(list(error = "No genes in region"))
-    }
-
-    pipeline_path <- get_pipeline_path()
-
-    # Temp session directory for this region's enrichment output
-    tmp_base  <- file.path(tempdir(), "clinego_enrichment",
-                           paste0(pd$name, "_", gsub("[^a-z0-9]", "", tolower(region_id)),
-                                  "_", trait))
-    tmp_genes   <- file.path(tmp_base, "genes.tsv")
-    tmp_tables  <- file.path(tmp_base, "tables")
-    tmp_inter   <- file.path(tmp_base, "intermediate")
-    tmp_plots   <- file.path(tmp_base, "plots")
-
-    dir.create(tmp_tables, recursive = TRUE, showWarnings = FALSE)
-    dir.create(tmp_inter,  recursive = TRUE, showWarnings = FALSE)
-    dir.create(tmp_plots,  recursive = TRUE, showWarnings = FALSE)
-
-    # Write per-trait genes file (run_enrichment.R expects region_id with trait suffix)
-    per_trait_id <- paste0(region_id, "_", trait)
-    genes_out <- data.table::copy(genes_dt)
-    genes_out[, region_id := per_trait_id]
-    data.table::fwrite(genes_out, tmp_genes, sep = "\t")
-
-    # ── Step 1: Run enrichment ─────────────────────────────────────────────────
-    res_enrich <- tryCatch(
-        processx::run(
-            command = "Rscript",
-            args    = c(
-                file.path(pipeline_path, "scripts", "run_enrichment.R"),
-                tmp_genes,
-                gff,
-                go_field,
-                gff_feat,
-                tmp_tables,
-                tmp_inter
-            ),
-            wd      = pipeline_path,
-            timeout = 120
-        ),
-        error = function(e) list(status = 1L, stderr = conditionMessage(e))
-    )
-
-    if (res_enrich$status != 0L) {
-        return(list(error = paste0("Enrichment failed: ",
-                                   utils::tail(strsplit(res_enrich$stderr, "\n")[[1]], 3))))
-    }
-
-    # Check if TSV was produced
-    tsv_path <- file.path(tmp_tables, trait,
-                          paste0("Region_", per_trait_id, "_enrichment.tsv"))
-    if (!file_ok(tsv_path)) {
-        return(list(error = "No enrichment results (no significant GO terms)"))
-    }
-
-    enrich_tbl <- tryCatch(
-        data.table::fread(tsv_path, sep = "\t", header = TRUE),
-        error = function(e) NULL
-    )
-    if (is.null(enrich_tbl) || nrow(enrich_tbl) == 0) {
-        return(list(error = "No enrichment results (no significant GO terms)"))
-    }
-
-    # ── Step 2: Generate plots ─────────────────────────────────────────────────
-    res_plots <- tryCatch(
-        processx::run(
-            command = "Rscript",
-            args    = c(
-                file.path(pipeline_path, "scripts", "plot_enrichment.R"),
-                tmp_inter,
-                tmp_plots,
-                as.character(as.integer(top_terms)),
-                as.character(as.numeric(plot_w)),
-                as.character(as.numeric(plot_h)),
-                cnet_label,
-                tmp_genes,
-                "0"  # top_plot_regions = 0 (all)
-            ),
-            wd      = pipeline_path,
-            timeout = 120
-        ),
-        error = function(e) list(status = 1L, stderr = conditionMessage(e))
-    )
-
-    dotplot_path  <- file.path(tmp_plots, trait,
-                               paste0("Region_", per_trait_id, "_dotplot.png"))
-    emapplot_path <- file.path(tmp_plots, trait,
-                               paste0("Region_", per_trait_id, "_emapplot.png"))
-
-    list(
-        table         = enrich_tbl,
-        dotplot_path  = if (file_ok(dotplot_path))  dotplot_path  else NULL,
-        emapplot_path = if (file_ok(emapplot_path)) emapplot_path else NULL
-    )
-}
-
-#' Run regionplot for a single region via processx subprocess
-#'
-#' Calls scripts/plot_regionplot.R with CUSTOM_REGION set.
-#'
-#' @param region_row single-row data.table with chr, start, end
-#' @param trait character trait name
-#' @param project_data project data bundle
-#' @param module character pipeline module (MOD_GEA or MOD_GWAS)
-#' @return character path to generated PNG, or NULL on failure
-#' @noRd
-run_regionplot_subprocess <- function(region_row, trait, project_data, module = MOD_GEA) {
-    pd <- project_data
-
-    # Convert GFF on-the-fly if the topr annotation doesn't exist yet
-    gff_topr_p <- .ensure_gff_topr(pd)
-    if (!file_ok(gff_topr_p)) {
-        return(list(error = "Could not find or generate topr gene annotation. Check GFF config."))
-    }
-
-    # Build ASSOC_TABLES: method:adjust:filepath using the full pvalue TSVs
-    method_files <- find_method_pvalue_files(pd$name, module)
-    if (length(method_files) == 0) {
-        return(list(error = "No method result files found. Run the association mode first."))
-    }
-
-    assoc_tables <- .build_assoc_tables_arg(method_files)
-    if (is.null(assoc_tables)) {
-        return(list(error = "Could not build association table arguments."))
-    }
-
-    custom_region <- paste0(region_row$chr[1], ":",
-                             region_row$start[1], "-",
-                             region_row$end[1])
-
-    genes_highlight <- config_get(pd$config, "regionplot", "genes",
-                                  default = "NULL") %||% "NULL"
-    if (length(genes_highlight) > 1) genes_highlight <- paste(genes_highlight, collapse = "|")
-
-    pipeline_path <- get_pipeline_path()
-
-    tmp_base <- file.path(tempdir(), "clinego_regionplot",
-                          paste0(pd$name, "_",
-                                 gsub("[^a-z0-9]", "", tolower(custom_region)),
-                                 "_", trait))
-    dir.create(tmp_base, recursive = TRUE, showWarnings = FALSE)
-
-    res <- tryCatch(
-        processx::run(
-            command = "Rscript",
-            args    = c(
-                file.path(pipeline_path, "scripts", "plot_regionplot.R"),
-                "NULL",          # REGIONS_FILE (not needed for custom region)
-                gff_topr_p,
-                assoc_tables,
-                "0",             # TOP_REGIONS
-                genes_highlight,
-                paste0(tmp_base, "/"),
-                custom_region,
-                trait,           # CUSTOM_TRAITS
-                "NULL"           # CUSTOM_METHODS (all)
-            ),
-            wd      = pipeline_path,
-            timeout = 180
-        ),
-        error = function(e) list(status = 1L, stderr = conditionMessage(e))
-    )
-
-    if (res$status != 0L) {
-        stderr_tail <- paste(utils::tail(strsplit(res$stderr %||% "", "\n")[[1]], 5), collapse = "\n")
-        return(list(error = paste0("Regionplot failed:\n", stderr_tail)))
-    }
-
-    # Find generated PNG in tmp_base
-    pngs <- Sys.glob(file.path(tmp_base, "*.png"))
-    if (length(pngs) == 0) {
-        return(list(error = "No plot was generated. Check that the region contains SNPs in the p-value files."))
-    }
-    list(path = pngs[1])
-}
-
 # ── Async subprocess launchers ────────────────────────────────────────────────
+
+#' Enrichment.* defaults: the template's and docs/configuration.md's values. GO
+#' enrichment runs only here, on demand, so this is the one reader of the block.
+#' @noRd
+ENRICHMENT_DEFAULTS <- list(top_terms = 20L, plot_width = 12, plot_height = 10,
+                            cnet_label = "gene_id")
 
 #' Launch GO enrichment as a non-blocking background process.
 #'
@@ -329,10 +132,14 @@ launch_enrichment_subprocess <- function(genes_dt, region_id, trait, project_dat
 
     go_field   <- config_get(pd$config, "GFF",        "go_field",   default = NULL)
     gff_feat   <- config_get(pd$config, "GFF",        "feature",    default = "mRNA")
-    top_terms  <- config_get(pd$config, "Enrichment", "top_terms",  default = 10L)
-    plot_w     <- config_get(pd$config, "Enrichment", "plot_width",  default = 10L)
-    plot_h     <- config_get(pd$config, "Enrichment", "plot_height", default = 8L)
-    cnet_label <- config_get(pd$config, "Enrichment", "cnet_label", default = "gene_id")
+    top_terms  <- config_get(pd$config, "Enrichment", "top_terms",
+                             default = ENRICHMENT_DEFAULTS$top_terms)
+    plot_w     <- config_get(pd$config, "Enrichment", "plot_width",
+                             default = ENRICHMENT_DEFAULTS$plot_width)
+    plot_h     <- config_get(pd$config, "Enrichment", "plot_height",
+                             default = ENRICHMENT_DEFAULTS$plot_height)
+    cnet_label <- config_get(pd$config, "Enrichment", "cnet_label",
+                             default = ENRICHMENT_DEFAULTS$cnet_label)
 
     if (is.null(go_field) || go_field == "" || go_field == "NULL")
         return(list(error = "GO field not configured (GFF.go_field)"))
@@ -446,46 +253,61 @@ launch_enrichment_subprocess <- function(genes_dt, region_id, trait, project_dat
     }, names(by_trait), by_trait), collapse = ",")
 }
 
+#' The ASSOC_TABLES argument of an on-demand region plot.
+#'
+#' Every method p-value table of the module at K = k_best (GEAxGWAS: of GEA and of
+#' GWAS), each with its own source's configured rule, which plot_regionplot.R draws as
+#' that method's threshold line (4f7b91).
+#' @return Character, or NULL when no table exists.
+#' @noRd
+regionplot_assoc_tables <- function(pd, module) {
+    sources <- if (identical(module, MOD_GEAXGWAS)) c(MOD_GEA, MOD_GWAS) else module
+    k_best  <- pd$k_best
+    tables  <- lapply(sources, function(src) {
+        files <- find_method_pvalue_files(pd$name, src)
+        # k_best only: the glob returns every K, and each method would appear once per K
+        if (!is.na(k_best))
+            files <- files[grepl(paste0("_K", k_best, "."), basename(files), fixed = TRUE)]
+        .build_assoc_tables_arg(files, function(m) .configured_adjust(pd$config, m, src))
+    })
+    tables <- unlist(Filter(Negate(is.null), tables))
+    if (length(tables) == 0) NULL else paste(tables, collapse = ",")
+}
+
+#' Cache key of an on-demand region plot: everything it draws besides its region.
+#'
+#' The trait/method pairs, the regime, the tables with their rules and the flank. The
+#' launcher writes under this key and the Region explorer looks a plot up under it.
+#' @noRd
+regionplot_cache_hash <- function(trait_method_arg, regime, assoc_tables, flank) {
+    substr(digest::digest(list(trait_method_arg, regime, assoc_tables, as.integer(flank)),
+                          algo = "md5"), 1, 8)
+}
+
 #' Launch regionplot as a non-blocking background process.
 #' @param region_snps data.table with columns trait, method — sig SNPs in the region
+#' @param flank bp drawn on either side of the region (plot_regionplot.R's FLANK), whose
+#'   edges are then marked
 #' @return list(process, log_file, type, tmp_base) or list(error=)
 #' @noRd
 launch_regionplot_subprocess <- function(region_row, region_snps, project_data, module = MOD_GEA,
-                                         regime = "snp") {
+                                         regime = "snp", flank = 0L) {
     pd <- project_data
 
     gff_topr_p <- .ensure_gff_topr(pd)
     if (!file_ok(gff_topr_p))
         return(list(error = "Could not find or generate topr gene annotation. Check GFF config."))
 
-    # For MOD_GEAXGWAS, pull method pvalue files from both GEA + GWAS sources.
-    method_files <- if (identical(module, MOD_GEAXGWAS)) {
-        c(find_method_pvalue_files(pd$name, MOD_GEA),
-          find_method_pvalue_files(pd$name, MOD_GWAS))
-    } else {
-        find_method_pvalue_files(pd$name, module)
-    }
-    if (length(method_files) == 0)
-        return(list(error = "No method result files found. Run the association mode first."))
-    # Filter to k_best only — glob returns files for all K values, causing each method
-    # to appear twice in the regionplot legend (once per K) with different colors
-    k_best <- pd$k_best
-    if (!is.na(k_best)) {
-        k_pattern <- paste0("_K", k_best, ".")
-        method_files <- method_files[grepl(k_pattern, basename(method_files), fixed = TRUE)]
-    }
-
-    assoc_tables <- .build_assoc_tables_arg(method_files)
+    assoc_tables <- regionplot_assoc_tables(pd, module)
     if (is.null(assoc_tables))
-        return(list(error = "Could not build association table arguments."))
+        return(list(error = "No method result files found. Run the association mode first."))
 
     # Build structured trait:method pairs from region sig SNPs
     custom_traits <- .build_trait_method_arg(region_snps)
     if (is.null(custom_traits))
         return(list(error = "No significant trait/method pairs found in this region."))
 
-    # Hash of trait/method combination for per-filter caching
-    combo_hash <- substr(digest::digest(custom_traits, algo = "md5"), 1, 8)
+    combo_hash <- regionplot_cache_hash(custom_traits, regime, assoc_tables, flank)
 
     custom_region <- paste0(region_row$chr[1], ":", region_row$start[1], "-", region_row$end[1])
     region_safe <- gsub("[:\\-]", "_", custom_region)
@@ -504,7 +326,7 @@ launch_regionplot_subprocess <- function(region_row, region_snps, project_data, 
         "NULL", gff_topr_p, assoc_tables, "0",
         genes_highlight, paste0(out_dir, "/"),
         custom_region, custom_traits, "NULL",
-        regime
+        regime, as.character(as.integer(flank))
     ), shQuote), collapse = " ")
 
     cmd <- paste0("Rscript ", rplot_args, " >> ", shQuote(log_file), " 2>&1")
@@ -796,7 +618,8 @@ launch_hap_scan_subprocess <- function(region_row, project_data, tag, params) {
         inter_dir = inter_dir,
         region_id = region_row$region_id[1],
         tag       = tag,
-        params    = params  # stored for persistence on completion
+        project   = pd$name,  # the project the params are saved under on completion
+        params    = params    # stored for persistence on completion
     )
 }
 
@@ -924,16 +747,10 @@ launch_hap_viz_subprocess <- function(region_row, project_data, tag, params) {
     raster_path  <- Sys.glob(file.path(project_base(pd$name),
                                         "climate", "rasters", "present", "*.tif"))[1] %||% "NULL"
     if (is.null(raster_path) || !file_ok(raster_path)) raster_path <- "NULL"
-    raster_layer_raw <- config_get(pd$config, "climate", "predictors", default = "bio_1")
-    raster_layer <- strsplit(as.character(raster_layer_raw[[1]]), ",")[[1]][1]
-
-    pie_alpha      <- config_get(pd$config, "piemap", "alpha",        default = 0.8)
-    show_labels    <- config_get(pd$config, "piemap", "show_labels",  default = "F")
-    label_size     <- config_get(pd$config, "piemap", "label_size",   default = 3)
-    pie_scale      <- config_get(pd$config, "piemap", "pie_scale",    default = 1)
-    use_points     <- config_get(pd$config, "piemap", "use_points",   default = "F")
-    regionmap_ext  <- config_get(pd$config, "map", "zoom_extent",     default = "NULL") %||% "NULL"
-    piemap_args    <- paste(pie_alpha, show_labels, label_size, pie_scale, use_points, sep = ",")
+    map_args      <- hap_viz_map_args(pd$config)
+    raster_layer  <- map_args$raster_layer
+    piemap_args   <- map_args$piemap_args
+    regionmap_ext <- map_args$zoom_extent
 
     log_file <- file.path(tmp_base, "hap_viz.log")
     pipeline_path <- get_pipeline_path()
@@ -971,7 +788,34 @@ launch_hap_viz_subprocess <- function(region_row, project_data, tag, params) {
         plots_dir = plots_dir,
         region_id = region_row$region_id[1],
         tag       = tag,
+        project   = pd$name,  # the project the params are saved under on completion
         params    = list(epsilon_selected = epsilon, meta_type = meta_type)  # for persistence
+    )
+}
+
+#' The map arguments of run_haplotype_viz.R, from the project config.
+#'
+#' The config's own blocks, Climate / Piemap / Map, with the pipeline's defaults
+#' (common.smk): read in lowercase they matched nothing, so every value fell to a
+#' default and Piemap.use_points was never honoured (e3d10e).
+#' @return list(raster_layer, piemap_args = "alpha,show_labels,label_size,pie_scale,
+#'   use_points", zoom_extent = "xmin,xmax,ymin,ymax" or "NULL")
+#' @noRd
+hap_viz_map_args <- function(config) {
+    tf <- function(v) if (toupper(substr(as.character(v %||% FALSE), 1, 1)) == "T") "T" else "F"
+    zoom <- paste(parse_csv_list(config_get(config, "Map", "zoom_extent", default = NULL)),
+                  collapse = ",")
+    if (!nzchar(zoom) || identical(toupper(zoom), "NULL")) zoom <- "NULL"
+    list(
+        raster_layer = parse_csv_list(config_get(config, "Climate", "predictors",
+                                                 default = "bio_1"))[1] %||% "bio_1",
+        piemap_args  = paste(config_get(config, "Piemap", "alpha", default = 0.6),
+                             tf(config_get(config, "Piemap", "show_labels", default = FALSE)),
+                             config_get(config, "Piemap", "label_size", default = 10),
+                             config_get(config, "Piemap", "pie_scale", default = 1),
+                             tf(config_get(config, "Piemap", "use_points", default = FALSE)),
+                             sep = ","),
+        zoom_extent  = zoom
     )
 }
 
@@ -1111,19 +955,35 @@ launch_pairwise_subprocess <- function(gea_sig_list, gwas_sig_list,
     )
 }
 
+#' A method's configured significance rule, as the pipeline's tables used it.
+#'
+#' The {source}.configs entry (resolve_adjust()); for a method on disk that the
+#' config no longer lists, the registry's default rule; else bonf_0.05.
+#' @param source MOD_GEA or MOD_GWAS.
+#' @return Character "adjust_threshold", e.g. "qval_0.05".
+#' @noRd
+.configured_adjust <- function(config, method, source) {
+    cfg <- resolve_adjust(config, method, source)
+    if (!is.null(cfg)) return(cfg)
+    registry <- if (identical(source, MOD_GWAS)) gwas_method_registry() else gea_method_registry()
+    rd <- gea_method_significance_defaults(registry)[[method]]
+    if (is.null(rd)) "bonf_0.05" else paste0(rd$adjust, "_", rd$threshold)
+}
+
 #' Build colon-separated ASSOC_TABLES arg for plot_regionplot.R
 #' Format: "method:adjust_str:pvalues_K{k}.tsv,..."
-#' Accepts plain pvalue TSVs ({method}_pvalues_K{k}.tsv).
+#' Accepts plain pvalue TSVs ({method}_pvalues_K{k}.tsv); plot_regionplot.R draws
+#' each table's threshold line from its adjust string.
+#' @param adjust_for function(method): the method's rule as "bonf_0.05"
 #' @noRd
-.build_assoc_tables_arg <- function(method_files) {
+.build_assoc_tables_arg <- function(method_files, adjust_for) {
     if (length(method_files) == 0) return(NULL)
     entries <- lapply(method_files, function(f) {
         m <- regmatches(basename(f),
             regexec("^(.+?)_pvalues_(K[0-9.]+)\\.tsv$", basename(f)))[[1]]
         if (length(m) < 3) return(NULL)
         method <- m[2]
-        # Use a fixed adjust token; the regionplot background is threshold-independent
-        paste(method, "bonf_0.05", f, sep = ":")
+        paste(method, adjust_for(method), f, sep = ":")
     })
     entries <- Filter(Negate(is.null), entries)
     if (length(entries) == 0) return(NULL)

@@ -76,3 +76,51 @@ test_that("find_k_range breaks a config tie by mtime, not alphabetically", {
     expect_setequal(r$stale, c("cross_entropy_K2-6.png", "cross_entropy_K2-7.0.png"))
     expect_equal(c(r$k_start, r$k_end), c(2L, 7L))
 })
+
+# --- maladaptation runs (0dc91e, 0d9efe, a0a580) ------------------------------------
+
+mala_tree <- function(tmp) {
+    base <- file.path(tmp, "P_results", "Maladaptation")
+    # a gradient_forest run with plots, a zoom folder beside its offset maps
+    gf <- file.path(base, "plots", "gradient_forest", "setB_spatial", "year2061-2080_ssp585")
+    dir.create(file.path(gf, "zoom", "34p5_35p5_31_32p5"), recursive = TRUE)
+    file.create(file.path(gf, "genetic_offset_piemap_notrait.png"))
+    file.create(file.path(gf, "zoom", "34p5_35p5_31_32p5", "genetic_offset_piemap_notrait.png"))
+    dir.create(file.path(base, "tables", "gradient_forest", "setB_spatial", "year2061-2080_ssp585"),
+               recursive = TRUE)
+    # emit_plots: false -- tables only, and under the registry KEY, not the engine
+    for (m in c("rda_offset", "rda_offset_corrected")) {
+        t <- file.path(base, "tables", m, "setA_nospatial", "year2061-2080_ssp585")
+        dir.create(t, recursive = TRUE)
+        file.create(file.path(t, "genetic_offset_site.tsv"))
+    }
+    file.create(file.path(base, "tables", "snp_sets_summary.tsv"))
+    base
+}
+
+test_that("find_mala_models lists table-only runs and every method folder by its key", {
+    tmp <- withr::local_tempdir()
+    mala_tree(tmp)
+    withr::local_options(clinego.pipeline_path = tmp)
+    m <- find_mala_models("P")
+    expect_identical(unname(m), c("gradient_forest:::setB_spatial",
+                                  "rda_offset:::setA_nospatial",
+                                  "rda_offset_corrected:::setA_nospatial"))
+    expect_identical(names(m)[3], "RDAoff corrected / setA_nospatial")
+    # a key parses to itself: rda_offset is not a prefix match of rda_offset_corrected
+    expect_identical(parse_model_key(m[[3]])$method, "rda_offset_corrected")
+    expect_identical(parse_model_key(m[[2]])$method, "rda_offset")
+    expect_identical(mala_engine("rda_offset_corrected"), "rda_offset")
+    expect_identical(mala_engine("gradient_forest"), "gradient_forest")
+})
+
+test_that("find_gf_zooms finds the zoom folders beside a run's offset maps", {
+    tmp <- withr::local_tempdir()
+    mala_tree(tmp)
+    withr::local_options(clinego.pipeline_path = tmp)
+    expect_identical(find_gf_zooms("P", "setB_spatial"), "34p5_35p5_31_32p5")
+    expect_identical(find_gf_zooms("P", "setA_nospatial", method = "rda_offset"), character(0))
+    p <- gf_offset_zoom_piemap_path("P", "setB_spatial", "34p5_35p5_31_32p5")
+    expect_true(file.exists(p))
+    expect_identical(basename(p), "genetic_offset_piemap_notrait.png")
+})

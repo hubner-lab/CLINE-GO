@@ -1237,6 +1237,23 @@ test_that("plot_regionplot.R repels the gene labels instead of falling back to t
     expect_true(file.exists(file.path(d, "regionplot_custom_1_10040000_10060000_genes.svg")))
 })
 
+test_that("plot_regionplot.R draws every gene when no gene list is given", {
+    # 5080b0: the app passes "NULL" when the config names no genes, which used to filter the
+    # gene track to gene_symbol %in% "NULL" -- zero rows, an empty track.
+    skip_if_not(dir.exists(SCRIPTS), "scripts/ not mounted")
+    d <- withr::local_tempdir()
+    sandbox <- file.path(d, "cwd"); dir.create(sandbox)
+    f <- fx_regionplot_inputs(d)
+    res <- run_wrapper("plot_regionplot.R",
+                       c("NULL", f[1], paste0("EMMAX:bonf_0.05:", f[2]),
+                         "0", "NULL", f[3], "1:10040000-10060000",
+                         "bio_1:EMMAX", "NULL", "snp"),
+                       wd = sandbox)
+    expect_identical(res$status, 0L, info = res$output)
+    expect_false(grepl("No genes found in GFF annotation", res$output), info = res$output)
+    expect_true(file.exists(file.path(d, "regionplot_custom_1_10040000_10060000_genes.svg")))
+})
+
 test_that("sig_threshold_table.R reports threshold, family size and calls, as find_sig_snps.R calls them", {
     # Release 4b (bb27e1). Bonferroni's family is the trait's non-NA p-values; the
     # count of calls must match the sig table find_sig_snps.R writes from the same

@@ -134,8 +134,10 @@ mod_pairwise_overlap_server <- function(id, project_data, coords,
             }
         })
 
-        # ── Run button ─────────────────────────────────────────────────────────
-        shiny::observeEvent(input$run_pairwise, {
+        # ── Run / Retry buttons ────────────────────────────────────────────────
+        # Retry has its own id: reusing run_pairwise gave the page two inputs with
+        # one id, and Shiny ignored the second button (3e08af).
+        start_pairwise <- function() {
             hash <- pairwise_hash()
             if (is.null(hash) || is_running(hash)) return()
             # Allow re-run even if cached (user may want fresh run after pipeline re-run)
@@ -161,7 +163,9 @@ mod_pairwise_overlap_server <- function(id, project_data, coords,
                 pairwise_cache[[hash]] <- NULL
                 subprocess_handles[[hash]] <- handle
             }
-        })
+        }
+        shiny::observeEvent(input$run_pairwise,   start_pairwise())
+        shiny::observeEvent(input$retry_pairwise, start_pairwise())
 
         # ── Status badge (stale indicator) ────────────────────────────────────
         output$status_badge <- shiny::renderUI({
@@ -211,7 +215,7 @@ mod_pairwise_overlap_server <- function(id, project_data, coords,
                             htmltools::pre(class = "pipeline-log-content mt-2 small",
                                            cached$log_tail)
                     ),
-                    shiny::actionButton(ns("run_pairwise"), "Retry",
+                    shiny::actionButton(ns("retry_pairwise"), "Retry",
                                          class = "btn-sm btn-warning")
                 ))
             }

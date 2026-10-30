@@ -214,35 +214,60 @@ find_bio_values <- function(project) {
     sort(as.integer(gsub("piemap_bio_(\\d+)\\.png", "\\1", files)))
 }
 
-#' Find GF run suffixes from maladaptation output directories
+#' Display labels of the maladaptation methods, in the registry's order
+#' (workflow/methods/maladaptation.py). A method on disk without one is listed
+#' under its key.
+#' @noRd
+MALA_METHOD_LABELS <- c(gradient_forest      = "GF",
+                        geometric_offset     = "GeoOff",
+                        rda_offset           = "RDAoff",
+                        rda_offset_corrected = "RDAoff corrected")
+
+#' The engine a maladaptation method runs: rda_offset_corrected is the rda_offset
+#' engine under its own key (its config block and output folders), which decides
+#' how its results are read and labelled.
+#' @noRd
+mala_engine <- function(method) {
+    if (identical(method, "rda_offset_corrected")) "rda_offset" else method
+}
+
+#' Find the run folders (run label + spatial tag) of a maladaptation method
+#'
+#' From Maladaptation/tables as well as plots: with Maladaptation.emit_plots false
+#' only the tables are written, and listing plots/ alone found no run (0dc91e).
 #' @noRd
 find_gf_suffixes <- function(project, method = "gradient_forest") {
-    method_dir <- mod_path(project, MOD_MALAD, "plots", method)
-    if (!dir.exists(method_dir)) return(character(0))
-    dirs <- list.dirs(method_dir, full.names = FALSE, recursive = FALSE)
-    dirs[dirs != "zoom"]
+    dirs <- unlist(lapply(c("tables", "plots"), function(kind) {
+        d <- mod_path(project, MOD_MALAD, kind, method)
+        if (dir.exists(d)) list.dirs(d, full.names = FALSE, recursive = FALSE) else character(0)
+    }))
+    sort(unique(dirs[nzchar(dirs) & dirs != "zoom"]))
 }
 
 #' Find all available maladaptation models across all methods.
+#'
+#' Every method folder under Maladaptation/tables or plots, named by its registry
+#' KEY (rda_offset_corrected's runs live under their own key, and a fixed list of
+#' three methods never offered them, 0d9efe): the known ones in the registry's
+#' order, any other after them.
 #' Returns a named character vector: names = display labels, values = "method:::suffix".
 #' @noRd
 find_mala_models <- function(project) {
-    known_methods <- c("gradient_forest", "geometric_offset", "rda_offset")
+    on_disk <- unique(unlist(lapply(c("tables", "plots"), function(kind) {
+        d <- mod_path(project, MOD_MALAD, kind)
+        if (dir.exists(d)) list.dirs(d, full.names = FALSE, recursive = FALSE) else character(0)
+    })))
+    on_disk <- on_disk[nzchar(on_disk)]
+    methods <- c(intersect(names(MALA_METHOD_LABELS), on_disk),
+                 sort(setdiff(on_disk, names(MALA_METHOD_LABELS))))
     out_vals  <- character(0)
     out_names <- character(0)
-    for (m in known_methods) {
+    for (m in methods) {
         suffs <- find_gf_suffixes(project, method = m)
         if (length(suffs) == 0) next
-        method_label <- switch(m,
-            gradient_forest  = "GF",
-            geometric_offset = "GeoOff",
-            rda_offset       = "RDAoff",
-            m
-        )
-        vals  <- paste0(m, ":::", suffs)
-        names <- paste0(method_label, " / ", suffs)
-        out_vals  <- c(out_vals,  vals)
-        out_names <- c(out_names, names)
+        method_label <- if (m %in% names(MALA_METHOD_LABELS)) MALA_METHOD_LABELS[[m]] else m
+        out_vals  <- c(out_vals,  paste0(m, ":::", suffs))
+        out_names <- c(out_names, paste0(method_label, " / ", suffs))
     }
     if (length(out_vals) == 0) return(character(0))
     setNames(out_vals, out_names)
@@ -310,13 +335,18 @@ check_module_status <- function(project, summary_dt = NULL) {
     vapply(module_steps, function(s) s %in% steps_present, logical(1))
 }
 
-#' Find zoom region tags for a GF suffix
+#' Find zoom region tags for an offset run
+#'
+#' The pipeline writes one folder per zoom extent, beside the run's offset maps:
+#' `{suffix}/{scenario}/zoom/{coords}/genetic_offset_piemap_*.png` (the Structure
+#' tab's layout); the tags are those folder names. Looking for `{suffix}/zoom/*.png`
+#' found nothing, so the selector never showed (a0a580).
 #' @noRd
-find_gf_zooms <- function(project, suffix, method = "gradient_forest") {
-    zoom_dir <- mod_path(project, MOD_MALAD, "plots", method, suffix, "zoom")
+find_gf_zooms <- function(project, suffix, method = "gradient_forest", scenario = NULL) {
+    zoom_dir <- mala_offset_file(project, "plots", method, suffix, "zoom", scenario)
     if (!dir.exists(zoom_dir)) return(character(0))
-    files <- list.files(zoom_dir, pattern = "\\.png$")
-    gsub("\\.png$", "", files)
+    tags <- list.dirs(zoom_dir, full.names = FALSE, recursive = FALSE)
+    sort(tags[nzchar(tags)])
 }
 
 #' Find swept condition_pcs values that have per-model RDA artifacts

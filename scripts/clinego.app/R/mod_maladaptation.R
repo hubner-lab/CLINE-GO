@@ -15,14 +15,22 @@ mod_maladaptation_server <- function(id, project_data, snp_sets_trigger = NULL) 
             find_mala_models(project_data()$name)
         })
 
+        # The user's pick survives a re-render: mala_models() re-runs on every SNP-set
+        # save or delete, and the selector used to snap back to models[1] (2637f0).
+        model_sel <- shiny::reactiveVal("")
+        shiny::observeEvent(input$model_key, model_sel(input$model_key),
+                            ignoreNULL = TRUE, ignoreInit = TRUE)
+
         output$model_selector <- shiny::renderUI({
             models <- mala_models()
             if (length(models) == 0)
                 return(shiny::p(
                     "No maladaptation runs found. Save a SNP set in the GEA tab and run mode=maladaptation.",
                     class = "text-muted small"))
+            cur <- shiny::isolate(model_sel())
             shiny::selectInput(ns("model_key"), "Model (method / SNP set)",
-                               choices = models, selected = models[1])
+                               choices = models,
+                               selected = if (nzchar(cur) && cur %in% models) cur else models[1])
         })
 
         selected_model_key <- shiny::reactive({
@@ -215,7 +223,8 @@ mod_maladaptation_server <- function(id, project_data, snp_sets_trigger = NULL) 
             pd     <- project_data()
             if (is.null(suf) || is.null(pd)) return(NULL)
             cfg <- pd$config
-            if (method == "gradient_forest") {
+            engine <- mala_engine(method)
+            if (engine == "gradient_forest") {
                 ntree   <- config_get(cfg, "Maladaptation", "methods", "gradient_forest",
                                       "ntree", default = 500L)
                 cor_thr <- config_get(cfg, "Maladaptation", "methods", "gradient_forest",
@@ -246,7 +255,7 @@ mod_maladaptation_server <- function(id, project_data, snp_sets_trigger = NULL) 
                     config_badge("beyond range", if (extrap) "linear" else "plateau"),
                     if (!is.null(outside)) config_badge("outside training range", outside) else NULL
                 )
-            } else if (method == "geometric_offset") {
+            } else if (engine == "geometric_offset") {
                 k     <- config_get(cfg, "Maladaptation", "methods", "geometric_offset",
                                     "k", default = "(sNMF k_best)")
                 scale <- config_get(cfg, "Maladaptation", "methods", "geometric_offset",
@@ -256,13 +265,20 @@ mod_maladaptation_server <- function(id, project_data, snp_sets_trigger = NULL) 
                     config_badge("scale", if (isTRUE(scale)) "yes" else "no"),
                     config_badge("spatial", "no (nospatial only)")
                 )
-            } else if (method == "rda_offset") {
-                axes    <- config_get(cfg, "Maladaptation", "methods", "rda_offset",
-                                      "axes", default = "auto")
-                perms   <- config_get(cfg, "Maladaptation", "methods", "rda_offset",
-                                      "permutations", default = 999L)
-                cond    <- config_get(cfg, "Maladaptation", "methods", "rda_offset",
-                                      "condition_pcs", default = 0L)
+            } else if (engine == "rda_offset") {
+                # As common.smk's rdo_cfg(): the method's own block, then (for
+                # rda_offset_corrected) rda_offset's, then the default -- condition_pcs
+                # defaults to 1 for the corrected method, which is what makes it one.
+                rdo <- function(key, default) {
+                    config_get(cfg, "Maladaptation", "methods", method, key, default = NULL) %||%
+                        (if (method != "rda_offset")
+                            config_get(cfg, "Maladaptation", "methods", "rda_offset", key,
+                                       default = NULL)) %||%
+                        default
+                }
+                axes  <- rdo("axes", "auto")
+                perms <- rdo("permutations", 999L)
+                cond  <- rdo("condition_pcs", if (method == "rda_offset_corrected") 1L else 0L)
                 badges <- list(
                     config_badge("axes", axes),
                     config_badge("permutations", perms),
@@ -288,11 +304,13 @@ mod_maladaptation_server <- function(id, project_data, snp_sets_trigger = NULL) 
             year   <- config_get(cfg, "Future", "year",   default = NULL)
             models <- config_get(cfg, "Future", "models", default = NULL)
             if (is.null(ssp) && is.null(year)) return(NULL)
-            n_models <- if (is.null(models)) 0L else length(models)
+            # One comma-separated string, split as the pipeline splits it (MODELS_LIST
+            # in common.smk); its length was always 1, "1 GCMs" (d976ad)
+            n_models <- length(parse_csv_list(models))
             label_parts <- c(
                 if (!is.null(ssp))  paste0("SSP", ssp),
                 if (!is.null(year)) as.character(year),
-                if (n_models > 0)   paste0(n_models, " GCMs")
+                if (n_models > 0)   paste0(n_models, if (n_models == 1) " GCM" else " GCMs")
             )
             htmltools::div(
                 class = "ms-1 align-self-center",
@@ -432,8 +450,7 @@ mod_maladaptation_server <- function(id, project_data, snp_sets_trigger = NULL) 
             variant <- selected_variant()
             zoom    <- selected_zoom()
             if (zoom != "none") {
-                mod_path(pd$name, MOD_MALAD, "plots", method, suf, "zoom",
-                         paste0(zoom, ".png"))
+                gf_offset_zoom_piemap_path(pd$name, suf, zoom, variant, method = method)
             } else {
                 gf_offset_piemap_path(pd$name, suf, variant, method = method)
             }
@@ -459,7 +476,7 @@ mod_maladaptation_server <- function(id, project_data, snp_sets_trigger = NULL) 
                                                   "_", selected_suffix() %||% "gf")),
             placeholder = shiny::reactive("Run mode=maladaptation to generate offset results"),
             note        = shiny::reactive(help_note("offset_piemap",
-                extra = if (identical(selected_method(), "rda_offset"))
+                extra = if (identical(mala_engine(selected_method()), "rda_offset"))
                     paste0("RDA offset: report as a RELATIVE SITE RANKING only, not an ",
                            "absolute magnitude — eigenvalue weighting + candidate-set size ",
                            "make the raw number non-comparable across runs/datasets. ",

@@ -600,6 +600,15 @@ gf_offset_piemap_path <- function(project, suffix, variant = "base", method = "g
     mala_offset_file(project, "plots", method, suffix, fname, scenario)
 }
 
+#' Zoomed offset piemap path: the run's `zoom/{zoom}/` folder (find_gf_zooms())
+#' @noRd
+gf_offset_zoom_piemap_path <- function(project, suffix, zoom, variant = "base",
+                                       method = "gradient_forest", scenario = NULL) {
+    piemap_variant <- if (is.null(variant) || variant == "base" || !nzchar(variant)) "notrait" else variant
+    file.path(mala_offset_file(project, "plots", method, suffix, "zoom", scenario), zoom,
+              paste0("genetic_offset_piemap_", piemap_variant, ".png"))
+}
+
 #' GF site offset table path
 #' @noRd
 gf_site_table_path <- function(project, suffix, method = "gradient_forest", scenario = NULL) {

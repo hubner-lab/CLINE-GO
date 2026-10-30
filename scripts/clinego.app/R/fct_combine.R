@@ -61,22 +61,43 @@ combine_sigsnps <- function(sigsnps_list, strategy = "All", gap = 200000L) {
 
 # ── Shared UI / server helpers ────────────────────────────────────────────────
 
-#' Extract default threshold type and value from project config.
+#' The master threshold's starting rule, from the project config.
 #'
-#' Reads the first entry in GEA.configs or GWAS.configs.
-#' Returns list(type="bonf", value=0.05) as safe fallback.
+#' The master rule applies to every univariate method, so it starts at their
+#' configured rule: GEA.configs or GWAS.configs, read per method as resolve_adjust()
+#' and the pipeline do. A method the registry pins to its own rule (a
+#' significance_family other than univariate_pvalue: RDA) is not read, since the
+#' master never applies to it. When the univariate methods' rules differ, the rule
+#' most of them use, a tie going to the method first in alphabetical order; the
+#' order of the YAML list never matters (230a79). The matrix popup names each
+#' method's configured rule beside it.
+#'
+#' @param config            Project config.
+#' @param module            MOD_GEA or MOD_GWAS.
+#' @param registry_defaults method -> list(adjust, threshold, family), as from
+#'   gea_method_significance_defaults(); empty treats every method as univariate.
+#' @return list(type, value); bonf 0.05 when no univariate method is configured.
 #' @noRd
-default_threshold <- function(config, module = MOD_GEA) {
+default_threshold <- function(config, module = MOD_GEA, registry_defaults = list()) {
     config_key <- if (module == MOD_GWAS) "GWAS" else "GEA"
     configs <- config_get(config, config_key, "configs", default = list())
-    if (length(configs) == 0) return(list(type = "bonf", value = 0.05))
 
-    first <- configs[[1]]
-    type  <- if (is.list(first)) (first$adjust  %||% "bonf") else "bonf"
-    value <- if (is.list(first)) suppressWarnings(as.numeric(first$threshold %||% 0.05))
-             else 0.05
-    if (is.na(value) || value <= 0) value <- 0.05
-    list(type = type, value = value)
+    rules <- list()
+    for (cfg in configs) {
+        m <- if (is.list(cfg)) cfg$method else NULL
+        if (is.null(m) || !nzchar(m) || !is.null(rules[[m]])) next
+        family <- registry_defaults[[m]]$family %||% "univariate_pvalue"
+        if (!identical(family, "univariate_pvalue")) next
+        value <- suppressWarnings(as.numeric(cfg$threshold %||% 0.05))
+        if (length(value) != 1 || is.na(value) || value <= 0) value <- 0.05
+        rules[[m]] <- list(type = as.character(cfg$adjust %||% "bonf"), value = value)
+    }
+    if (length(rules) == 0) return(list(type = "bonf", value = 0.05))
+
+    rules <- rules[order(names(rules))]
+    keys  <- vapply(rules, function(r) paste(r$type, format(r$value, digits = 15)), character(1))
+    uses  <- table(keys)[keys]
+    rules[[which.max(uses)]]   # first maximum = alphabetically first method among the ties
 }
 
 #' Sensible default threshold value for a given type.
@@ -255,6 +276,8 @@ build_threshold_bar_ui <- function(ns, input_prefix = "",
 #' @param combo_thresholds          Named list: "trait::method" -> threshold p-value (from compute_method_thresholds)
 #' @param default_strategy_value    Character scalar: "Union", "Cross-method", or "Cross-method per-trait"
 #' @param snp_clumping_distance_value Integer scalar: current clumping distance (bp)
+#' @param region_clumping_distance_value Integer bp of the config's own region merge
+#'   distance (region_clumping_distance), or NULL when the clumping distance merges too
 #' @param input_prefix              Character scalar: prefix for all Shiny input IDs inside this bar.
 #'   Use "" (default) for a single filter bar; use e.g. "gea_" or "gwas_" when two bars
 #'   coexist in the same module to avoid input ID collisions.
@@ -278,6 +301,7 @@ build_filter_bar_ui <- function(ns, traits, methods, trait_colors,
                                 combo_counts, combo_thresholds = list(),
                                 default_strategy_value,
                                 snp_clumping_distance_value = 100000L,
+                                region_clumping_distance_value = NULL,
                                 input_prefix = "",
                                 selected_pairs = NULL,
                                 overrides = list(),
@@ -524,7 +548,8 @@ build_filter_bar_ui <- function(ns, traits, methods, trait_colors,
                     filter_note(
                         "Clumping distance (bp)",
                         paste0(
-                            "Region merge distance. Starts at the project's LD-decay distance ",
+                            "Distance for the Cross-method agreement and, unless the config sets ",
+                            "region_clumping_distance, the region merge. Starts at the project's LD-decay distance ",
                             "(Structure tab → LD Decay panel, under the clumping_ld_rule), or at ",
                             "the bp its config sets; a value you enter is kept for this project."
                         )
@@ -537,7 +562,11 @@ build_filter_bar_ui <- function(ns, traits, methods, trait_colors,
                 ),
                 htmltools::span(
                     class = "text-muted small mt-1",
-                    "Merge distance for regions; also used for Cross-method overlap"
+                    if (is.null(region_clumping_distance_value))
+                        "Merge distance for regions; also used for Cross-method overlap"
+                    else paste0("Cross-method overlap only; regions merge at ",
+                                format(region_clumping_distance_value, big.mark = ","),
+                                " bp (region_clumping_distance)")
                 )
             )
         ),
@@ -640,6 +669,8 @@ compute_interactive_sigsnps <- function(all_method_sigsnps, tm_selection_json,
 #'   "Apply rules to config" (GEAxGWAS's two bars don't drive a pipeline run)
 #' @param config_module_key  "GEA" or "GWAS" — which config_state$working key
 #'   Apply-to-config collapses rules into
+#' @param combo_counts       Reactive "trait::method" -> count the matrix renders
+#'   with; the selection the matrix reports at render is then not saved
 #' @return list(overrides = debounced reactive "trait::method"->rule,
 #'   selected_pairs = reactive character vector or NULL, reload = function()
 #'   that re-reads both from region_params.json into this instance's
@@ -651,7 +682,8 @@ setup_matrix_rules_server <- function(input, output, session, ns, input_prefix =
                                       project_data, module, methods, all_traits,
                                       threshold_type, threshold_value,
                                       registry_defaults, config_rules,
-                                      config_state = NULL, config_module_key = "GEA") {
+                                      config_state = NULL, config_module_key = "GEA",
+                                      combo_counts = NULL) {
     pid <- function(name) paste0(input_prefix, name)
 
     # ── Per-cell overrides ("trait::method" -> rule) ────────────────────────
@@ -700,6 +732,19 @@ setup_matrix_rules_server <- function(input, output, session, ns, input_prefix =
         raw    <- input[[pid("tm_selection")]]
         parsed <- tryCatch(jsonlite::fromJSON(raw), error = function(e) NULL)
         pairs  <- if (is.null(parsed) || length(parsed) == 0) NULL else as.character(parsed)
+        # The matrix reports its selection every time it renders. A report of the
+        # cells it was rendered with is no choice: saved, it would turn "every cell"
+        # into a fixed list on first show (ac8228). Nor is an empty one while nothing
+        # is saved: the hidden input binds with "" before the matrix's script runs.
+        # build_filter_bar_ui() marks a cell active when its count is positive and it
+        # is selected (all when none is).
+        if (is.null(pairs) && is.null(tm_selection_rv())) return()
+        if (!is.null(combo_counts)) {
+            shown <- resolve_selected_pairs(NULL, combo_counts(), all_traits())
+            sel   <- tm_selection_rv()
+            if (!is.null(sel)) shown <- intersect(shown, sel)
+            if (setequal(pairs %||% character(0), shown)) return()
+        }
         tm_selection_rv(pairs)
         rp <- read_region_params(pd$name)
         rp <- set_global_param(rp, module, paste0(input_prefix, "snp_matrix_selection"), pairs)

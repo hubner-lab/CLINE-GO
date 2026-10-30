@@ -23,6 +23,8 @@ GFF_TOPR = args[2]             # topr gene annotation file
 ASSOC_TABLES = args[3]         # comma-separated: method:adjust:filepath
 TOP_REGIONS = args[4] %>% as.numeric  # Keep only top N regions (0 = all)
 GENES_TO_HIGHLIGHT = args[5] %>% str_split('\\|') %>% unlist
+                               # gene symbols, 'all', 'nameless', or "NULL" = all (5080b0)
+if (identical(GENES_TO_HIGHLIGHT, 'NULL')) GENES_TO_HIGHLIGHT <- 'all'
 PLOT_DIR = args[6]
 CUSTOM_REGION = args[7]        # "NULL" or chr:start-end
 CUSTOM_TRAITS = args[8]        # "NULL" or comma-separated trait names

@@ -294,6 +294,11 @@ mod_create_project_server <- function(id, pipeline_path_rv,
                 errors <- c(errors, "Project name must start with a letter and contain only letters, numbers, and underscores.")
             } else if (tolower(name) %in% tolower(existing_projects_rv())) {
                 errors <- c(errors, paste0("A project named '", name, "' already exists."))
+            } else if (file.exists(file.path(pipeline_path_rv(), paste0("config_", name, ".yaml")))) {
+                # A config written by hand (or by an earlier Create) for a project that
+                # has no results yet: creating would rewrite it (1c7aa3).
+                errors <- c(errors, paste0("config_", name, ".yaml already exists (a project ",
+                                           "that has not run yet). Choose another name."))
             }
 
             if (!nzchar(trimws(input$input_dir %||% "")))
@@ -341,7 +346,10 @@ mod_create_project_server <- function(id, pipeline_path_rv,
                 # 1. Copy template config
                 template <- app_sys("config_default.yaml")
                 dest     <- file.path(pip, paste0("config_", name, ".yaml"))
-                file.copy(template, dest, overwrite = FALSE)
+                # Never patch a config this call did not write: file.copy() returns
+                # FALSE, leaving `dest` as it was, when the file exists (1c7aa3).
+                if (!isTRUE(file.copy(template, dest, overwrite = FALSE)))
+                    stop("config_", name, ".yaml already exists or could not be written")
 
                 # 2. Read, patch, write
                 cfg <- yaml::read_yaml(dest)

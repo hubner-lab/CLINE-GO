@@ -177,29 +177,32 @@ mod_home_server <- function(id, project_data) {
         })
 
         # ── Value boxes ────────────────────────────────────────────────────────
+        # pipeline_summary.tsv's value for (step, metric); call it inside a render. A
+        # data.frame on purpose: inside a data.table's [ ], `step` and `metric` name its
+        # columns, so the filter compared each column with itself and every box showed
+        # the first row's value (bffd38).
         summary_val <- function(step, metric, default = "—") {
-            shiny::reactive({
-                s <- summary_data()
-                if (nrow(s) == 0) return(default)
-                row <- s[s$step == step & s$metric == metric, ]
-                if (nrow(row) == 0) default else as.character(row$value[1])
-            })
+            s <- as.data.frame(summary_data())
+            if (nrow(s) == 0) return(default)
+            row <- s[s$step == step & s$metric == metric, , drop = FALSE]
+            if (nrow(row) == 0) default else as.character(row$value[1])
         }
+        # The association module whose results this regime's Home reports
+        assoc_step <- shiny::reactive(if (identical(regime(), "gwas_only")) "gwas" else "gea")
 
-        output$n_samples <- shiny::renderText(summary_val("processing", "n_samples")())
-        output$n_snps    <- shiny::renderText(summary_val("processing", "n_snps_filtered")())
+        output$n_samples <- shiny::renderText(summary_val("processing", "samples_after_filtering"))
+        output$n_snps    <- shiny::renderText(summary_val("processing", "snps_after_filtering"))
         output$k_best    <- shiny::renderText({
             pd <- project_data()
             if (!is.na(pd$k_best)) as.character(pd$k_best) else "—"
         })
         output$n_methods <- shiny::renderText({
             pd <- project_data()
-            methods <- find_assoc_methods(pd$name)
+            methods <- find_assoc_methods(pd$name,
+                                          if (identical(assoc_step(), "gwas")) MOD_GWAS else MOD_GEA)
             if (length(methods) > 0) as.character(length(methods)) else "—"
         })
-        output$n_regions <- shiny::renderText(
-            summary_val("gea", "n_regions_combined")()
-        )
+        output$n_regions <- shiny::renderText(summary_val(assoc_step(), "regions_combined"))
 
         # ── Module status — clickable rows ────────────────────────────────────
         module_labels <- c(
