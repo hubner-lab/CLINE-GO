@@ -27,6 +27,10 @@ if GWAS_CONFIGS and GEA_RUNS:
           kbest = K_BEST,
           plot_dir = f"{MOD_GEAXGWAS}plots/"
       log: f"{LOGDIR}gea_x_gwas/miami_plot.log"
+      # The mode's one long job, alone: scattermore's blur runs on the job's threads
+      # (scattermore_threads.R, de7512), 560 s on one thread, 268 s on four (SIMDATA). The combined
+      # Manhattans stay at one: at four they held up gea's and gwas's per-trait plots (p5b).
+      threads: CPU
       shell:
           """
           Rscript /pipeline/scripts/plot_miami.R \

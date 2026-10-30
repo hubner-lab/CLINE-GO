@@ -51,6 +51,7 @@ source("/pipeline/scripts/R/utils/theme_clinego.R")
 source("/pipeline/scripts/R/utils/emmax_core.R")  # load_pca_covariates()
 source("/pipeline/scripts/R/utils/pval_threshold.R")  # compute_pval_threshold()
 source("/pipeline/scripts/R/lib/rdadapt.R")  # rdadapt() — shared with preGEA's RDA-setup block
+source("/pipeline/scripts/R/utils/scattermore_threads.R")
 
 args <- commandArgs(trailingOnly = TRUE)
 ################################################################################
@@ -323,22 +324,33 @@ add_diag("vif_flagged_predictors", paste(vif_flagged, collapse = ","))
 # 11. ANOVA — full, by-axis, by-margin. All tryCatch-wrapped; by="margin" is
 #     empirically degenerate on small/structured datasets (SIMDATA: Df=0,
 #     F=Inf for every predictor) — never trust blindly, status column marks it.
+#     By-axis and by-margin run only when axes = auto (7bf0ff): with a fixed K
+#     neither feeds the scan (by-axis only chooses K), and the two, unparallelised,
+#     took most of the rule's 13 min on d150's 177k SNPs. The anova table then
+#     holds the full-model rows only.
 ################################################################################
 set.seed(SEED)
 anova_full <- tryCatch(
     anova.cca(RDA_env, permutations = PERMUTATIONS, parallel = max(1, CPU)),
     error = function(e) { message("WARNING: full-model anova.cca failed: ", e$message); NULL }
 )
-set.seed(SEED)
-anova_axis <- tryCatch(
-    anova.cca(RDA_env, by = "axis", permutations = PERMUTATIONS),
-    error = function(e) { message("WARNING: by-axis anova.cca failed: ", e$message); NULL }
-)
-set.seed(SEED)
-anova_margin <- tryCatch(
-    anova.cca(RDA_env, by = "margin", permutations = PERMUTATIONS),
-    error = function(e) { message("WARNING: by-margin anova.cca failed: ", e$message); NULL }
-)
+run_axis_margin <- AXES == "auto"
+anova_axis <- anova_margin <- NULL
+if (run_axis_margin) {
+    set.seed(SEED)
+    anova_axis <- tryCatch(
+        anova.cca(RDA_env, by = "axis", permutations = PERMUTATIONS),
+        error = function(e) { message("WARNING: by-axis anova.cca failed: ", e$message); NULL }
+    )
+    set.seed(SEED)
+    anova_margin <- tryCatch(
+        anova.cca(RDA_env, by = "margin", permutations = PERMUTATIONS),
+        error = function(e) { message("WARNING: by-margin anova.cca failed: ", e$message); NULL }
+    )
+} else {
+    message("INFO: axes fixed at ", AXES, ": by-axis and by-margin anova.cca not run")
+    add_diag("anova_axis_margin", "not_run_axes_fixed")
+}
 
 anova_row <- function(test_name, tbl) {
     if (is.null(tbl)) return(data.table())
@@ -365,7 +377,8 @@ anova_dt <- rbindlist(list(
     anova_row("axis",   anova_axis),
     anova_row("margin", anova_margin)
 ), fill = TRUE)
-n_margin_degenerate <- if (nrow(anova_dt) > 0) sum(anova_dt$test == "margin" & anova_dt$status == "degenerate") else 0L
+n_margin_degenerate <- if (!run_axis_margin) NA_integer_ else
+    if (nrow(anova_dt) > 0) sum(anova_dt$test == "margin" & anova_dt$status == "degenerate") else 0L
 add_diag("n_margin_rows_degenerate", n_margin_degenerate)
 
 ################################################################################

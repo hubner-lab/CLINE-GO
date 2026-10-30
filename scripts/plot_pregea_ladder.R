@@ -18,6 +18,7 @@ suppressPackageStartupMessages({
 
 source("/pipeline/scripts/R/utils/theme_clinego.R")
 source("/pipeline/scripts/R/utils/io_pvalues.R")
+source("/pipeline/scripts/R/utils/scattermore_threads.R")
 
 args <- commandArgs(trailingOnly = TRUE)
 ################################################################################

@@ -68,19 +68,26 @@ if (n_sites < 2) {
   quit(status = 0)
 }
 
-# Read VCF file and convert to genind format
-vcf <- vcfR::read.vcfR(VCF)
-
-# Subset to random SNPs for speed
-total_snps <- nrow(vcf@fix)
+# Read only the random SNPs the AMOVA uses (57d6c2): read.vcfR() of the whole VCF held every
+# genotype in memory for a RANDOM_N subsample. The variant rows are counted without loading
+# them, the seeded draw is the same sample() call, and only the drawn rows are read, then put
+# back in draw order, so the genind is the one vcf[random_rows, ] of the whole file gave.
+total_snps <- as.integer(system2("grep", c("-vc", shQuote("^#"), shQuote(VCF)), stdout = TRUE))
 random_rows <- sample(1:total_snps, size = min(RANDOM_N, total_snps))
-vcf <- vcf[random_rows, ]
+
+rows_file  <- tempfile(fileext = ".txt")
+subset_vcf <- tempfile(fileext = ".vcf")
+writeLines(as.character(sort(random_rows)), rows_file)
+awk_status <- system2("awk", c(shQuote("NR == FNR { keep[$1]; next } /^#/ { print; next } (++n) in keep"),
+                               shQuote(rows_file), shQuote(VCF)), stdout = subset_vcf)
+if (awk_status != 0) stop(paste0("AMOVA: selecting the sampled rows of ", VCF, " failed (awk exit ", awk_status, ")"))
+vcf <- vcfR::read.vcfR(subset_vcf)
+unlink(c(rows_file, subset_vcf))
+vcf <- vcf[match(random_rows, sort(random_rows)), ]
 
 my_genind <- vcfR2genind(vcf,
                          return.alleles = TRUE,
                          ploidy = 2)
-
-my_genlight <- vcfR2genlight(vcf, n.cores = CPU)
 
 # Read population information
 samples.df <- fread(SAMPLES,

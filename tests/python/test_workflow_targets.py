@@ -100,6 +100,23 @@ class TestTargetSetShape(_Loaded):
                 self.assertIn(self.ns["W"]["summary_done"], self.targets[mode])
 
 
+class TestSummaryFlagPerMode(_Loaded):
+    """273e39: every mode's write_summary wrote the same flag, so the next run of any
+    other mode found the flag's record changed and reran write_summary. A real run sets
+    the mode in the config, which is what names the flag."""
+
+    def test_no_two_modes_share_a_summary_flag(self):
+        flags = {}
+        for mode in H.MODES:
+            with self.subTest(mode=mode):
+                ns = H.load(H.make_config(mode=mode))
+                flag = ns["W"]["summary_done"]
+                self.assertTrue(flag.endswith(f"/flags/summary_done_{mode}.flag"), flag)
+                self.assertIn(flag, H.targets(ns, mode))
+                flags[mode] = flag
+        self.assertEqual(len(set(flags.values())), len(H.MODES))
+
+
 class TestRegimeGating(unittest.TestCase):
     """gwas_only declares a project with no coordinates: climate must be unreachable."""
 

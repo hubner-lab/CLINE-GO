@@ -6,6 +6,7 @@ library(qs)
 library(scattermore)
 
 source("/pipeline/scripts/R/utils/theme_clinego.R")
+source("/pipeline/scripts/R/utils/scattermore_threads.R")
 
 args = commandArgs(trailingOnly=TRUE)
 #################################

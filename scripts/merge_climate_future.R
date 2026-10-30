@@ -2,6 +2,9 @@ library(terra)
 library(data.table)
 library(dplyr)
 library(stringr)
+
+source("/pipeline/scripts/R/lib/climate_cells.R")  # climate_cell_table()
+
 args = commandArgs(trailingOnly=TRUE)
 #################################
 SAMPLES = args[1]
@@ -72,12 +75,8 @@ if (length(clim_list) == 1) {
 
 message('INFO: Model averaging complete')
 
-# Extract all values with cell IDs for raster remapping
-# terra::extract with cell indices doesn't return ID column (unlike raster package)
-clim_future_all <- terra::extract(clim_future, 1:ncell(clim_future))
-clim_future_all$ID <- 1:ncell(clim_future)
-clim_future_all <- na.omit(clim_future_all) %>%
-  dplyr::select(ID, everything())
+# Every land pixel with its cell ID, for raster remapping
+clim_future_all <- climate_cell_table(clim_future)
 
 # Validate cell count matches present climate
 message('INFO: Validating cell count matches present climate...')

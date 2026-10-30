@@ -14,6 +14,7 @@ library(jsonlite)
 
 source("/pipeline/scripts/R/utils/pval_threshold.R")
 source("/pipeline/scripts/R/utils/manhattan_utils.R")
+source("/pipeline/scripts/R/utils/scattermore_threads.R")
 
 args = commandArgs(trailingOnly=TRUE)
 ################################

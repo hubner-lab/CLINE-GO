@@ -3,6 +3,8 @@ library(data.table)
 library(dplyr)
 library(stringr)
 
+source("/pipeline/scripts/R/lib/climate_cells.R")  # climate_cell_table()
+
 args = commandArgs(trailingOnly=TRUE)
 #################################
 SAMPLES = args[1]
@@ -142,12 +144,8 @@ FUN_present_climate <- function(samples,
   clim.present.coords <- terra::extract(clim.present, coords)[, -1] %>%
     as.data.frame
 
-  # Extract all pixel values with cell IDs for raster remapping
-  # terra::extract with cell indices doesn't return ID column (unlike raster package)
-  clim.land <- terra::extract(clim.present, 1:ncell(clim.present))
-  clim.land$ID <- 1:ncell(clim.present)
-  clim.land <- na.omit(clim.land) %>%
-    dplyr::select(ID, everything())
+  # Every land pixel with its cell ID, for raster remapping
+  clim.land <- climate_cell_table(clim.present)
 
   return(list(RasterStack = clim.present,
               SiteValues = clim.present.coords,

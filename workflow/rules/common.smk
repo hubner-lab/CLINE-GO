@@ -1423,7 +1423,10 @@ W = {
     'pca_projections': f"{WORK_LD}{VCF_BASE}.pca/{VCF_BASE}.projections",
     'pca_eigenvalues': f"{WORK_LD}{VCF_BASE}.pca/{VCF_BASE}.eigenvalues",
     'vcfsnp': f"{WORK_LD}{VCF_BASE}.vcfsnp",
-    'summary_done': f"{INTER}flags/summary_done.flag",
+    # One flag per mode: with one shared flag every mode's write_summary overwrote the
+    # others' record, so the next run of any other mode reran it (273e39). MODE is parsed
+    # further down, hence config.
+    'summary_done': f"{INTER}flags/summary_done_{config.get('mode')}.flag",
     'removed': f"{WORK_LD}{VCF_BASE}.removed",
     'snmf': f"{WORK_LD}{VCF_BASE}.snmfProject",
     # QC intermediate stats (used by plot_qc_processing)
