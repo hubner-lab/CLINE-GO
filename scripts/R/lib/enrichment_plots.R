@@ -78,22 +78,35 @@ top_regions_for_plotting <- function(regions_file, top_n) {
 
 # Save a ggplot2 or enrichplot object as PNG + SVG + qs.
 #
+# A render that fails part-way (e.g. "Viewport has zero dimension(s)") leaves the bytes the device
+# wrote before the error, and the app shows that file as a broken plot (file_ok() only checks it
+# is non-empty): Trifolium86Main's emapplots left a 42 KB PNG and a 2 KB SVG (9700d6). So a failed
+# save removes its file.
+#
 # @param p           ggplot/enrichResult-based plot
 # @param output_base path without extension
 # @param width       numeric: inches
 # @param height      numeric: inches
 save_enrichment_plot <- function(p, output_base, width, height) {
+    png_path <- paste0(output_base, ".png")
     tryCatch({
-        ggplot2::ggsave(paste0(output_base, ".png"), plot = p,
+        ggplot2::ggsave(png_path, plot = p,
                         width = width, height = height, dpi = 300)
-        message(paste0("INFO: Saved PNG: ", output_base, ".png"))
-    }, error = function(e) message(paste0("WARNING: PNG save failed: ", e$message)))
+        message(paste0("INFO: Saved PNG: ", png_path))
+    }, error = function(e) {
+        unlink(png_path)
+        message(paste0("WARNING: PNG save failed, no PNG written: ", e$message))
+    })
 
+    svg_path <- paste0(output_base, ".svg")
     tryCatch({
-        ggplot2::ggsave(paste0(output_base, ".svg"), plot = p,
+        ggplot2::ggsave(svg_path, plot = p,
                         width = width, height = height)
-        message(paste0("INFO: Saved SVG: ", output_base, ".svg"))
-    }, error = function(e) message(paste0("WARNING: SVG save failed: ", e$message)))
+        message(paste0("INFO: Saved SVG: ", svg_path))
+    }, error = function(e) {
+        unlink(svg_path)
+        message(paste0("WARNING: SVG save failed, no SVG written: ", e$message))
+    })
 
     tryCatch({
         qs::qsave(p, paste0(output_base, ".qs"))

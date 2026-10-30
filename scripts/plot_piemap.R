@@ -8,10 +8,11 @@ library(ggplot2)
 library(ggrepel)
 library(terra)
 library(ggspatial)
-library(scatterpie)
 library(ggnewscale)
 library(svglite)
 library(viridis)
+
+source("/pipeline/scripts/R/lib/piemap_geometry.R")
 
 args = commandArgs(trailingOnly=TRUE)
 #################################
@@ -130,12 +131,18 @@ create_piemap <- function(samples,
   cluster_cols <- setdiff(colnames(clusters), c('sample', 'site'))
   n_clust <- length(cluster_cols)
 
-  # Process cluster info by population
+  # Process cluster info by population: the site-mean slices, drawn once per site at the
+  # centroid of its samples (cdb1a1), so jittered per-sample coordinates no longer give a site
+  # one pie per distinct coordinate. A site with no coordinate is not drawn.
   clusters_by_pop <- clusters %>%
     dplyr::select(-sample) %>%
     dplyr::group_by(site) %>%
     dplyr::summarise_all(mean) %>%
-    dplyr::left_join(samples[, c('site', 'latitude', 'longitude')] %>% unique, by = 'site')
+    dplyr::inner_join(site_centroids(samples), by = 'site')
+  no_coord <- setdiff(unique(as.character(clusters$site)), clusters_by_pop$site)
+  if (length(no_coord) > 0)
+    message('INFO: ', length(no_coord), ' site(s) without a coordinate not drawn: ',
+            paste(no_coord, collapse = ', '))
 
   # Apply pie sizing based on trait or use midpoint for uniform size
   if (is.null(trait) || trait_name == 'NULL' || is.null(trait_name)) {
@@ -183,16 +190,29 @@ create_piemap <- function(samples,
 
     message(paste0('INFO: Using point mode (size=', round(point_size, 2), ', PIE_SCALE=', PIE_SCALE, ')'))
   } else {
+    # Round pies (f3fcce): coord_sf stretches latitude by 1/cos(mid-latitude) on a lon/lat map,
+    # so each pie's longitude radius is stretched by the same factor (piemap_geometry.R). The
+    # panel's latitude range is the raster's plus the pies'.
+    pies <- data.frame(x = clusters_by_pop$longitude, y = clusters_by_pop$latitude,
+                       r = clusters_by_pop$pie_radius, group = clusters_by_pop$site)
+    pies <- cbind(pies, as.data.frame(clusters_by_pop)[, cluster_cols, drop = FALSE])
+    y_range <- range(c(as.vector(terra::ext(raster_layer))[3:4],
+                       pies$y - pies$r, pies$y + pies$r), na.rm = TRUE)
+    x_stretch <- pie_x_stretch(y_range, terra::is.lonlat(raster_layer, warn = FALSE))
+    wedges <- pie_wedges(pies, cluster_cols, x_stretch)
+    message('INFO: Pie longitude radius x', round(x_stretch, 4),
+            ' (mid-latitude ', round(mean(y_range), 3), ')')
+
     gPlot <- gPlot +
       ggnewscale::new_scale_fill() +
-      geom_scatterpie(data = clusters_by_pop,
-                      aes(x = longitude, y = latitude, group = site, r = pie_radius),
-                      cols = cluster_cols,
-                      color = 'black',
-                      alpha = pie_alpha) +
-      scale_fill_manual(values = my_colors[1:n_clust]) +
+      geom_polygon(data = wedges,
+                   aes(x = x, y = y, group = wedge, fill = slice),
+                   color = 'black', linewidth = 0.4,
+                   alpha = pie_alpha) +
+      scale_fill_manual(values = setNames(my_colors[seq_len(n_clust)], cluster_cols),
+                        breaks = cluster_cols, drop = FALSE) +
       theme_bw() +
-      labs(fill = pie_fill_label)
+      labs(fill = pie_fill_label, x = NULL, y = NULL)   # the polygons' x/y, as scatterpie drew none
   }
 
   # Add population labels

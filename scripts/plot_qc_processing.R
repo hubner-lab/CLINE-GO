@@ -324,14 +324,25 @@ chr_order <- unique(dens_both$CHROM)
 chr_order <- chr_order[order(suppressWarnings(as.integer(sub("^(chr)?", "", chr_order))), chr_order)]
 dens_both[, CHROM := factor(CHROM, levels = chr_order)]
 
-# facet_grid by chromosome: Raw (top) / Filtered (bottom) rows within each chr facet
-p_density <- ggplot(dens_both, aes(x = pos_mb, y = stage, fill = SNP_COUNT)) +
-    geom_tile(height = 0.9) +
+# facet_grid by chromosome: Raw (top) / Filtered (bottom) rows within each chr facet. Each track
+# has its own fill scale (7f70f7): on one shared scale the raw track set the range, and on WGS
+# data the filtered track came out near-white (Trifolium: 7,163,793 raw vs 209,466 filtered SNPs).
+density_fill <- function(stage_name, order) {
     scale_fill_gradientn(
         colors = c("#F0F2F5", CLINEGO_RETAINED, "#0B4A42"),
-        name = "SNPs/1Mb",
-        na.value = "#F0F2F5"
-    ) +
+        name = paste0(stage_name, ": SNPs/1Mb"),
+        na.value = "#F0F2F5",
+        labels = scales::label_comma(),
+        guide = guide_colourbar(order = order)
+    )
+}
+p_density <- ggplot(mapping = aes(x = pos_mb, y = stage)) +
+    geom_tile(data = dens_both[stage == "Raw"], aes(fill = SNP_COUNT), height = 0.9) +
+    density_fill("Raw", 1) +
+    ggnewscale::new_scale_fill() +
+    geom_tile(data = dens_both[stage == "Filtered"], aes(fill = SNP_COUNT), height = 0.9) +
+    density_fill("Filtered", 2) +
+    scale_y_discrete(drop = FALSE) +
     facet_grid(CHROM ~ ., switch = "y") +
     labs(
         title = "SNP density (1Mb windows)",
@@ -416,12 +427,15 @@ snp_stages <- c("Raw VCF", "After SNP missingness filter", "After MAF + SNP miss
 attrition_snps <- attrition[stage %in% snp_stages]
 attrition_snps[, stage := factor(stage, levels = snp_stages)]
 
+# Counts with thousands separators on the bars and the axis (2e+06-style ticks on real data;
+# paste0() of a count of exactly 1e6 printed "1e+06").
 p_attrition <- ggplot(attrition_snps, aes(x = stage, y = n_snps)) +
     geom_col(fill = CLINEGO_RETAINED, width = 0.6) +
-    geom_text(aes(label = paste0(n_snps, "\n(", pct_snps, "%)")),
+    geom_text(aes(label = paste0(scales::label_comma(accuracy = 1)(n_snps),
+                                 "\n(", pct_snps, "%)")),
               vjust = -0.3, size = 3) +
     scale_x_discrete(labels = function(x) stringr::str_wrap(x, width = 18)) +
-    scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +
+    scale_y_continuous(labels = scales::label_comma(), expand = expansion(mult = c(0, 0.15))) +
     labs(
         title = "SNP retention through filtering pipeline",
         x = NULL,
@@ -449,8 +463,17 @@ if (HAS_DP && DEPTH_SAMPLE_FILE != 'NULL' && file.exists(DEPTH_SAMPLE_FILE)) {
     depth_usable <- depth_ok
 
 if (depth_ok) {
-    # Bin per-site depth for histogram (avoid plotting millions of points)
-    depth_l_hist <- depth_l[, .(count = .N), by = .(depth_bin = round(MEAN_DEPTH))]
+    # Bin per-site depth for histogram (avoid plotting millions of points). The axis ends at the
+    # 99th percentile and every deeper SNP is counted in the last bar, labelled ">= cap": a few
+    # sites at ~70x stretched it while the bulk sat at 2-10x (d150, 4c).
+    depth_cap <- max(1, ceiling(stats::quantile(depth_l$MEAN_DEPTH[is.finite(depth_l$MEAN_DEPTH)],
+                                                0.99, names = FALSE)))
+    depth_l_hist <- depth_l[is.finite(MEAN_DEPTH),
+                            .(count = .N), by = .(depth_bin = pmin(round(MEAN_DEPTH), depth_cap))]
+    depth_overflow <- any(round(depth_l$MEAN_DEPTH[is.finite(depth_l$MEAN_DEPTH)]) > depth_cap)
+    depth_breaks <- pretty(c(0, depth_cap))
+    depth_breaks <- c(depth_breaks[depth_breaks < depth_cap - diff(depth_breaks[1:2]) / 2],
+                      depth_cap)
 
     p_depth_s <- ggplot(depth_s, aes(x = MEAN_DEPTH)) +
         geom_histogram(bins = 40, fill = CLINEGO_RETAINED, color = "white", linewidth = 0.2) +
@@ -465,6 +488,10 @@ if (depth_ok) {
 
     p_depth_l <- ggplot(depth_l_hist, aes(x = depth_bin, y = count)) +
         geom_col(fill = CLINEGO_RETAINED, width = 0.8) +
+        scale_x_continuous(breaks = depth_breaks,
+                           labels = function(b) ifelse(depth_overflow & b == depth_cap,
+                                                       paste0("\u2265", b), b)) +
+        scale_y_continuous(labels = scales::label_comma()) +
         labs(
             title = "Per-SNP mean depth distribution",
             x = "Mean depth per SNP",

@@ -5,9 +5,10 @@
 # Requires: data.table
 #
 # Callers:
-#   plot_correlation_heatmap.R  draws factor_correlation()$r
+#   plot_correlation_heatmap.R  draws factor_correlation()$r, restricted by factors_to_draw()
 #   correlation_table.R         writes correlation_pairs(factor_correlation(...))
-# on the same tables, so a correlation table holds exactly the figure's numbers:
+# on the same tables, so every pair a figure draws carries the table's numbers. The table lists
+# every extracted factor; the climate correlograms draw Climate.predictors only (c9edc9):
 #   Environmental (mode=climate)  A = climate_present_site.tsv,     B = NULL
 #   Phenotypic    (mode=traits)   A = metadata.tsv,                 B = NULL
 #   Phenotypic + climate          A = metadata_climate_valid.tsv,   B = climate_present_site.tsv
@@ -149,4 +150,21 @@ correlation_pairs <- function(fc) {
                            r        = fc$r[idx],
                            basis    = fc$basis[idx],
                            n_obs    = as.integer(fc$n_obs[idx]))
+}
+
+# The factors a correlogram draws (c9edc9): a block (one input table's factors, factor_cols())
+# that names any of `keep` is cut to the listed ones; a block that names none is drawn whole.
+# The climate correlogram passes Climate.predictors, so its one block is cut to the selected
+# predictors, and the joint traits x climate correlogram keeps every trait beside them. Cut
+# after factor_correlation(), never before: a climate table without a site column takes its site
+# key from the identity of whole rows, over every factor, so a narrower table could merge sites
+# and move r.
+# @param factors the matrix's factors, colnames(factor_correlation(...)$r)
+# @param blocks list of character vectors, each table's factors
+# @param keep character, the factors to keep; empty keeps all
+# @return the factors to draw, in matrix order
+factors_to_draw <- function(factors, blocks, keep) {
+    if (length(keep) == 0L) return(factors)
+    drop <- unlist(lapply(blocks, function(b) if (any(b %in% keep)) setdiff(b, keep)))
+    setdiff(factors, drop)
 }

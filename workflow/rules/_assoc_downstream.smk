@@ -383,9 +383,11 @@ if ASSOC_SOURCES:
         """Per-(source, method, trait, adjust) Manhattan + QQ plots.
         Background PNG and coords include {adjust} in filename (Snakemake wildcard
         consistency), but the background shows ALL SNPs (threshold-independent).
-        Shiny draws the threshold line live via the interactive threshold_y param."""
+        Shiny draws the threshold line live via the interactive threshold_y param.
+        The QQ panel prints lambda_GC from assoc_genomic_inflation's table (d97202)."""
         input:
-            assoc = f"{OUTDIR}{{source}}/tables/methods/{{method}}/{{method}}_pvalues_K{K_BEST}.tsv"
+            assoc = f"{OUTDIR}{{source}}/tables/methods/{{method}}/{{method}}_pvalues_K{K_BEST}.tsv",
+            lam   = f"{OUTDIR}{{source}}/tables/methods/{{method}}/{{method}}_lambda_K{K_BEST}.tsv"
         output:
             png         = f"{OUTDIR}{{source}}/plots/manhattan/{{method}}/manhattan_{{trait}}_K{K_BEST}_{{adjust}}.png",
             svg         = f"{OUTDIR}{{source}}/plots/manhattan/{{method}}/manhattan_{{trait}}_K{K_BEST}_{{adjust}}.svg",
@@ -408,7 +410,7 @@ if ASSOC_SOURCES:
             """
             Rscript /pipeline/scripts/plot_manhattan.R \
                 {input.assoc} {wildcards.adjust} {params.k} {wildcards.method} \
-                {wildcards.trait} {params.plot_dir} {params.predictors} > {log} 2>&1
+                {wildcards.trait} {params.plot_dir} {params.predictors} snp {input.lam} > {log} 2>&1
             """
 
     rule assoc_manhattan_combined:

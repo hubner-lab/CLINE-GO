@@ -65,11 +65,12 @@ rule design_adequacy:
         """
 
 rule density_plot:
-    """Generate combined density plot for all climate predictors (all BIO columns)."""
+    """Combined density plot of the selected climate predictors (Climate.predictors), as
+    density_plot_future draws them (c9edc9: it drew every extracted bioclim layer)."""
     input:  climate = O['climate_site']
     output: DENSITY_PLOT_COMBINED
     params:
-        predictors = "all",
+        predictors = ",".join(get_predictors_list()) or "all",
         inter_dir = INTER
     log:    f"{LOGDIR}climate/density_plot.log"
     shell:
@@ -87,21 +88,25 @@ rule density_plot:
 rule correlation_heatmap:
     """Correlogram of the climate predictors alone (Phase 3: traits dropped —
     they have their own correlogram, plus a joint traits x climate one, in
-    mode=traits). Second table passed as NULL."""
+    mode=traits). Second table passed as NULL. It draws the selected predictors
+    (Climate.predictors, c9edc9), from the matrix over every extracted layer that
+    correlation_table writes."""
     input:  climate = O['climate_site']
     output: O['corr_heatmap']
-    params: inter_dir = INTER, second = 'NULL', title = "Correlogram of climate factors"
+    params: inter_dir = INTER, second = 'NULL', title = "Correlogram of climate factors",
+            factors = ",".join(get_predictors_list())
     log:    f"{LOGDIR}climate/correlation_heatmap.log"
     shell:
         """
         Rscript /pipeline/scripts/plot_correlation_heatmap.R \
             {input.climate} {params.second} {output} {params.inter_dir} \
-            '{params.title}' > {log} 2>&1
+            '{params.title}' {params.factors} > {log} 2>&1
         """
 
 rule correlation_table:
-    """The matrix correlation_heatmap draws, as a pair table (bffcfc): factor_correlation() on
-    the same table. Its own rule, so an existing tree gains it without redrawing the plot."""
+    """The matrix correlation_heatmap draws from, as a pair table (bffcfc): factor_correlation()
+    on the same table, every extracted layer (the heatmap draws the Climate.predictors pairs of
+    it). Its own rule, so an existing tree gains it without redrawing the plot."""
     input:  climate = O['climate_site']
     output: O['corr_table']
     params: second = 'NULL'

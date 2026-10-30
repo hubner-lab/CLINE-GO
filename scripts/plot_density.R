@@ -6,6 +6,9 @@ library(data.table)
 library(dplyr)
 library(qs)
 
+source("/pipeline/scripts/R/utils/factor_order.R")
+source("/pipeline/scripts/R/utils/theme_clinego.R")
+
 args = commandArgs(trailingOnly=TRUE)
 #################################
 CLIMATE = args[1]       # climate site values TSV
@@ -32,18 +35,17 @@ if (PREDICTORS == "all" || PREDICTORS == "") {
   bio_vars <- strsplit(PREDICTORS, ",")[[1]]
 }
 
-# Sort numerically if columns follow a pattern like bio_N or trait_N
-nums <- suppressWarnings(as.integer(gsub(".*_(\\d+)$", "\\1", bio_vars)))
-if (!any(is.na(nums))) bio_vars <- bio_vars[order(nums)]
+# Numbered names (bio_N, trait_N) in numeric order, the others after them as given: the order
+# every figure uses (factor_order.R)
+bio_vars <- bio_vars[numbered_order(bio_vars)]
 
 message(paste0('INFO: Creating density plots for ', length(bio_vars), ' predictors'))
 
 # Plot theme
 plot_theme <-
-  theme_classic(base_size = 10, base_family = 'Helvetica') +
-  theme(plot.title = element_text(size = 11, face = 'bold', hjust = 0.5),
+  theme_clinego(base_size = 10) +
+  theme(plot.title = element_text(size = 11, hjust = 0.5),
         axis.text = element_text(size = 9),
-        axis.title = element_text(face = "bold", size = 10),
         plot.margin = margin(5, 10, 5, 10))
 
 # Create individual density plots
@@ -56,7 +58,7 @@ for (bio in bio_vars) {
 
   gDens <- climate %>%
     ggplot(aes(x = .data[[bio]])) +
-    geom_density(fill = 'steelblue', alpha = 0.7, color = 'darkblue') +
+    geom_density(fill = CLINEGO_NEUTRAL, alpha = 0.6, color = CLINEGO_NEUTRAL) +
     labs(title = bio, x = "Value", y = "Density") +
     plot_theme
 

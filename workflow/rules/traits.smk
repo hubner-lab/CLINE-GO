@@ -60,18 +60,21 @@ if CLIMATE_ENABLED:
         """Correlogram of traits AND climate predictors together — how much of
         a trait's variation tracks the environment. Standard regime only.
         Uses the climate-valid metadata subset so the two blocks describe the
-        same samples; plot_correlation_heatmap.R joins them on `sample`."""
+        same samples; plot_correlation_heatmap.R joins them on `sample`. Every
+        trait beside the selected predictors (Climate.predictors cuts the climate
+        block only, c9edc9)."""
         input:
             meta    = W['metadata_climate_valid'],
             climate = O['climate_site'],
         output: O['trait_corr_climate']
-        params: inter_dir = INTER, title = "Correlogram of traits and climate factors"
+        params: inter_dir = INTER, title = "Correlogram of traits and climate factors",
+                factors = ",".join(get_predictors_list())
         log:    f"{LOGDIR}traits/trait_correlogram_climate.log"
         shell:
             """
             Rscript /pipeline/scripts/plot_correlation_heatmap.R \
                 {input.meta} {input.climate} {output} {params.inter_dir} \
-                '{params.title}' > {log} 2>&1
+                '{params.title}' {params.factors} > {log} 2>&1
             """
 
     rule trait_climate_correlation_table:

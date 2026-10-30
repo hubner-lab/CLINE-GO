@@ -570,6 +570,25 @@ WRAPPERS <- list(
         outputs = function(d) file.path(d, c("corr2.png", "corr2.svg"))
     ),
     list(
+        # Release 6 (c9edc9): the selected predictors only, as correlation_heatmap passes
+        # Climate.predictors; bio_12 is constant in the fixture and is not listed.
+        label   = "plot_correlation_heatmap.R (selected factors)",
+        script  = "plot_correlation_heatmap.R",
+        build   = function(d) c(fx_climate_site(d), fx_inter_dir(d)),
+        args    = function(d, f) c(f[1], "NULL", file.path(d, "corr_sel.png"), f[2],
+                                   "Correlogram of climate factors", "bio_2,bio_1"),
+        outputs = function(d) file.path(d, c("corr_sel.png", "corr_sel.svg"))
+    ),
+    list(
+        # One selected predictor: an empty-state figure, not a crash in mode=climate.
+        label   = "plot_correlation_heatmap.R (one factor: placeholder)",
+        script  = "plot_correlation_heatmap.R",
+        build   = function(d) c(fx_climate_site(d), fx_inter_dir(d)),
+        args    = function(d, f) c(f[1], "NULL", file.path(d, "corr_one.png"), f[2],
+                                   "Correlogram of climate factors", "bio_1"),
+        outputs = function(d) file.path(d, c("corr_one.png", "corr_one.svg"))
+    ),
+    list(
         # Release 4b (bffcfc): the matrix the correlogram draws, as pairs.
         label   = "correlation_table.R (one block)",
         script  = "correlation_table.R",
@@ -601,6 +620,34 @@ WRAPPERS <- list(
         outputs = function(d) character(0),
         out_min = function(d) list(dir = file.path(d, "plots"),
                                    pattern = "\\.png$", n = 1)
+    ),
+    list(
+        # Release 6 (d97202): as assoc_manhattan_plot calls it, regime and lambda table last.
+        label   = "plot_manhattan.R (lambda on the QQ panel)",
+        script  = "plot_manhattan.R",
+        build   = function(d) {
+            dir.create(file.path(d, "plots_lam"), showWarnings = FALSE)
+            c(fx_pvalues(d), fx_lambda_table(d))
+        },
+        args    = function(d, f) c(f[1], "bonf_0.05", "3", "EMMAX", "bio_1",
+                                   file.path(d, "plots_lam"), "bio_1,bio_2", "snp", f[2]),
+        outputs = function(d) character(0),
+        out_min = function(d) list(dir = file.path(d, "plots_lam"),
+                                   pattern = "^qq_.*\\.png$", n = 1)
+    ),
+    list(
+        # A lambda table without this method x trait is not the one written for these
+        # p-values: the plot stops instead of printing another pair's lambda.
+        label   = "plot_manhattan.R (lambda table without the pair: refused)",
+        script  = "plot_manhattan.R",
+        build   = function(d) {
+            dir.create(file.path(d, "plots_nolam"), showWarnings = FALSE)
+            c(fx_pvalues(d), fx_lambda_table(d))
+        },
+        args    = function(d, f) c(f[1], "bonf_0.05", "3", "LFMM", "bio_1",
+                                   file.path(d, "plots_nolam"), "bio_1,bio_2", "snp", f[2]),
+        outputs = function(d) character(0),
+        expect_status = 1L
     ),
     list(
         label   = "plot_manhattan_combined.R",
@@ -679,6 +726,20 @@ WRAPPERS <- list(
                                    "0", "all", f[3], "1:10000000-10100000",
                                    "bio_1:LFMM", "NULL", "snp"),
         outputs = function(d) file.path(d, "regionplot_custom_1_10000000_10100000.png")
+    ),
+    list(
+        # Release 6: the app's multi-trait call with two rules (one line each, c34204), a
+        # 20 kb flank with the region's edges (ad9f15), traits out of numeric order (9e5dd0)
+        # and two same-named tandem genes whose labels overprinted (e9466a).
+        label   = "plot_regionplot.R (multi-trait, two rules, flank)",
+        script  = "plot_regionplot.R",
+        build   = function(d) fx_regionplot_inputs(d),
+        args    = function(d, f) c("NULL", f[1],
+                                   paste0("EMMAX:bonf_0.05:", f[2], ",LFMM:custom_1e-3:", f[2]),
+                                   "0", "all", f[3], "1:10040000-10060000",
+                                   "bio_2:EMMAX|LFMM,bio_10:LFMM,bio_1:EMMAX", "NULL", "snp",
+                                   "20000"),
+        outputs = function(d) file.path(d, "regionplot_custom_1_10040000_10060000.png")
     ),
     # mantel_test.R. Quick tier, not heavy: vegan 2.6-8 and geosphere 1.5-20 are
     # pinned CRAN packages in the image (Dockerfile:207,123), the same category
@@ -1115,6 +1176,65 @@ test_that("assoc_lambda.R writes lambda per trait and the correction it was give
     bad <- run_wrapper("assoc_lambda.R", c(f, "LFMM", "gc", file.path(d, "x.tsv")), wd = sandbox)
     expect_gt(bad$status, 0L)
     expect_match(bad$output, "correction must be genomic_control, rdadapt_gif or none")
+})
+
+test_that("plot_correlation_heatmap.R draws the listed factors, in numeric order, with the table's r", {
+    # Release 6 (c9edc9): the matrix is computed on every factor and then cut, so a drawn
+    # pair's r is correlation_table.R's.
+    skip_if_not(dir.exists(SCRIPTS), "scripts/ not mounted")
+    d <- withr::local_tempdir()
+    sandbox <- file.path(d, "cwd"); dir.create(sandbox)
+    clim  <- fx_climate_site(d)
+    inter <- fx_inter_dir(d)
+    data.table::fwrite(cbind(data.table::fread(clim), bio_10 = c(3, 1, 4, 1, 5, 9, 2, 6)),
+                       clim, sep = "\t")
+    res <- run_wrapper("plot_correlation_heatmap.R",
+                       c(clim, "NULL", file.path(d, "corr.png"), inter, "t", "bio_10,bio_2,bio_1"),
+                       wd = sandbox)
+    expect_identical(res$status, 0L, info = res$output)
+    g <- qs::qread(file.path(inter, "corr.qs"))
+    expect_identical(levels(g$data$Var1), c("bio_1", "bio_2", "bio_10"))
+
+    tab <- run_wrapper("correlation_table.R", c(clim, "NULL", file.path(d, "corr.tsv")),
+                       wd = sandbox)
+    expect_identical(tab$status, 0L, info = tab$output)
+    pairs <- data.table::fread(file.path(d, "corr.tsv"))
+    drawn <- data.table::as.data.table(g$data)[as.character(Var1) != as.character(Var2)]
+    for (i in seq_len(nrow(drawn))) {
+        a <- as.character(drawn$Var1[i]); b <- as.character(drawn$Var2[i])
+        want <- pairs[(factor_1 == a & factor_2 == b) | (factor_1 == b & factor_2 == a), r]
+        expect_equal(drawn$value[i], round(want, 1), tolerance = 1e-9, info = paste(a, b))
+    }
+})
+
+test_that("plot_manhattan.R prints the table's lambda on the QQ panel", {
+    skip_if_not(dir.exists(SCRIPTS), "scripts/ not mounted")
+    d <- withr::local_tempdir()
+    sandbox <- file.path(d, "cwd"); dir.create(sandbox)
+    plots <- file.path(d, "plots"); dir.create(plots)
+    f <- c(fx_pvalues(d), fx_lambda_table(d))
+    res <- run_wrapper("plot_manhattan.R", c(f[1], "bonf_0.05", "3", "EMMAX", "bio_1", plots,
+                                             "bio_1,bio_2", "snp", f[2]), wd = sandbox)
+    expect_identical(res$status, 0L, info = res$output)
+    expect_match(res$output, "lambda_GC = 0.97 (correction: none)", fixed = TRUE)
+})
+
+test_that("plot_regionplot.R repels the gene labels instead of falling back to topr's", {
+    # e9466a's redraw reads topr's gene-name layer; if topr changed that layer, the script would
+    # keep topr's overprinting labels with a WARNING and still exit 0.
+    skip_if_not(dir.exists(SCRIPTS), "scripts/ not mounted")
+    d <- withr::local_tempdir()
+    sandbox <- file.path(d, "cwd"); dir.create(sandbox)
+    f <- fx_regionplot_inputs(d)
+    res <- run_wrapper("plot_regionplot.R",
+                       c("NULL", f[1], paste0("EMMAX:bonf_0.05:", f[2], ",LFMM:custom_1e-3:", f[2]),
+                         "0", "all", f[3], "1:10040000-10060000",
+                         "bio_2:EMMAX|LFMM,bio_10:LFMM,bio_1:EMMAX", "NULL", "snp", "20000"),
+                       wd = sandbox)
+    expect_identical(res$status, 0L, info = res$output)
+    expect_false(grepl("gene labels left as topr draws them", res$output), info = res$output)
+    expect_false(grepl("no significance line drawn", res$output), info = res$output)
+    expect_true(file.exists(file.path(d, "regionplot_custom_1_10040000_10060000_genes.svg")))
 })
 
 test_that("sig_threshold_table.R reports threshold, family size and calls, as find_sig_snps.R calls them", {

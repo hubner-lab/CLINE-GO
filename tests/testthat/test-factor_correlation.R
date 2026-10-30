@@ -69,3 +69,14 @@ test_that("the correlogram and the correlation tables take the matrix from one f
         expect_false(any(grepl("\\bcor\\(", src)), info = f)
     }
 })
+
+test_that("factors_to_draw cuts only the blocks that name a listed factor (c9edc9)", {
+    fac    <- c("height", "flowering_time", "bio_1", "bio_2", "bio_12")
+    blocks <- list(c("height", "flowering_time"), c("bio_1", "bio_2", "bio_12"))
+    expect_identical(factors_to_draw(fac, blocks, c("bio_1", "bio_12")),
+                     c("height", "flowering_time", "bio_1", "bio_12"))
+    expect_identical(factors_to_draw(fac, blocks, character(0)), fac)
+    expect_identical(factors_to_draw(fac[3:5], blocks[2], "bio_2"), "bio_2")
+    # A listed factor the matrix dropped (constant) is simply absent.
+    expect_identical(factors_to_draw(fac[3:4], blocks[2], c("bio_2", "bio_12")), "bio_2")
+})

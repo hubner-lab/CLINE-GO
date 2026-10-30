@@ -173,7 +173,42 @@ heavy_snmf_project <- function(d) {
     file.path(d, "t.snmfProject")
 }
 
+# plot_piemap.R's inputs: a lon/lat bio_1 raster over 34-36 E, 30-34 N, and seven samples at
+# three sites, site A's three at jittered coordinates (31.0-31.2 N, 34.6-34.8 E; cdb1a1), with a
+# K = 3 Q-matrix. Returns c(raster, metadata, clusters, plot dir, inter dir).
+heavy_piemap_inputs <- function(d) {
+    r <- terra::rast(nrows = 40, ncols = 20, xmin = 34, xmax = 36, ymin = 30, ymax = 34,
+                     crs = "EPSG:4326")
+    xy <- terra::xyFromCell(r, seq_len(terra::ncell(r)))
+    terra::values(r) <- 10 + 2 * (xy[, 2] - 30) + (xy[, 1] - 34)
+    names(r) <- "bio_1"
+    ras <- file.path(d, "bio_present.tif")
+    terra::writeRaster(r, ras, overwrite = TRUE)
+    meta <- data.table::data.table(
+        site = c("A", "A", "A", "B", "B", "C", "C"), sample = sprintf("S%02d", 1:7),
+        latitude = c(31.0, 31.1, 31.2, 32.5, 32.5, 33.4, 33.4),
+        longitude = c(34.6, 34.7, 34.8, 35.2, 35.2, 35.6, 35.6))
+    set.seed(3)
+    q <- matrix(runif(21), nrow = 7); q <- q / rowSums(q)
+    cl <- data.table::data.table(sample = meta$sample, site = meta$site,
+                                 C1 = q[, 1], C2 = q[, 2], C3 = q[, 3])
+    c(ras, write_tsv(meta, file.path(d, "metadata_climate.tsv")),
+      write_tsv(cl, file.path(d, "clusters_K3.tsv")),
+      fx_inter_dir(d, "plots"), fx_inter_dir(d, "inter"))
+}
+
 HEAVY_WRAPPERS <- list(
+    list(
+        # Release 6 (f3fcce, cdb1a1): round pies, one per site, on a raster (heavy: terra).
+        label   = "plot_piemap.R (raster, a jittered site)",
+        script  = "plot_piemap.R",
+        tools   = character(0),          # terra, ggspatial: R packages
+        build   = function(d) heavy_piemap_inputs(d),
+        args    = function(d, f) c(f[1], "bio_1", "bio_1", f[2], f[3], "NULL", "NULL", "0.6",
+                                   "TRUE", "4", f[4], f[5], "piemap_bio_1", "NULL", "1",
+                                   "Clusters", "FALSE"),
+        outputs = function(d) file.path(d, "plots", c("piemap_bio_1.png", "piemap_bio_1.svg"))
+    ),
     list(
         # Release 4b (f59f46): the cross-entropy numbers the plot never wrote.
         label   = "cross_entropy_table.R (LEA sNMF project)",

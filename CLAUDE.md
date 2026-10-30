@@ -199,7 +199,8 @@ Organized by **module** (matching pipeline modes). Each module owns its plots an
 │   ├── plots/{spatial,varpart}/           # dbmem_screeplot, varpart_venn (nested donut), px_barplot, dbmem_selection_path
 │   ├── tables/present/                    # climate_present_all.tsv, _site.tsv, _site_scaled.tsv, climate_invariant_predictors.tsv
 │   │                                      # (also written by mode=structure since 2026-10-30, so the app can strike chips after
-│   │                                      # mode=climate refuses an invariant predictor), climate_correlation.tsv (the correlogram's matrix)
+│   │                                      # mode=climate refuses an invariant predictor), climate_correlation.tsv (the correlogram's matrix
+│   │                                      # over every layer; the correlogram and density_plot_present draw Climate.predictors, c9edc9)
 │   ├── tables/spatial/                    # dbmem_vectors.tsv, dbmem_diagnostics.tsv
 │   ├── tables/varpart/                    # variance_partition (+ unit/n_units/df_env — fitted on ONE ROW PER SITE since 2026-09-13, audit ST1), climate_confounding (+ joint_p/n_sites), px_per_variable, dbmem_selected, dbmem_selection_path
 │   │                                      # (both carry `selection` since 2026-10-30: forward_selection | fallback_best_marginal_r2 |
@@ -638,6 +639,7 @@ Dense sampling makes pie charts overlap and occlude the raster/geography. Every 
 - Structure's `_no_spatial_variance.flag` placeholder (climate var invariant across sites) is **bypassed** in points mode — points show geography, which stays meaningful even when the climate signal doesn't vary spatially.
 - Maladaptation's points toggle ignores the zoom/variant selectors (the flat `zoom/{tag}.png` naming has no points companion) and always shows the project-level points file.
 - `Piemap.use_points` config key still exists but only governs the on-demand haplotype-viz piemaps (`fct_regions.R`) — it is NOT read by the Structure/Maladaptation/GWAS map rules, which always emit both renders.
+- One pie (or point) per site, at the mean of its samples' coordinates, and round on the map (since 2026-10-30, `scripts/R/lib/piemap_geometry.R`): `coord_sf` stretches latitude by 1/cos(mid-latitude) on a lon/lat map, so each pie's longitude radius carries the same factor. The pies are polygons now, not `scatterpie`.
 
 ### Piemap Sizing
 

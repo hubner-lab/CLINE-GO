@@ -26,7 +26,11 @@ TRAIT          = args[5]   # single trait name, e.g., "bio_1"
 PLOT_DIR       = args[6]   # output directory
 ALL_PREDICTORS = args[7]   # Comma-separated list of all trait names
 REGIME         = if (length(args) >= 8) tolower(args[8]) else "snp"  # "snp" or "wza"
+LAMBDA_TABLE   = if (length(args) >= 9 && args[9] != "NULL") args[9] else NULL
+                 # {method}_lambda_K{k}.tsv (assoc_lambda.R): lambda_GC on the QQ panel (d97202)
 ################################
+if (length(args) < 7 || length(args) > 9)
+    stop("plot_manhattan.R takes 7 to 9 arguments, got ", length(args))
 
 # WZA mode uses same output format but with "wza_" filename prefix
 is_wza    <- REGIME == "wza"
@@ -178,6 +182,14 @@ ci_qq <- data.frame(
     ci_upper = -log10(qbeta(0.025, 1:n_qq, n_qq:1))
 )
 
+# lambda_GC of this method and trait, from the table assoc_lambda.R writes (d97202); the WZA
+# rule passes none (window p-values have no lambda table).
+qq_lambda <- if (is.null(LAMBDA_TABLE)) NA_character_ else {
+    lam <- qq_lambda_row(fread(LAMBDA_TABLE), METHOD, TRAIT)
+    message('INFO: lambda_GC = ', lam$lambda_gc, ' (correction: ', lam$correction, ')')
+    qq_lambda_label(lam$lambda_gc, lam$correction)
+}
+
 p_qq <- ggplot() +
     geom_ribbon(data = ci_qq,
                 aes(x = expected, ymin = ci_lower, ymax = ci_upper),
@@ -202,6 +214,9 @@ p_qq <- ggplot() +
         plot.subtitle = element_text(size = 9, hjust = 0.5, color = "grey40"),
         plot.margin   = margin(4, 8, 4, 4)
     )
+if (!is.na(qq_lambda))
+    p_qq <- p_qq + annotate("text", x = -Inf, y = Inf, label = qq_lambda, parse = TRUE,
+                            hjust = -0.1, vjust = 1.3, size = 4.2, colour = "grey15")
 
 qq_base <- paste0("qq_", name_pfx, TRAIT, "_K", Kbest, "_", ADJUST)
 ggsave(file.path(PLOT_DIR, paste0(qq_base, ".png")), p_qq,

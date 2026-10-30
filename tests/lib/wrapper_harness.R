@@ -788,6 +788,35 @@ fx_reorder_rows <- function(path, rows, out = path) {
     write_tsv(data.table::fread(path, colClasses = "character")[rows], out)
 }
 
+# {method}_lambda_K{k}.tsv as assoc_lambda.R writes it (release 4b), for EMMAX's two traits of
+# fx_pvalues() only: an LFMM plot finds no row for its pair.
+fx_lambda_table <- function(d, name = "EMMAX_lambda_K3.tsv") {
+    write_tsv(data.table::data.table(method = "EMMAX", trait = c("bio_1", "bio_2"),
+                                     n_tests = 20L, lambda_gc = c(0.97, 0.65),
+                                     correction = "none"),
+              file.path(d, name))
+}
+
+# plot_regionplot.R's inputs for a 60 kb window on chromosome 1: a topr gene table with two
+# same-named tandem copies 500 bp apart (the overprinting case, e9466a) and one other gene, and a
+# p-value table with three traits, one hit per trait inside the region 10,040,000-10,060,000.
+# Returns c(gene table, p-value table, plot dir with a trailing slash, as the app passes it).
+fx_regionplot_inputs <- function(d) {
+    gff <- file.path(d, "topr_genes.tsv")
+    writeLines(c(
+        "chrom\tgene_start\tgene_end\tgene_symbol\tbiotype\texon_chromstart\texon_chromend",
+        "1\t10045000\t10047000\tRCC1\tprotein_coding\t10045100,10046200\t10045900,10046900",
+        "1\t10047500\t10049500\tRCC1\tprotein_coding\t10047600\t10049400",
+        "1\t10065000\t10070000\tDRY1\tprotein_coding\t10065100\t10069900"), gff)
+    pos <- seq(10000000, 10100000, by = 2500)
+    pv <- data.table::data.table(
+        SNPID = paste0("1:", pos), chr = "1", pos = pos,
+        bio_1  = ifelse(pos == 10045000, 1e-9, 0.5),
+        bio_2  = ifelse(pos == 10050000, 1e-4, 0.6),
+        bio_10 = ifelse(pos == 10055000, 1e-6, 0.4))
+    c(gff, write_tsv(pv, file.path(d, "region_pvalues.tsv")), paste0(d, "/"))
+}
+
 # ------------------------------------------------------------------- runner
 
 # Invoked exactly as the Snakefile does: `Rscript /pipeline/scripts/<name>.R ...`.

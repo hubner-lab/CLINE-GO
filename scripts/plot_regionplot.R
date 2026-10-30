@@ -9,6 +9,12 @@ library(data.table)
 library(stringr)
 library(ggplot2)
 library(svglite)
+library(patchwork)
+
+source("/pipeline/scripts/R/utils/pval_threshold.R")
+source("/pipeline/scripts/R/utils/theme_clinego.R")
+source("/pipeline/scripts/R/utils/factor_order.R")
+source("/pipeline/scripts/R/lib/region_plot.R")
 
 args = commandArgs(trailingOnly=TRUE)
 ####################################
@@ -22,7 +28,13 @@ CUSTOM_REGION = args[7]        # "NULL" or chr:start-end
 CUSTOM_TRAITS = args[8]        # "NULL" or comma-separated trait names
 CUSTOM_METHODS = args[9]       # "NULL" or comma-separated method names (subset of available)
 REGIME = if (length(args) >= 10) tolower(args[10]) else "snp"  # "snp" or "wza"
+FLANK = if (length(args) >= 11 && args[11] != "NULL") suppressWarnings(as.numeric(args[11])) else 0
+                               # bp drawn on either side of the custom region (ad9f15)
 ####################################
+if (length(args) < 9 || length(args) > 11)
+  stop('ERROR: plot_regionplot.R takes 9 to 11 arguments, got ', length(args))
+if (is.na(FLANK) || FLANK < 0)
+  stop('ERROR: FLANK (argument 11) must be a number of bp >= 0, got ', args[11])
 
 is_wza <- REGIME == "wza"
 if (is_wza) message('INFO: WZA regime — loading window-level p-values')
@@ -38,33 +50,6 @@ extract_chr_num <- function(chrom_names) {
   }, USE.NAMES = FALSE)
 }
 
-# Calculate significance threshold from adjust string and association data
-calc_threshold <- function(assoc, adjust_str) {
-  method <- str_extract(adjust_str, '(.*)_', group = 1)
-  signif <- str_extract(adjust_str, '_(.*)', group = 1) %>% as.numeric
-
-  if (method == 'bonf') {
-    return(signif / nrow(assoc))
-  } else if (method == 'qval') {
-    if (!requireNamespace("qvalue", quietly = TRUE)) {
-      message('WARNING: qvalue package not available, using Bonferroni')
-      return(signif / nrow(assoc))
-    }
-    qvals <- qvalue::qvalue(assoc$pvalue)$qvalues
-    return(max(assoc$pvalue[qvals <= signif], na.rm = TRUE))
-  } else if (method == 'custom') {
-    return(signif)
-  } else if (method == 'top') {
-    return(sort(assoc$pvalue)[min(as.integer(signif), nrow(assoc))])
-  } else if (method == 'toppct') {
-    # N as compute_pval_threshold() takes it: a share of all rows (pval_threshold.R)
-    return(sort(assoc$pvalue)[min(ceiling(signif * nrow(assoc) / 100 - 1e-9), nrow(assoc))])
-  } else {
-    message(paste0('WARNING: Unknown threshold method: ', method, ', using Bonferroni'))
-    return(signif / nrow(assoc))
-  }
-}
-
 # Parse CUSTOM_TRAITS structured format: "bio_12:BLINK|EMMAX|LFMM,bio_7:BLINK|LFMM"
 # Returns list of list(trait, methods) or NULL if plain single-trait format
 parse_trait_method_pairs <- function(custom_traits_str) {
@@ -76,39 +61,30 @@ parse_trait_method_pairs <- function(custom_traits_str) {
   })
 }
 
-# Plot a region with ALL trait x method combos that have sig SNPs.
-# One topr data frame per combo, legend label "trait (METHOD)".
-plot_region_multi_trait <- function(region_str, trait_method_pairs, assoc_list, gff_table, filename_base) {
-  topr_data       <- list()
-  topr_labels     <- c()
-  topr_thresholds <- c()
+# One series per trait x method: topr's data frame, its legend label and its threshold, computed
+# per (method, trait) under the method's own rule (c34204).
+region_series <- function(md, trait, label) {
+  list(data = md$data %>%
+         dplyr::select(SNPID, chr, pos, !!trait) %>%
+         setNames(c('SNP', 'CHROM', 'POS', 'P')) %>%
+         dplyr::mutate(CHROM = extract_chr_num(CHROM)),
+       label = label,
+       threshold = series_threshold(md$data[[trait]], md$adjust))
+}
 
-  for (pair in trait_method_pairs) {
-    trait   <- pair$trait
-    methods <- pair$methods
-    for (md_name in methods) {
-      md <- assoc_list[[md_name]]
-      if (is.null(md) || !trait %in% md$trait_cols) next
-      trait_data <- md$data %>%
-        dplyr::select(SNPID, chr, pos, !!trait) %>%
-        setNames(c('SNP', 'CHROM', 'POS', 'P')) %>%
-        dplyr::mutate(CHROM = extract_chr_num(CHROM))
-      topr_data       <- c(topr_data, list(trait_data))
-      topr_labels     <- c(topr_labels, paste0(trait, ' (', md_name, ')'))
-      topr_thresholds <- c(topr_thresholds, md$threshold)
-    }
-  }
-
-  if (length(topr_data) == 0) {
-    message('WARNING: No data for any trait/method pair, skipping')
-    return(invisible(NULL))
-  }
-
-  sign_thresh <- min(topr_thresholds)
+# Draw one region: topr's three panels (overview, main, genes) with every series' threshold line
+# (c34204), the region's edges when the window is wider (ad9f15) and gene labels that do not
+# overprint (e9466a), stacked in topr's unit ratios. The PNG is that stack; the three panels are
+# also written as SVGs, as before.
+draw_region <- function(series, region_str, title, gff_table, filename_base, vlines,
+                        png_width, svg_width) {
+  series_col <- rep_len(topr::get_topr_colors(), length(series))
+  lines <- threshold_lines(vapply(series, `[[`, numeric(1), 'threshold'), series_col,
+                           CLINEGO_THRESHOLD)
   rp_args <- list(
     build = gff_table,
     region = region_str,
-    sign_thresh = sign_thresh,
+    color = series_col,
     max.overlaps = 999,
     show_gene_names = TRUE,
     # show_genes left at topr's default (NULL = auto): exon structure below a
@@ -123,109 +99,98 @@ plot_region_multi_trait <- function(region_str, trait_method_pairs, assoc_list, 
     legend_position = 'right',
     scale = 1,
     segment.size = 3,
-    legend_labels = topr_labels,
+    legend_labels = vapply(series, `[[`, character(1), 'label'),
     sign_thresh_label_size = 0,
-    title = region_str
+    title = title
   )
+  if (length(lines$thresh) > 0) {
+    rp_args <- c(rp_args, list(sign_thresh = lines$thresh, sign_thresh_color = lines$color))
+  } else {
+    # NULL, not topr's default of 5e-08, which would draw a line no rule set
+    rp_args <- c(rp_args, list(sign_thresh = NULL))
+    message('WARNING: no series has a threshold under its rule; no significance line drawn')
+  }
+  if (length(vlines) > 0)
+    rp_args <- c(rp_args, list(vline = vlines, vline_color = CLINEGO_COL$muted,
+                               vline_linetype = 'dotted'))
 
-  png(paste0(filename_base, '.png'), width = 14, height = 5, units = 'in', res = 300)
-  do.call(regionplot, c(list(topr_data), rp_args, list(extract_plots = FALSE)))
-  dev.off()
-  message(paste0('INFO:   Saved multi-trait ', filename_base, '.png'))
+  plot_list <- do.call(regionplot, c(list(lapply(series, `[[`, 'data')), rp_args,
+                                     list(extract_plots = TRUE)))
+  if (!is.null(plot_list$gene_plot)) {
+    plot_list$gene_plot <- tryCatch(repel_gene_labels(plot_list$gene_plot, CLINEGO_COL$fg),
+      error = function(e) {
+        message('WARNING: gene labels left as topr draws them: ', conditionMessage(e))
+        plot_list$gene_plot
+      })
+  }
+  panels <- Filter(Negate(is.null), plot_list[c('overview_plot', 'main_plot', 'gene_plot')])
+  units  <- c(overview_plot = rp_args$unit_overview, main_plot = rp_args$unit_main,
+              gene_plot = rp_args$unit_gene)
+  # One legend column beside the stack, as topr's own figure has it: per-panel legends cut a long
+  # series legend at its panel's height.
+  fig <- patchwork::wrap_plots(panels, ncol = 1, heights = unname(units[names(panels)]),
+                               guides = "collect")
+  ggsave(paste0(filename_base, '.png'), fig, width = png_width, height = 5, units = 'in',
+         dpi = 300)
+  message(paste0('INFO:   Saved ', filename_base, '.png'))
 
   tryCatch({
-    plot_list <- do.call(regionplot, c(list(topr_data), rp_args, list(extract_plots = TRUE)))
     if (!is.null(plot_list$main_plot))
       ggsave(paste0(filename_base, '_main.svg'), plot = plot_list$main_plot,
-             device = svglite, width = 12, height = 6)
+             device = svglite, width = svg_width, height = 6)
     if (!is.null(plot_list$overview_plot))
       ggsave(paste0(filename_base, '_overview.svg'), plot = plot_list$overview_plot,
-             device = svglite, width = 12, height = 2)
+             device = svglite, width = svg_width, height = 2)
     if (!is.null(plot_list$gene_plot))
       ggsave(paste0(filename_base, '_genes.svg'), plot = plot_list$gene_plot,
-             device = svglite, width = 14, height = 2)
+             device = svglite, width = svg_width + 2, height = 2)
   }, error = function(e) {
     message(paste0('WARNING: Could not extract SVG plots: ', e$message))
   })
 }
 
+# Plot a region with ALL trait x method combos that have sig SNPs.
+# One topr data frame per combo, legend label "trait (METHOD)", in numeric bioclim order
+# (9e5dd0: the calls list the traits text-sorted, bio_1, bio_10, bio_2, ...).
+plot_region_multi_trait <- function(region_str, trait_method_pairs, assoc_list, gff_table,
+                                    filename_base, title, vlines = NULL) {
+  pair_traits <- vapply(trait_method_pairs, `[[`, character(1), 'trait')
+  trait_method_pairs <- trait_method_pairs[numbered_order(pair_traits)]
+  series <- list()
+  for (pair in trait_method_pairs) {
+    for (md_name in pair$methods) {
+      md <- assoc_list[[md_name]]
+      if (is.null(md) || !pair$trait %in% md$trait_cols) next
+      series <- c(series, list(region_series(md, pair$trait,
+                                             paste0(pair$trait, ' (', md_name, ')'))))
+    }
+  }
+
+  if (length(series) == 0) {
+    message('WARNING: No data for any trait/method pair, skipping')
+    return(invisible(NULL))
+  }
+  draw_region(series, region_str, title, gff_table, filename_base, vlines,
+              png_width = 14, svg_width = 12)
+}
+
 # Plot a single region for a single trait across multiple methods
 # Returns nothing, saves PNG + SVG files
-plot_region_trait <- function(region_str, trait, assoc_list, gff_table, filename_base) {
-  topr_data <- list()
-  topr_labels <- c()
-  topr_thresholds <- c()
-
+plot_region_trait <- function(region_str, trait, assoc_list, gff_table, filename_base,
+                              vlines = NULL) {
+  series <- list()
   for (md_name in names(assoc_list)) {
     md <- assoc_list[[md_name]]
     if (!trait %in% md$trait_cols) next
-
-    trait_data <- md$data %>%
-      dplyr::select(SNPID, chr, pos, !!trait) %>%
-      setNames(c('SNP', 'CHROM', 'POS', 'P')) %>%
-      dplyr::mutate(CHROM = extract_chr_num(CHROM))
-
-    topr_data <- c(topr_data, list(trait_data))
-    topr_labels <- c(topr_labels, md_name)
-    topr_thresholds <- c(topr_thresholds, md$threshold)
+    series <- c(series, list(region_series(md, trait, md_name)))
   }
 
-  if (length(topr_data) == 0) {
+  if (length(series) == 0) {
     message(paste0('WARNING: No method data for trait ', trait, ', skipping'))
     return(invisible(NULL))
   }
-
-  sign_thresh <- min(topr_thresholds)
-
-  # Common regionplot arguments
-  rp_args <- list(
-    build = gff_table,
-    region = region_str,
-    sign_thresh = sign_thresh,
-    max.overlaps = 999,
-    show_gene_names = TRUE,
-    # show_genes left at topr's default (NULL = auto): exon structure below a
-    # 1 Mb window, gene boxes above, where exons turn into unreadable noise.
-    # TRUE here hid exon structure on every region, whatever the GFF carried.
-    unit_overview = 1,
-    unit_main = 2.5,
-    unit_gene = 1,
-    axis_text_size = 14,
-    axis_title_size = 16,
-    title_text_size = 16,
-    legend_position = 'right',
-    scale = 1,
-    segment.size = 3,
-    legend_labels = topr_labels,
-    sign_thresh_label_size = 0,
-    title = trait
-  )
-
-  # PNG
-  png(paste0(filename_base, '.png'), width = 12, height = 5, units = 'in', res = 300)
-  do.call(regionplot, c(list(topr_data), rp_args, list(extract_plots = FALSE)))
-  dev.off()
-  message(paste0('INFO:   Saved ', filename_base, '.png'))
-
-  # SVG extracted components
-  tryCatch({
-    plot_list <- do.call(regionplot, c(list(topr_data), rp_args, list(extract_plots = TRUE)))
-
-    if (!is.null(plot_list$main_plot)) {
-      ggsave(paste0(filename_base, '_main.svg'), plot = plot_list$main_plot,
-             device = svglite, width = 10, height = 6)
-    }
-    if (!is.null(plot_list$overview_plot)) {
-      ggsave(paste0(filename_base, '_overview.svg'), plot = plot_list$overview_plot,
-             device = svglite, width = 10, height = 2)
-    }
-    if (!is.null(plot_list$gene_plot)) {
-      ggsave(paste0(filename_base, '_genes.svg'), plot = plot_list$gene_plot,
-             device = svglite, width = 12, height = 2)
-    }
-  }, error = function(e) {
-    message(paste0('WARNING: Could not extract SVG plots: ', e$message))
-  })
+  draw_region(series, region_str, trait, gff_table, filename_base, vlines,
+              png_width = 12, svg_width = 10)
 }
 
 ######################## Main
@@ -248,13 +213,7 @@ assoc_list <- lapply(method_data, function(md) {
   exclude <- if (is_wza) c('SNPID', 'chr', 'pos', wza_meta_cols) else c('SNPID', 'chr', 'pos')
   trait_cols <- setdiff(colnames(assoc), exclude)
 
-  threshold <- calc_threshold(
-    data.frame(pvalue = assoc[[trait_cols[1]]]),
-    md$adjust
-  )
-
-  list(method = md$method, adjust = md$adjust, data = assoc,
-       trait_cols = trait_cols, threshold = threshold)
+  list(method = md$method, adjust = md$adjust, data = assoc, trait_cols = trait_cols)
 })
 names(assoc_list) <- sapply(assoc_list, `[[`, 'method')
 
@@ -314,21 +273,21 @@ if (nrow(regions) == 0) {
 
     message(paste0('INFO: Region ', i, '/', nrow(regions), ': ', region_id))
 
-    # Padding
+    # Padding, the region's edges marked inside it (ad9f15)
     region_span <- region_end - region_start
     padding <- max(region_span * 0.2, 500000)
-    plot_start <- max(1, region_start - padding)
-    plot_end <- region_end + padding
+    window <- region_window(region_start, region_end, padding)
 
     chr_num <- extract_chr_num(region_chr)
-    region_str <- paste0(chr_num, ':', plot_start, '-', plot_end)
+    region_str <- paste0(chr_num, ':', window[1], '-', window[2])
     region_safe <- gsub("[:\\-]", "_", region_id)
+    edges <- region_edge_lines(region_start, region_end, window[1], window[2])
 
     # One plot per trait
     for (trait in region_traits) {
       message(paste0('INFO:   Trait: ', trait))
       filename_base <- file.path(PLOT_DIR, paste0('regionplot_', region_safe))
-      plot_region_trait(region_str, trait, assoc_list, gff_table, filename_base)
+      plot_region_trait(region_str, trait, assoc_list, gff_table, filename_base, edges)
     }
   }
 } # end Part 1 regions loop
@@ -350,8 +309,13 @@ if (!is.null(CUSTOM_REGION) && CUSTOM_REGION != 'NULL' && CUSTOM_REGION != '') {
     stop(paste0('ERROR: Invalid custom region format: ', CUSTOM_REGION, '. Expected chr:start-end'))
   }
 
+  # The window is the region plus FLANK bp each side; the region's edges are marked when it is
+  # wider (ad9f15). Output names stay keyed by the region, which is what the app collects.
   chr_num <- extract_chr_num(custom_chr)
-  region_str <- paste0(chr_num, ':', custom_start, '-', custom_end)
+  region_label <- paste0(chr_num, ':', custom_start, '-', custom_end)
+  window <- region_window(custom_start, custom_end, FLANK)
+  region_str <- paste0(chr_num, ':', window[1], '-', window[2])
+  edges <- region_edge_lines(custom_start, custom_end, window[1], window[2])
   region_safe <- gsub("[:\\-]", "_", CUSTOM_REGION)
 
   # Determine traits
@@ -381,7 +345,8 @@ if (!is.null(CUSTOM_REGION) && CUSTOM_REGION != 'NULL' && CUSTOM_REGION != '') {
       paste(sapply(trait_method_pairs, function(p) paste0(p$trait, '(', paste(p$methods, collapse=','), ')')),
             collapse = ', ')))
     filename_base <- file.path(PLOT_DIR, paste0('regionplot_custom_', region_safe))
-    plot_region_multi_trait(region_str, trait_method_pairs, custom_assoc_list, gff_table, filename_base)
+    plot_region_multi_trait(region_str, trait_method_pairs, custom_assoc_list, gff_table,
+                            filename_base, region_label, edges)
   } else {
     # Legacy single-trait path
     message(paste0('INFO:   Traits: ', paste(custom_trait_list, collapse = ', ')))
@@ -389,7 +354,7 @@ if (!is.null(CUSTOM_REGION) && CUSTOM_REGION != 'NULL' && CUSTOM_REGION != '') {
     for (trait in custom_trait_list) {
       message(paste0('INFO:   Custom trait: ', trait))
       filename_base <- file.path(PLOT_DIR, paste0('regionplot_custom_', region_safe, '_', trait))
-      plot_region_trait(region_str, trait, custom_assoc_list, gff_table, filename_base)
+      plot_region_trait(region_str, trait, custom_assoc_list, gff_table, filename_base, edges)
     }
   }
 }

@@ -121,3 +121,29 @@ add_scatter_layer <- function(data, chr_colors, alpha = 0.5, pointsize = 10) {
                                   alpha = alpha, pointsize = pointsize,
                                   pixels = c(3000, 1200), interpolate = FALSE)
 }
+
+# lambda_GC of one method x trait for its QQ panel (d97202), from the {method}_lambda_K{k}.tsv
+# assoc_lambda.R writes beside the p-value table, never recomputed here. Stops when the table
+# has no row, or several, for the pair: the plot rule declares the table as an input, so that
+# means the table is not the one written for these p-values.
+# @return list(lambda_gc, correction)
+qq_lambda_row <- function(lambda_table, method, trait) {
+    # A data.frame, not fread's data.table: inside a data.table's [ ], `method` and `trait`
+    # would name its columns, so every row would match.
+    lt  <- as.data.frame(lambda_table)
+    hit <- lt[lt$method == method & lt$trait == trait, , drop = FALSE]
+    if (nrow(hit) != 1L)
+        stop("lambda table has ", nrow(hit), " rows for method ", method, " and trait ", trait,
+             " (expected 1)")
+    list(lambda_gc = as.numeric(hit$lambda_gc), correction = as.character(hit$correction))
+}
+
+# The QQ panel's lambda_GC, as a plotmath string. A method that rescales its p-values by its own
+# inflation factor (correction genomic_control: LFMM; rdadapt_gif: RDA) has lambda 1 by
+# construction, so its panel says that instead of printing 1.000, which would read as a
+# calibration result. NA when there is no value to show.
+qq_lambda_label <- function(lambda_gc, correction) {
+    if (!identical(correction, "none")) return('lambda[GC] == 1 ~ "by construction"')
+    if (is.na(lambda_gc)) return(NA_character_)
+    sprintf('lambda[GC] == "%.3f"', lambda_gc)
+}

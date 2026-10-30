@@ -147,7 +147,7 @@ Climate:
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `Climate.enabled` | Enable climate download and climate-dependent analyses. Set `false` to skip GEA, maladaptation, and gea_x_gwas modes. Structure runs without climate plots/piemaps (only imputation + pop stats). GWAS runs without piemaps. | `true` |
-| `Climate.predictors` | Comma-separated WorldClim bioclimatic variables for GEA/GWAS analyses (bio_1 through bio_19). All 19 are shown in the Structure tab piemaps; this list controls which are used as predictors in association. Ignored when `enabled: false`. | — |
+| `Climate.predictors` | Comma-separated WorldClim bioclimatic variables for GEA/GWAS analyses (bio_1 through bio_19). All 19 are shown in the Structure tab piemaps; this list controls which are used as predictors in association, and which the climate correlograms and the present-climate density plot draw (`climate_correlation.tsv` and `trait_climate_correlation.tsv` keep every extracted layer, the figures' pairs among them). Ignored when `enabled: false`. | — |
 
 **`Climate.Varpart.*`** configures the `mode=climate` variance-partitioning block: `Y ~ X_clim + X_struct + X_geo`, where Y is the response matrix below, X_clim is `Climate.predictors` (GEA tab), X_struct is the structure covariate below, and X_geo is the dbMEM spatial eigenvectors (always site-level, no config — see the dbMEM note below). Reused by the spatial Gradient Forest in `mode=maladaptation`.
 
@@ -692,7 +692,11 @@ significance rule, GWAS `missing_strategy`), each with `set_by` (`config`, `defa
 - `climate/tables/present/climate_correlation.tsv`, `Traits/tables/trait_correlation.tsv`,
   `Traits/tables/trait_climate_correlation.tsv` — each correlogram's matrix as pairs (`r`, `n_obs`,
   and `basis`: `sites` when both factors are constant within every site and were correlated over
-  one row per site, else `samples`).
+  one row per site, else `samples`). The climate tables hold every extracted layer; the climate
+  correlograms draw the `Climate.predictors` pairs of them (since 2026-10-30), with the same `r`.
+- The per-method QQ plots print the lambda of their method and trait from `{method}_lambda_K{k}.tsv`;
+  a method with `correction` other than `none` reads "lambda_GC = 1 by construction" instead of a
+  number (WZA's QQ plots have no lambda table and print none).
 - `climate/tables/varpart/dbmem_selected.tsv` and `dbmem_selection_path.tsv` — `selection` says how
   each MEM's flag was decided: `forward_selection`, `fallback_best_marginal_r2` (forward selection
   chose none and the best single axis was kept), `not_selected` or `skipped_insufficient_sites`.

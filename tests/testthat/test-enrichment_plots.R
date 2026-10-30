@@ -6,10 +6,10 @@
 # geneID strings the GO tables and cnetplot labels are drawn from. A silent
 # failure there relabels genes in a published figure.
 #
-# create_emapplot/create_cnetplot/create_dotplot/save_enrichment_plot and
-# process_all_enrichment are NOT tested: they render, and the repo forbids reading
-# plot content (rule 1). process_all_enrichment additionally counts INTENDED files
-# rather than written ones (:197-206 vs the swallowing tryCatch at :112,126,138) —
+# create_emapplot/create_cnetplot/create_dotplot and process_all_enrichment are NOT
+# tested: they render. save_enrichment_plot is, for the files it leaves when a render
+# fails (9700d6), not for what they show. process_all_enrichment additionally counts
+# INTENDED files rather than written ones (the swallowing tryCatch in each create_*) —
 # filed, not asserted here.
 
 mk_enrich <- function(gene_ids = c("g1/g2", "g3"),
@@ -125,4 +125,28 @@ test_that("top_regions_for_plotting returns NULL for an empty regions table", {
         region_id = character(), trait = character(),
         snp_count = integer(), min_pvalue = numeric()), f, sep = "\t")
     expect_null(top_regions_for_plotting(f, 5))
+})
+
+test_that("save_enrichment_plot leaves no file behind when the render fails (9700d6)", {
+    # The draw fails after ggsave has opened the device, as emapplot's did on Trifolium86Main:
+    # the PNG and SVG devices had already written 3-4 KB files, which the app's file_ok() then
+    # showed as broken plots. A grob whose content fails at draw time reproduces it (a failing
+    # stat is only a warning in ggplot2 4).
+    registerS3method("makeContent", "boom_grob",
+                     function(x) stop("Viewport has zero dimension(s)"),
+                     envir = asNamespace("grid"))
+    d <- withr::local_tempdir()
+    bad <- ggplot2::ggplot(data.frame(x = 1:3, y = 1:3), ggplot2::aes(x, y)) +
+        ggplot2::geom_point() +
+        ggplot2::annotation_custom(grid::grob(cl = "boom_grob"))
+    base <- file.path(d, "region_1_emapplot")
+    expect_message(save_enrichment_plot(bad, base, 4, 3), "PNG save failed")
+    expect_false(file.exists(paste0(base, ".png")))
+    expect_false(file.exists(paste0(base, ".svg")))
+
+    good <- ggplot2::ggplot(data.frame(x = 1:3, y = 1:3), ggplot2::aes(x, y)) +
+        ggplot2::geom_point()
+    suppressMessages(save_enrichment_plot(good, file.path(d, "ok"), 4, 3))
+    expect_gt(file.size(file.path(d, "ok.png")), 0)
+    expect_gt(file.size(file.path(d, "ok.svg")), 0)
 })

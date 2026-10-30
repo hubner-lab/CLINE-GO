@@ -168,3 +168,26 @@ test_that("add_scatter_layer returns a geom_blank when every point is non-finite
     expect_s3_class(lyr, "Layer")
     expect_true(inherits(lyr$geom, "GeomBlank"))
 })
+
+test_that("qq_lambda_row takes the method x trait row and refuses a missing or doubled one (d97202)", {
+    lt <- data.frame(method = c("EMMAX", "EMMAX", "LFMM"), trait = c("bio_1", "bio_2", "bio_1"),
+                     n_tests = 354L, lambda_gc = c(0.97, 0.65, 1),
+                     correction = c("none", "none", "genomic_control"))
+    expect_identical(qq_lambda_row(lt, "EMMAX", "bio_2"),
+                     list(lambda_gc = 0.65, correction = "none"))
+    expect_error(qq_lambda_row(lt, "RDA", "bio_1"), "0 rows")
+    expect_error(qq_lambda_row(rbind(lt, lt[1, ]), "EMMAX", "bio_1"), "2 rows")
+    # As the plot reads it, fread's data.table, whose columns share the arguments' names.
+    expect_identical(qq_lambda_row(data.table::as.data.table(lt), "EMMAX", "bio_2"),
+                     list(lambda_gc = 0.65, correction = "none"))
+})
+
+test_that("qq_lambda_label prints lambda, or 'by construction' after the method's own correction", {
+    expect_identical(qq_lambda_label(0.970258, "none"), 'lambda[GC] == "0.970"')
+    expect_identical(qq_lambda_label(1, "genomic_control"), 'lambda[GC] == 1 ~ "by construction"')
+    expect_identical(qq_lambda_label(1.00000000715532, "rdadapt_gif"),
+                     'lambda[GC] == 1 ~ "by construction"')
+    expect_true(is.na(qq_lambda_label(NA_real_, "none")))
+    expect_silent(parse(text = qq_lambda_label(0.97, "none")))
+    expect_silent(parse(text = qq_lambda_label(1, "genomic_control")))
+})
