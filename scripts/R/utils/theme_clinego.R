@@ -33,12 +33,25 @@ CLINEGO_REMOVED   <- "#F2300F"  # red   — sample/SNP dropped by a filter
 CLINEGO_THRESHOLD <- "#35274A"  # dark plum/purple — threshold/cutoff lines
 CLINEGO_NEUTRAL   <- CLINEGO_RETAINED  # plain/no-flag data points — same green as
                                    # retained by request (no more grey dots)
+CLINEGO_SIGNIFICANCE <- CLINEGO_REMOVED  # significance-threshold lines — one red, a dash pattern each
 
-# Okabe-Ito colorblind-safe categorical palette (also used by
-# scripts/R/utils/manhattan_utils.R — kept identical here to converge the
-# pipeline's two independent categorical palettes onto one going forward).
+# Okabe-Ito colorblind-safe categorical palette: the one copy (A4 I1). The Manhattans
+# (manhattan_utils.R's get_trait_colors()) and the Shiny app (zzz.R's shared libs) read it
+# through clinego_trait_colors().
 CLINEGO_CATEGORICAL <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442",
                         "#0072B2", "#D55E00", "#CC79A7", "#999999")
+
+#' Trait -> colour, the one rule the pipeline's Manhattans and the app's overlays share:
+#' CLINEGO_CATEGORICAL in the order given (the config's, combine_predictors()), turbo
+#' above 8 traits. No traits, no colours.
+#' @noRd
+clinego_trait_colors <- function(traits) {
+    if (length(traits) <= length(CLINEGO_CATEGORICAL)) {
+        stats::setNames(CLINEGO_CATEGORICAL[seq_along(traits)], traits)
+    } else {
+        stats::setNames(viridis::turbo(length(traits)), traits)
+    }
+}
 
 # Extended categorical palette for many-level grouping (K-clusters, sites) where
 # 8 colors isn't enough — converges the 21-color `my.colors` duplicated across

@@ -89,24 +89,28 @@ module_groups <- function(regime = "standard") {
 
 #' One clickable module cell
 #' @noRd
-module_bar_item <- function(id, label, active, solo = FALSE) {
+module_bar_item <- function(id, label, active, solo = FALSE, running = NULL) {
+    is_running <- identical(id, running)
     shiny::actionLink(
         inputId = module_input_id(id),
         label   = label,
         class   = paste(c(
             "mb-item",
             if (solo) "mb-item-solo",
-            if (identical(id, active)) "mb-active"
-        ), collapse = " ")
+            if (identical(id, active)) "mb-active",
+            if (is_running) "mb-running"
+        ), collapse = " "),
+        title   = if (is_running) paste(label, "is running") else NULL
     )
 }
 
 #' Build the two-row module bar
 #'
-#' @param active id of the module currently shown
-#' @param regime "standard" or "gwas_only"
+#' @param active  id of the module currently shown
+#' @param regime  "standard" or "gwas_only"
+#' @param running id of the module whose pipeline mode is running, or NULL
 #' @noRd
-module_bar_ui <- function(active = "home", regime = "standard") {
+module_bar_ui <- function(active = "home", regime = "standard", running = NULL) {
     groups <- module_groups(regime)
 
     htmltools::div(
@@ -119,7 +123,8 @@ module_bar_ui <- function(active = "home", regime = "standard") {
             if (nrow(members) == 1) {
                 return(htmltools::div(
                     class = "mb-group mb-group-solo",
-                    module_bar_item(members$id[1], members$label[1], active, solo = TRUE)
+                    module_bar_item(members$id[1], members$label[1], active, solo = TRUE,
+                                    running = running)
                 ))
             }
 
@@ -128,7 +133,7 @@ module_bar_ui <- function(active = "home", regime = "standard") {
                 htmltools::div(class = "mb-group-label", g_name),
                 htmltools::div(
                     class = "mb-members",
-                    Map(function(i, l) module_bar_item(i, l, active),
+                    Map(function(i, l) module_bar_item(i, l, active, running = running),
                         members$id, members$label)
                 )
             )

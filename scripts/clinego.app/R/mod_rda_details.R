@@ -52,47 +52,31 @@ mod_rda_details_server <- function(id, project_data, methods) {
         output$value_boxes <- shiny::renderUI({
             shiny::req(has_rda())
             fit_mode <- d("fit_mode", "unknown")
-            bslib::layout_column_wrap(
-                width = 1 / 3, heights_equal = "row",
-                bslib::value_box(
-                    title = "Fit mode", value = fit_mode,
-                    theme = if (identical(fit_mode, "pruned")) "danger" else "success",
-                    showcase = bsicons::bs_icon("cpu")
-                ),
-                bslib::value_box(
-                    title = "Markers fitted", value = d("n_markers_fitted", "?"),
-                    theme = "info", showcase = bsicons::bs_icon("database-fill")
-                ),
-                bslib::value_box(
-                    title = "RDA axes (K)",
-                    value = sprintf("%s / %s", d("rda_axes", "?"), d("rda_axes_max", "?")),
-                    theme = "info", showcase = bsicons::bs_icon("bounding-box")
-                ),
-                bslib::value_box(
-                    title = "Adj. R2", value = {
-                        v <- suppressWarnings(as.numeric(d("adj_r_squared", NA)))
-                        if (is.na(v)) "?" else sprintf("%.4f", v)
-                    },
-                    theme = "info", showcase = bsicons::bs_icon("graph-up")
-                ),
-                bslib::value_box(
-                    title = "GIF lambda", value = {
-                        v <- suppressWarnings(as.numeric(d("gif_lambda", NA)))
-                        if (is.na(v)) "?" else sprintf("%.3f", v)
-                    },
-                    theme = if (!is.na(suppressWarnings(as.numeric(d("gif_lambda", NA)))) &&
-                               abs(as.numeric(d("gif_lambda")) - 1) > 0.2) "warning" else "success",
-                    showcase = bsicons::bs_icon("rulers")
-                ),
-                bslib::value_box(
-                    title = "Candidates",
-                    value = d("n_candidates_total", "?"),
-                    htmltools::p(class = "small mb-0", d("candidate_rule", "?"),
-                                sprintf(" (p < %s)", fmt_sci(d("candidate_threshold", NA)))),
-                    theme = if (identical(d("candidate_threshold_status", "ok"), "ok"))
-                                "info" else "warning",
-                    showcase = bsicons::bs_icon("crosshair")
-                )
+            lab_kpi_tiles(
+                width = 1 / 3,
+                lab_value_box("Fit mode", fit_mode,
+                              if (identical(fit_mode, "pruned")) "danger" else "success", "cpu"),
+                lab_value_box("Markers fitted", d("n_markers_fitted", "?"), "info", "database-fill"),
+                lab_value_box("RDA axes (K)",
+                              sprintf("%s / %s", d("rda_axes", "?"), d("rda_axes_max", "?")),
+                              "info", "bounding-box"),
+                lab_value_box("Adj. R2", {
+                    v <- suppressWarnings(as.numeric(d("adj_r_squared", NA)))
+                    if (is.na(v)) "?" else sprintf("%.4f", v)
+                }, "info", "graph-up"),
+                lab_value_box("GIF lambda", {
+                    v <- suppressWarnings(as.numeric(d("gif_lambda", NA)))
+                    if (is.na(v)) "?" else sprintf("%.3f", v)
+                }, if (!is.na(suppressWarnings(as.numeric(d("gif_lambda", NA)))) &&
+                       abs(as.numeric(d("gif_lambda")) - 1) > 0.2) "warning" else "success",
+                "rulers"),
+                lab_value_box("Candidates", d("n_candidates_total", "?"),
+                              if (identical(d("candidate_threshold_status", "ok"), "ok"))
+                                  "info" else "warning",
+                              "crosshair",
+                              htmltools::p(class = "small mb-0", d("candidate_rule", "?"),
+                                           sprintf(" (p < %s)",
+                                                   fmt_sci(d("candidate_threshold", NA)))))
             )
         })
 
@@ -105,7 +89,7 @@ mod_rda_details_server <- function(id, project_data, methods) {
                 htmltools::tags$table(
                     class = "table table-sm mb-2",
                     htmltools::tags$tbody(lapply(keys_present, function(k) htmltools::tags$tr(
-                        htmltools::tags$td(class = "text-muted", style = "width:55%", k),
+                        htmltools::tags$td(class = "text-muted lab-kv-key", k),
                         htmltools::tags$td(as.character(d(k, "?")))
                     )))
                 )
@@ -294,9 +278,12 @@ mod_rda_details_server <- function(id, project_data, methods) {
                    d("candidate_rule", "?"))
         })
 
-        # ── Panel shell — hidden entirely when RDA isn't configured ──────────
+        # ── Panel shell — an empty state when RDA isn't configured (I11) ──────
         output$panel <- shiny::renderUI({
-            if (!has_rda()) return(NULL)
+            if (!has_rda()) {
+                return(plot_placeholder("RDA is not configured for this project",
+                    "Add RDA to GEA.configs in the GEA sidebar and run GEA."))
+            }
             htmltools::tagList(
                 shiny::uiOutput(ns("value_boxes")),
                 shiny::uiOutput(ns("provenance_card")),

@@ -46,12 +46,10 @@ mod_processing_server <- function(id, project_data) {
             samp_theme <- if (!is.na(n_samp_raw) && !is.na(n_samp_flt) && n_samp_raw > 0) {
                 if ((n_samp_raw - n_samp_flt) / n_samp_raw > 0.1) "warning" else "success"
             } else "primary"
-            samp_box <- bslib::value_box(
-                title    = "Samples",
-                value    = lab_arrow_value(sv_str("samples_total"), sv_str("samples_after_filtering")),
-                theme    = samp_theme,
-                showcase = bsicons::bs_icon("people-fill")
-            )
+            samp_box <- lab_value_box(
+                "Samples",
+                lab_arrow_value(sv_str("samples_total"), sv_str("samples_after_filtering")),
+                samp_theme, "people-fill")
 
             # SNPs — warning if >50% removed
             n_snp_raw <- sv("snps_raw")
@@ -59,20 +57,13 @@ mod_processing_server <- function(id, project_data) {
             snp_theme <- if (!is.na(n_snp_raw) && !is.na(n_snp_flt) && n_snp_raw > 0) {
                 if ((n_snp_raw - n_snp_flt) / n_snp_raw > 0.5) "warning" else "success"
             } else "info"
-            snp_box <- bslib::value_box(
-                title    = "SNPs",
-                value    = lab_arrow_value(sv_str("snps_raw"), sv_str("snps_after_filtering")),
-                theme    = snp_theme,
-                showcase = bsicons::bs_icon("database-fill")
-            )
+            snp_box <- lab_value_box(
+                "SNPs", lab_arrow_value(sv_str("snps_raw"), sv_str("snps_after_filtering")),
+                snp_theme, "database-fill")
 
             # SNPs LD-pruned — always info
-            ld_box <- bslib::value_box(
-                title    = "SNPs (LD-pruned)",
-                value    = sv_str("snps_after_ld_pruning"),
-                theme    = "info",
-                showcase = bsicons::bs_icon("scissors")
-            )
+            ld_box <- lab_value_box("SNPs (LD-pruned)", sv_str("snps_after_ld_pruning"),
+                                    "info", "scissors")
 
             # Ti/Tv — color-coded by quality
             titv_val <- sv("titv_ratio")
@@ -80,12 +71,8 @@ mod_processing_server <- function(id, project_data) {
                           else if (titv_val >= 2.0) "success"
                           else if (titv_val >= 1.5) "warning"
                           else "danger"
-            titv_box <- bslib::value_box(
-                title    = "Ti/Tv Ratio",
-                value    = sv_str("titv_ratio"),
-                theme    = titv_theme,
-                showcase = bsicons::bs_icon("arrow-left-right")
-            )
+            titv_box <- lab_value_box("Ti/Tv Ratio", sv_str("titv_ratio"),
+                                      titv_theme, "arrow-left-right")
 
             # Depth filter — conditional on config
             min_dp <- config_get(pd$config, "Filter", "min_depth", default = NULL)
@@ -95,12 +82,8 @@ mod_processing_server <- function(id, project_data) {
                     if (!is.null(min_dp)) paste0("min=", min_dp),
                     if (!is.null(max_dp)) paste0("max=", max_dp)
                 )
-                bslib::value_box(
-                    title    = "Depth Filter",
-                    value    = paste(dp_parts, collapse = ", "),
-                    theme    = "info",
-                    showcase = bsicons::bs_icon("layers")
-                )
+                lab_value_box("Depth Filter", paste(dp_parts, collapse = ", "),
+                              "info", "layers")
             } else NULL
 
             extra_boxes <- Filter(Negate(is.null), list(depth_box))
@@ -444,8 +427,7 @@ mod_processing_ui <- function(id) {
                                            " Sample Heterozygosity"),
                 htmltools::div(
                     class = "d-flex justify-content-end mb-2",
-                    shiny::downloadButton(ns("dl_het"), "CSV",
-                                          class = "btn-sm btn-outline-secondary")
+                    lab_download_button(ns("dl_het"), "CSV")
                 ),
                 DT::DTOutput(ns("het_table"))
             )

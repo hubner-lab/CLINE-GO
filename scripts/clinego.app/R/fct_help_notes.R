@@ -100,7 +100,7 @@ HELP_NOTES <- list(
         config = "Enrichment.top_terms, GFF.go_field"
     ),
     regionplot_img = list(
-        desc   = "Zoomed regional Manhattan with gene track: the region plus its merge distance on each side, the region's edges dotted, one threshold line per method at its configured rule.",
+        desc   = "Zoomed regional Manhattan with gene track: the region plus its merge distance on each side, the region's edges dotted. Each method's significance line at its configured rule is red, with its own dash pattern, named in the legend.",
         config = "GEA.configs / GWAS.configs (rules); filter bar → Clumping distance, or region_clumping_distance (window)"
     ),
     hap_clustree_mg = list(
@@ -327,57 +327,40 @@ HELP_NOTES <- list(
     ),
 
     # ── Warnings (fct_warnings.R, WARNING_NOTE_IDS) ──────────────────────────
-    # Each fires on an exact rule; the badge label names the case, these say what it
-    # means and what to change. The analysis itself is never altered by a warning.
+    # Information, not teaching (A3): warning_note() lists what was found, item by item,
+    # then this entry's `desc` (at most one short clause, or NULL) and its Config line.
+    # The analysis itself is never altered by a warning.
     warn_manhattan_stripe = list(
-        heading = "What it means: ",
-        desc    = "Significant SNPs of one method and trait that share one p-value on two or more chromosomes. A single-marker test gives two markers the same p only when their genotypes are the same (or allele-flipped), so each tie is one genotype pattern counted as many hits: often a lineage or site indicator, or markers that sNMF imputation made alike on a panel with much missing data. On the Manhattan it is a horizontal stripe. The hits are real tests but not independent loci: they inflate hit counts, agreement between methods (all read the same imputed matrix) and the region table. Ties are read at 10 significant digits; p = 0 and p = 1 are not read; WZA windows are not checked.",
-        config  = "GEA.configs (LFMM K, EMMAX n_pcs, RDA condition_pcs), Climate.predictors"
+        desc   = "One p-value on two or more chromosomes is one genotype pattern counted as many hits.",
+        config = "GEA.configs (LFMM K, EMMAX n_pcs, RDA condition_pcs), Climate.predictors"
     ),
     warn_ld_decay = list(
-        heading = "What it means: ",
-        desc    = "The genome-wide LD-decay curve of all samples cannot give a clumping distance. Unreliable: its short-range r² is below LDdecay.min_signal_ratio (2) times the critical r² of unlinked markers, so the curve reaches background noise before it halves (a small sample, or a few inbred, strongly differentiated lineages); or it has too few distance bins, or no background (one chromosome). A table written before this check gets the status the pipeline derives from its own short-range and background r². Not assessed: the table lacks those columns too. An auto_* clumping distance stops on such a curve; declare it in bp.",
-        config  = "GEA.snp_clumping_distance, LDdecay.min_signal_ratio"
+        desc   = "An auto_* clumping distance cannot be read from this curve.",
+        config = "GEA.snp_clumping_distance, LDdecay.min_signal_ratio"
     ),
-    warn_identical_predictors = list(
-        heading = "What it means: ",
-        desc    = "Selected predictors whose values are identical, or perfectly correlated (1 − |r| < 1e-9), at every sample, e.g. the wettest and the coldest quarter under winter rain. Each GEA method then tests one variable twice and counts its hits twice; RDA, variance partitioning and the offset models alias the copy. Read only with three or more sites. The count covers selected predictors only.",
-        config  = "Climate.predictors"
-    ),
-    warn_binary_predictors = list(
-        heading = "What it means: ",
-        desc    = "Selected predictors that take only two values across the sites (e.g. 0 or 1 mm of rain in the driest quarter). Such a predictor splits the sites into two groups, so its hits mark the alleles of one group rather than a climate gradient. It stays selectable; keep it if that split is what you mean to test. Read only with three or more sites. The count covers selected predictors only.",
-        config  = "Climate.predictors"
+    warn_climate_predictors = list(
+        desc   = NULL,
+        config = "Climate.predictors"
     ),
     warn_climate_dropped_samples = list(
-        heading = "What it means: ",
-        desc    = "Samples left out of every analysis that needs climate values (GEA, variance partitioning, the offsets): those without coordinates, and those whose coordinates fall on a raster cell with no climate value (sea, or a (0, 0) placeholder). They stay in Processing, PreStructure and GWAS. Correct the coordinates in the metadata and re-run from mode=processing to bring them back.",
-        config  = "Input.metadata (latitude, longitude)"
-    ),
-    warn_rda_offset_aliased = list(
-        heading = "What it means: ",
-        desc    = "vegan's rda() dropped predictors that are exact linear combinations of those before them in column order, and the RDA offset was fitted without them. It happens when the predictors outnumber the sites minus one, or when two are identical. Which ones go is set by the column order, not by choice. Pass a smaller set without redundant predictors.",
-        config  = "Maladaptation.predictors"
+        desc   = "Left out of every analysis that needs climate values.",
+        config = "Input.metadata (latitude, longitude)"
     ),
     warn_predictor_chips = list(
-        heading = "What the marks mean: ",
-        desc    = "Struck: no variance across the samples; it cannot be selected (LFMM and EMMAX fail on it). Link icon: identical to another predictor at every sample, so selecting both tests one variable twice. Toggles icon: only two values across the sites, a split of the sites rather than a gradient. Marked chips other than struck ones stay selectable; this badge turns amber while one is selected.",
-        config  = "Climate.predictors"
+        desc   = NULL,
+        config = "Climate.predictors"
     ),
     warn_trait_chips = list(
-        heading = "What the marks mean: ",
-        desc    = "Struck: the trait does not vary or has no values (Traits/tables/trait_invariant.tsv); it cannot be selected. Link icon: identical to another trait at every sample that has both (1 − |r| < 1e-9), so selecting both runs one GWAS twice. This badge turns amber while a marked chip is selected.",
-        config  = "GWAS.traits"
+        desc   = NULL,
+        config = "GWAS.traits"
     ),
     warn_cross_entropy = list(
-        heading = "What it means: ",
-        desc    = "The lowest cross-entropy (the best run per K, the plotted point) is at the largest K tested, so the scan found no minimum. Either there are more clusters than tested, or the structure is continuous rather than discrete (isolation by distance, a cline, selfing lineages), where cross-entropy keeps falling as K grows. Extend sNMF.k_end, or choose K from the PCA, the Tracy–Widom test and the bar plots rather than from this curve.",
-        config  = "sNMF.k_end, sNMF.k_best"
+        desc   = NULL,
+        config = "sNMF.k_end, sNMF.k_best"
     ),
     warn_dbmem_fallback = list(
-        heading = "What it means: ",
-        desc    = "No dbMEM axis passed forward selection (ordiR2step, Blanchet's double stopping rule), so variance partitioning used the axis with the highest marginal R² as the geography term: an axis the rule rejected. The geography and climate–geography fractions rest on that stand-in; read them as indicative.",
-        config  = NULL
+        desc   = NULL,
+        config = NULL
     )
 )
 
@@ -410,8 +393,7 @@ help_note <- function(id, results = NULL, extra = NULL, label = "",
     if (is.null(entry)) return(NULL)
 
     body <- htmltools::tagList(
-        # A warning's entry (warn_*) says what it means rather than what a plot shows.
-        htmltools::p(htmltools::strong(entry$heading %||% "What it shows: "), entry$desc),
+        htmltools::p(htmltools::strong("What it shows: "), entry$desc),
         if (!is.null(results))
             htmltools::p(htmltools::strong("Results: "), results),
         # `states` renders an entry's per-status legend (green/amber/red), so a status badge
@@ -428,11 +410,17 @@ help_note <- function(id, results = NULL, extra = NULL, label = "",
                     )
                 })
             ),
-        if (!is.null(entry$config))
-            htmltools::p(class = "text-muted small",
-                htmltools::strong("Config: "), htmltools::code(entry$config)),
+        help_note_config(entry$config),
         if (!is.null(extra)) htmltools::p(extra)
     )
 
     filter_note(label = label, body = body, class = class, icon = icon)
+}
+
+#' The "Config:" line of a help note or a warning, NULL without a config path.
+#' @noRd
+help_note_config <- function(config) {
+    if (is.null(config)) return(NULL)
+    htmltools::p(class = "text-muted small",
+                 htmltools::strong("Config: "), htmltools::code(config))
 }

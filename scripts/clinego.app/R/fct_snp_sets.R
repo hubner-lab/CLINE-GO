@@ -426,8 +426,7 @@ snp_set_snippet_ui <- function(snippet, id) {
     htmltools::tagList(
         note,
         htmltools::tags$pre(
-            id = id, class = "small border rounded p-2 mb-1 bg-body-tertiary",
-            style = "max-height: 40vh; overflow: auto; white-space: pre;",
+            id = id, class = "small border rounded p-2 mb-1 bg-body-tertiary snp-set-yaml",
             snippet$yaml),
         htmltools::tags$button(
             type = "button", class = "btn btn-outline-secondary btn-sm", onclick = js,

@@ -173,7 +173,7 @@ p_simple <- p_simple +
 if (!is.na(min_threshold)) {
     p_simple <- p_simple +
         geom_hline(yintercept = min_threshold, linetype = "dashed",
-                   color = "red", linewidth = 0.5, alpha = 0.5)
+                   color = CLINEGO_SIGNIFICANCE, linewidth = 0.5, alpha = 0.5)   # rule 9
 }
 
 # Save simple plot

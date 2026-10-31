@@ -162,11 +162,11 @@ p_miami <- p_miami +
                alpha = 0.9, size = 2.5, stroke = 0.5) +
     scale_color_manual(values = trait_colors, name = "Trait") +
     scale_shape_manual(values = method_shapes, name = "Method") +
-    # Threshold lines
+    # Threshold lines, in the significance red (CLAUDE.md rule 9)
     geom_hline(yintercept =  gea_threshold,  linetype = "dashed",
-               color = "red", linewidth = 0.4, alpha = 0.5) +
+               color = CLINEGO_SIGNIFICANCE, linewidth = 0.4, alpha = 0.5) +
     geom_hline(yintercept = -gwas_threshold, linetype = "dashed",
-               color = "red", linewidth = 0.4, alpha = 0.5) +
+               color = CLINEGO_SIGNIFICANCE, linewidth = 0.4, alpha = 0.5) +
     # Bold zero line separating GEA and GWAS
     geom_hline(yintercept = 0, linewidth = 0.8, color = "black") +
     # Axes

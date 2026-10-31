@@ -1317,17 +1317,6 @@ load_climate_dropped <- function(project) {
                            colClasses = c(sample = "character", site = "character")))
 }
 
-#' An RDA offset run's own record (rda_offset_diagnostics.tsv, long key/value), as a
-#' named list; list() when absent. rda_offset_corrected writes the same file name.
-#' @noRd
-load_rda_offset_diagnostics <- function(project, suffix, method = "rda_offset") {
-    dt <- read_warning_table(mod_path(project, MOD_MALAD, "tables", method, suffix,
-                                      "rda_offset_diagnostics.tsv"),
-                             colClasses = "character")
-    if (is.null(dt) || !all(c("key", "value") %in% names(dt))) return(list())
-    stats::setNames(as.list(dt$value), dt$key)
-}
-
 #' The cross-entropy table beside a cross-entropy plot (same K range in its name).
 #' @param png_path find_k_range()$path.
 #' @noRd

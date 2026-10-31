@@ -1,4 +1,20 @@
 // CLINE-GO — Precision Genomics theme custom Sass rules
+//
+// Dark mode only (A4 I2): app_ui.R sets data-bs-theme="dark" on <html> before the
+// page renders, so every rule here is written for the dark page; there is no light
+// variant to keep in step. Colours come from the theme (app_theme.R) as Sass
+// variables or Bootstrap's dark-mode CSS variables (--bs-*-text-emphasis are the
+// readable-on-dark tints of each theme colour), never as copied hex (I1). The few
+// chrome colours the theme does not define are named once, here.
+$lab-modulebar-bg:   #22304A;   // one step lighter than $navbar-bg
+$lab-modulebar-muted: #8FA3BF;  // module-bar group labels
+$lab-sidebar-bg:     #1c2330;   // config sidebars, between $navbar-bg and the page
+$lab-log-bg:         #1e1e2e;   // the terminal-style pipeline log
+$lab-log-fg:         #cdd6f4;
+// The gradient of the logo's GO pill (www/cline-go-logo.png), in two identical halves so that
+// flowing it (background-size 200%) loops without a seam
+$lab-go-gradient:    linear-gradient(90deg, #7AC781, #CACB64, #F8BF44, #FBAA31, #F8BF44, #CACB64, #7AC781,
+                                            #CACB64, #F8BF44, #FBAA31, #F8BF44, #CACB64, #7AC781);
 
 // ── Cards ─────────────────────────────────────────────────────────────────────
 .card {
@@ -18,7 +34,7 @@
 
 // ── Region info bar ───────────────────────────────────────────────────────────
 .region-info-bar {
-    background: linear-gradient(135deg, rgba(27, 122, 110, 0.06), rgba(49, 130, 206, 0.06));
+    background: linear-gradient(135deg, rgba($primary, 0.12), rgba($info, 0.12));
     border-left: 4px solid $primary;
     padding: $spacer * 0.75;
     border-radius: $border-radius;
@@ -47,18 +63,13 @@
     transition: background-color 0.12s ease;
 
     &:hover {
-        background-color: rgba(27, 122, 110, 0.07);
+        background-color: rgba($primary, 0.14);
     }
 }
 
 .mode-status-active {
-    background-color: rgba(27, 122, 110, 0.10);
+    background-color: rgba($primary, 0.20);
     font-weight: 500;
-}
-
-[data-bs-theme="dark"] {
-    .mode-status-clickable:hover { background-color: rgba(27, 122, 110, 0.14); }
-    .mode-status-active          { background-color: rgba(27, 122, 110, 0.20); }
 }
 
 // ── Module detail panel (inline below the clicked module row) ─────────────────
@@ -86,16 +97,10 @@
     }
 }
 
-// ── Dark mode: images get subtle borders ──────────────────────────────────────
-[data-bs-theme="dark"] {
-    .card-body img {
-        border: 1px solid rgba(255, 255, 255, 0.10);
-        border-radius: $border-radius;
-    }
-
-    .region-info-bar {
-        background: linear-gradient(135deg, rgba(27, 122, 110, 0.12), rgba(49, 130, 206, 0.12));
-    }
+// ── Images get subtle borders against the dark cards ──────────────────────────
+.card-body img {
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: $border-radius;
 }
 
 // ── DT tables: tighter text ───────────────────────────────────────────────────
@@ -122,13 +127,13 @@
 .navbar .form-select {
     background-color: rgba(255, 255, 255, 0.10);
     border: 1px solid rgba(255, 255, 255, 0.20);
-    color: #E2E8F0;
+    color: $navbar-dark-color;
     font-size: 0.875rem;
     max-width: 220px;
 
     &:focus {
         border-color: $primary;
-        box-shadow: 0 0 0 0.2rem rgba(27, 122, 110, 0.25);
+        box-shadow: 0 0 0 0.2rem rgba($primary, 0.25);
     }
 }
 
@@ -139,12 +144,62 @@
     padding: 0.6rem 1rem;
 }
 
-// ── Tab pane dashboard background ─────────────────────────────────────────────
-.bslib-page-dashboard {
-    background-color: #F1F3F5;
+// ── Buttons (I3) ──────────────────────────────────────────────────────────────
+// One hierarchy: btn-primary starts or commits, btn-outline-secondary is everything
+// else, btn-link resets, btn-danger destroys. On the dark page Bootstrap's
+// outline-secondary (slate on near-black) reads as disabled, so it takes the
+// light outline the sidebar used for its Reset button.
+.btn-outline-secondary {
+    --bs-btn-color: #{rgba($white, 0.8)};
+    --bs-btn-border-color: #{rgba($white, 0.28)};
+    --bs-btn-hover-color: #{$white};
+    --bs-btn-hover-bg: #{rgba($white, 0.08)};
+    --bs-btn-hover-border-color: #{rgba($white, 0.5)};
+    --bs-btn-active-color: #{$white};
+    --bs-btn-active-bg: #{rgba($white, 0.14)};
+    --bs-btn-active-border-color: #{rgba($white, 0.5)};
+    --bs-btn-disabled-color: #{rgba($white, 0.4)};
+    --bs-btn-disabled-border-color: #{rgba($white, 0.15)};
 }
 
-[data-bs-theme="dark"] .bslib-page-dashboard {
+// a Bootstrap icon at the start of a button's label keeps a gap from the text
+.btn > .bi:first-child { margin-right: 0.3rem; }
+
+// ── Help-note and warning badges (filter_note(), help_note(), warning_note()) ─
+.note-badge {
+    cursor: default;
+    font-size: 0.7rem;
+    font-weight: 500;
+}
+
+// Tooltips (T1): opaque, left-aligned, up to 360px. Bootstrap draws them light on the
+// dark page, so the Config line takes the tooltip's own colour instead of the page's
+// muted grey and <code> pink, which read light-on-light.
+.tooltip.show { opacity: 1; }
+.tooltip .tooltip-inner {
+    text-align: left;
+    max-width: 360px;
+
+    .text-muted { color: inherit !important; opacity: 0.75; }
+    code {
+        color: inherit;
+        background: rgba(127, 127, 127, 0.18);
+        padding: 0 0.25em;
+        border-radius: 0.2rem;
+    }
+    p:last-child { margin-bottom: 0; }
+
+    // a warning's items (warning_note()): one line per scan, predictor or sample
+    .warn-items {
+        padding-left: 1.1rem;
+        margin-bottom: 0.35rem;
+        li { margin-bottom: 0.1rem; }
+    }
+    .warn-why { margin-bottom: 0.35rem; }
+}
+
+// ── Tab pane dashboard background ─────────────────────────────────────────────
+.bslib-page-dashboard {
     background-color: var(--bs-body-bg);
 }
 
@@ -155,7 +210,7 @@
     align-items: center;
     justify-content: center;
     color: var(--bs-secondary-color);
-    opacity: 0.5;
+    opacity: 0.7;
     padding: 3rem;
     gap: 0.5rem;
     font-size: 0.875rem;
@@ -165,17 +220,12 @@
 // Controls are plain divs (no bslib::card) so selectize dropdowns are never clipped
 .control-bar {
     margin-bottom: $spacer * 0.5;
-    background-color: rgba(0, 0, 0, 0.025);
-    border: 1px solid rgba(0, 0, 0, 0.08);
+    background-color: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.10);
     border-radius: $border-radius;
     padding: 0.5rem 0.75rem;
 
     .form-group { margin-bottom: 0; }
-}
-
-[data-bs-theme="dark"] .control-bar {
-    background-color: rgba(255, 255, 255, 0.04);
-    border-color: rgba(255, 255, 255, 0.10);
 }
 
 // The threshold bar's master "Significance threshold" selectInput is a
@@ -188,8 +238,8 @@
 // Compact bar with trait x method matrix + strategy radios.
 .manhattan-filter-bar {
     padding: 0.4rem 0.75rem 0.3rem;
-    border-bottom: 1px solid rgba(0, 0, 0, 0.08);
-    background: rgba(0, 0, 0, 0.025);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.10);
+    background: rgba(255, 255, 255, 0.03);
 
     .filter-row {
         display: flex;
@@ -248,7 +298,7 @@
         cursor: pointer;
         color: var(--bs-secondary-color);
         transition: opacity 0.1s, color 0.1s;
-        &:hover { color: $primary; }
+        &:hover { color: var(--bs-primary-text-emphasis); }
     }
 
     .tm-col-header {
@@ -257,7 +307,7 @@
         font-size: 0.7rem;
         color: var(--bs-body-color);
         padding-bottom: 0.3rem;
-        &:hover { color: $primary; .tm-gear { opacity: 1; } }
+        &:hover { color: var(--bs-primary-text-emphasis); .tm-gear { opacity: 1; } }
     }
 
     .tm-row-header {
@@ -266,7 +316,7 @@
         font-weight: 500;
         padding-right: 0.5rem;
         color: var(--bs-body-color);
-        &:hover { color: $primary; .tm-gear { opacity: 1; } }
+        &:hover { color: var(--bs-primary-text-emphasis); .tm-gear { opacity: 1; } }
     }
 
     .tm-cell {
@@ -277,7 +327,7 @@
         min-width: 36px;
         min-height: 34px;
         border-radius: 3px;
-        border: 1.5px solid rgba(0, 0, 0, 0.15);
+        border: 1.5px solid rgba(255, 255, 255, 0.15);
         cursor: pointer;
         background: transparent;
         transition: background 0.1s, border-color 0.1s, opacity 0.1s;
@@ -298,9 +348,9 @@
             font-size: 0.58rem;
             font-weight: 400;
             line-height: 1.2;
-            color: var(--bs-secondary-color);
+            color: rgba(255, 255, 255, 0.55);
             font-family: $font-family-monospace;
-            border-top: 1px dashed rgba(0, 0, 0, 0.25);
+            border-top: 1px dashed rgba(255, 255, 255, 0.20);
             margin-top: 0.2rem;
             padding-top: 0.15rem;
             width: 100%;
@@ -315,75 +365,37 @@
         // identical to a master-following one.
         .tm-thr-override {
             font-weight: 700;
-            color: var(--bs-warning-text-emphasis, #856404);
+            color: var(--bs-warning-text-emphasis);
         }
         .tm-thr-registry {
             font-style: italic;
         }
 
         &.tm-active {
-            background: rgba(27, 122, 110, 0.22);
+            background: rgba($primary, 0.35);
             border-color: $primary;
             color: var(--bs-body-color);
 
             .tm-thr {
-                color: darken($primary, 5%);
-                border-top-color: rgba(27, 122, 110, 0.45);
+                color: var(--bs-primary-text-emphasis);
+                border-top-color: rgba($primary, 0.5);
             }
-            .tm-thr-override { color: var(--bs-warning-text-emphasis, #856404); }
+            .tm-thr-override { color: var(--bs-warning-text-emphasis); }
         }
 
         &.tm-empty {
             opacity: 1;
             cursor: default;
             pointer-events: none;
-            border-color: rgba(0, 0, 0, 0.10);
+            border-color: rgba(255, 255, 255, 0.10);
 
-            .tm-count { opacity: 0.35; }
+            .tm-count { opacity: 0.30; }
             .tm-thr   {
-                color: var(--bs-body-color);
-                opacity: 0.65;
+                color: rgba(255, 255, 255, 0.75);
+                border-top-color: rgba(255, 255, 255, 0.20);
                 pointer-events: auto;   // a zero-count cell must stay threshold-editable
             }
         }
-    }
-}
-
-[data-bs-theme="dark"] {
-    .manhattan-filter-bar {
-        background: rgba(255, 255, 255, 0.03);
-        border-bottom-color: rgba(255, 255, 255, 0.10);
-        .filter-label { color: var(--bs-secondary-color); }
-    }
-
-    .tm-matrix {
-        .tm-cell {
-            border-color: rgba(255, 255, 255, 0.15);
-            .tm-thr {
-                border-top-color: rgba(255, 255, 255, 0.20);
-                color: rgba(255, 255, 255, 0.55);
-            }
-        }
-        .tm-cell.tm-active {
-            background: rgba(27, 122, 110, 0.35);
-            border-color: $primary;
-            .tm-thr {
-                color: lighten($primary, 20%);
-                border-top-color: rgba(27, 122, 110, 0.5);
-            }
-        }
-        .tm-cell.tm-empty {
-            border-color: rgba(255, 255, 255, 0.10);
-            .tm-thr {
-                color: rgba(255, 255, 255, 0.75);   // clearly visible in dark mode
-                border-top-color: rgba(255, 255, 255, 0.20);
-                opacity: 1;
-            }
-            .tm-count { opacity: 0.30; }
-        }
-        .tm-thr-override { color: #ffd873; }
-        .tm-cell.tm-active .tm-thr-override { color: #ffd873; }
-        .tm-row-header, .tm-col-header { color: var(--bs-body-color); }
     }
 }
 
@@ -414,7 +426,6 @@
 }
 
 .bc-chip {
-    position: relative;  // anchors the corner icon of a marked chip
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -430,128 +441,56 @@
     line-height: 1;
     white-space: nowrap;
 
-    // Inactive: muted gray pill
-    background: rgba(0, 0, 0, 0.06);
-    border-color: rgba(0, 0, 0, 0.12);
+    // Inactive: muted pill
+    background: rgba(255, 255, 255, 0.07);
+    border-color: rgba(255, 255, 255, 0.12);
     color: var(--bs-secondary-color);
 
     &.bc-active {
         background: $primary;
         border-color: $primary;
-        color: #fff;
+        color: $white;
         font-weight: 600;
     }
 
     &:hover:not(.bc-active):not(.bc-invariant) {
         border-color: $primary;
-        background: rgba(27, 122, 110, 0.12);
-        color: $primary;
+        background: rgba($primary, 0.18);
+        color: var(--bs-primary-text-emphasis);
     }
 
     &.bc-invariant {
-        background: rgba(220, 53, 69, 0.08);
-        border-color: rgba(220, 53, 69, 0.35);
-        color: #dc3545;
+        background: rgba($danger, 0.12);
+        border-color: rgba($danger, 0.4);
+        color: var(--bs-danger-text-emphasis);
         cursor: not-allowed;
         text-decoration: line-through;
-        opacity: 0.75;
+        opacity: 0.7;
 
         &:hover {
-            background: rgba(220, 53, 69, 0.08);
-            border-color: rgba(220, 53, 69, 0.35);
-            color: #dc3545;
+            background: rgba($danger, 0.12);
+            border-color: rgba($danger, 0.4);
+            color: var(--bs-danger-text-emphasis);
         }
     }
 
     // Marked (fct_warnings.R: identical or two-valued): orange and selectable; the
-    // corner icon names the reason, the chip's title the details.
+    // chip's title and the legend badge under the grid name the problem.
     &.bc-flagged {
-        background: rgba($warning, 0.10);
+        background: rgba($warning, 0.14);
         border-color: $warning;
-        color: darken($warning, 25%);
+        color: var(--bs-warning-text-emphasis);
 
         &.bc-active {
             background: $warning;
             border-color: $warning;
-            color: #1A2332;
+            color: $navbar-bg;
         }
 
         &:hover:not(.bc-active) {
-            background: rgba($warning, 0.20);
+            background: rgba($warning, 0.24);
             border-color: $warning;
-            color: darken($warning, 25%);
-        }
-    }
-
-    .bc-flag-icons {
-        position: absolute;
-        top: -6px;
-        right: -5px;
-        display: inline-flex;
-        gap: 1px;
-        padding: 1px;
-        border-radius: 50%;
-        font-size: 0.6rem;
-        line-height: 1;
-        background: var(--bs-body-bg);
-        color: darken($warning, 20%);
-        pointer-events: none;
-    }
-}
-
-[data-bs-theme="dark"] {
-    .bc-chip {
-        background: rgba(255, 255, 255, 0.07);
-        border-color: rgba(255, 255, 255, 0.12);
-        color: var(--bs-secondary-color);
-
-        &.bc-active {
-            background: $primary;
-            border-color: $primary;
-            color: #fff;
-        }
-
-        &:hover:not(.bc-active):not(.bc-invariant) {
-            border-color: $primary;
-            background: rgba(27, 122, 110, 0.18);
-            color: #5ecfc6;
-        }
-
-        &.bc-invariant {
-            background: rgba(220, 53, 69, 0.12);
-            border-color: rgba(220, 53, 69, 0.4);
-            color: #f87171;
-            cursor: not-allowed;
-            text-decoration: line-through;
-            opacity: 0.7;
-
-            &:hover {
-                background: rgba(220, 53, 69, 0.12);
-                border-color: rgba(220, 53, 69, 0.4);
-                color: #f87171;
-            }
-        }
-
-        &.bc-flagged {
-            background: rgba($warning, 0.14);
-            border-color: $warning;
-            color: lighten($warning, 12%);
-
-            &.bc-active {
-                background: $warning;
-                border-color: $warning;
-                color: #1A2332;
-            }
-
-            &:hover:not(.bc-active) {
-                background: rgba($warning, 0.24);
-                border-color: $warning;
-                color: lighten($warning, 12%);
-            }
-        }
-
-        .bc-flag-icons {
-            color: lighten($warning, 12%);
+            color: var(--bs-warning-text-emphasis);
         }
     }
 }
@@ -618,17 +557,12 @@
 
 // Sidebar gets a subtly different background to visually distinguish it
 .bslib-sidebar-layout > .sidebar {
-    background-color: #F0F2F5;
-    border-right: 1px solid rgba(0, 0, 0, 0.08);
+    background-color: $lab-sidebar-bg;
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
     font-size: 0.875rem;
 
     // Ensure the sidebar scrolls when content is tall
     overflow-y: auto;
-}
-
-[data-bs-theme="dark"] .bslib-sidebar-layout > .sidebar {
-    background-color: #1c2330;
-    border-right-color: rgba(255, 255, 255, 0.08);
 }
 
 // Sidebar title (icon + text)
@@ -649,15 +583,10 @@
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: $primary;
+    color: var(--bs-primary-text-emphasis);
     margin: 0 0 0.5rem 0;
     padding-bottom: 0.35rem;
-    border-bottom: 2px solid rgba(27, 122, 110, 0.35);
-}
-
-[data-bs-theme="dark"] .config-section-header {
-    color: #4FBBA8;
-    border-bottom-color: rgba(79, 187, 168, 0.4);
+    border-bottom: 2px solid rgba($primary, 0.6);
 }
 
 // Sub-section labels within a group (e.g. "Climate", "Map", "LD Decay") —
@@ -668,21 +597,16 @@
     font-weight: 700;
     letter-spacing: 0.06em;
     text-transform: uppercase;
-    color: $primary;
+    color: var(--bs-primary-text-emphasis);
     margin: 1rem 0 0.35rem 0;
     padding-top: 0.6rem;
-    border-top: 2px solid rgba(27, 122, 110, 0.35);
+    border-top: 2px solid rgba($primary, 0.6);
 
     &:first-child {
         margin-top: 0;
         padding-top: 0;
         border-top: none;
     }
-}
-
-[data-bs-theme="dark"] .config-subsection-label {
-    color: #4FBBA8;
-    border-top-color: rgba(79, 187, 168, 0.4);
 }
 
 // Individual config field block
@@ -718,8 +642,8 @@
 
 // Method display (Phase 1 read-only view for association.configs)
 .method-display {
-    background-color: rgba(0, 0, 0, 0.03);
-    border: 1px solid rgba(0, 0, 0, 0.07);
+    background-color: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: $border-radius;
     padding: 0.4rem 0.5rem;
 }
@@ -736,13 +660,6 @@
     letter-spacing: 0.01em;
 }
 
-[data-bs-theme="dark"] {
-    .method-display {
-        background-color: rgba(255, 255, 255, 0.04);
-        border-color: rgba(255, 255, 255, 0.08);
-    }
-}
-
 // Accordion within sidebar: tighter vertical rhythm
 .bslib-sidebar-layout .accordion {
     margin-top: $spacer * 0.75;
@@ -754,7 +671,7 @@
         background-color: transparent;
 
         &:not(.collapsed) {
-            color: $primary;
+            color: var(--bs-primary-text-emphasis);
             box-shadow: none;
         }
     }
@@ -812,7 +729,7 @@
 // Expand/collapse toggle link
 .pipeline-toggle-rules {
     text-decoration: none !important;
-    opacity: 0.5;
+    opacity: 0.7;
     transition: opacity 0.15s ease;
     line-height: 1;
 
@@ -825,59 +742,23 @@
 .pipeline-rule-list {
     max-height: 250px;
     overflow-y: auto;
-    border: 1px solid rgba(0, 0, 0, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: $border-radius-sm;
-    background-color: rgba(0, 0, 0, 0.02);
-    padding: 0.2rem;
-}
-
-[data-bs-theme="dark"] .pipeline-rule-list {
-    border-color: rgba(255, 255, 255, 0.08);
     background-color: rgba(255, 255, 255, 0.03);
+    padding: 0.2rem;
 }
 
 // ── Pipeline warning summary ───────────────────────────────────────────────────
 .pipeline-warnings {
-    border: 1px solid rgba(214, 158, 46, 0.5);
+    border: 1px solid rgba($warning, 0.4);
     border-radius: $border-radius-sm;
-    background-color: rgba(214, 158, 46, 0.08);
+    background-color: rgba($warning, 0.12);
     padding: 0.35rem 0.6rem;
     font-size: 0.78rem;
     max-height: 150px;
     overflow-y: auto;
 }
 
-[data-bs-theme="dark"] .pipeline-warnings {
-    border-color: rgba(214, 158, 46, 0.4);
-    background-color: rgba(214, 158, 46, 0.12);
-}
-
-// Dark mode: fix opacity-stacked and hardcoded-color elements
-[data-bs-theme="dark"] {
-    .plot-placeholder {
-        opacity: 0.7;
-    }
-
-    .pipeline-toggle-rules {
-        opacity: 0.7;
-    }
-
-    .pipeline-rule-item:hover {
-        background-color: rgba(27, 122, 110, 0.15);
-    }
-
-    // Reset button: boost visibility against dark sidebar
-    .config-reset-btn {
-        color: rgba(255, 255, 255, 0.75);
-        border-color: rgba(255, 255, 255, 0.25);
-
-        &:hover {
-            color: #fff;
-            border-color: rgba(255, 255, 255, 0.5);
-            background-color: rgba(255, 255, 255, 0.08);
-        }
-    }
-}
 
 // Individual rule row
 .pipeline-rule-item {
@@ -887,7 +768,7 @@
     min-height: 1.6rem;
 
     &:hover {
-        background-color: rgba(27, 122, 110, 0.08);
+        background-color: rgba($primary, 0.15);
     }
 }
 
@@ -897,7 +778,7 @@
     text-decoration: none;
 
     &:hover {
-        color: $primary;
+        color: var(--bs-primary-text-emphasis);
         text-decoration: underline;
         cursor: pointer;
     }
@@ -928,7 +809,7 @@
     align-items: center;
     justify-content: center;
     gap: 0.5rem;
-    background: var(--bs-card-bg, #fff);
+    background: var(--bs-card-bg);
     color: var(--bs-secondary-color);
     transition: opacity 0.3s ease;
     font-size: 0.9rem;
@@ -945,8 +826,8 @@
     overflow-y: auto;
     font-size: 0.76rem;
     line-height: 1.45;
-    background-color: #1e1e2e;
-    color: #cdd6f4;
+    background-color: $lab-log-bg;
+    color: $lab-log-fg;
     padding: 0.75rem 1rem;
     border-radius: $border-radius;
     white-space: pre-wrap;
@@ -963,15 +844,15 @@
     font-weight: 700;
     letter-spacing: 0.04em;
     text-transform: uppercase;
-    color: #fff;
-    background-color: #e6a817;
+    color: $navbar-bg;
+    background-color: $warning;
     border-radius: 20px;
     padding: 0.1em 0.45em;
     line-height: 1.4;
     vertical-align: middle;
 }
 
-// Reset-to-saved button inside the sidebar footer area
+// Reset-to-saved link inside the sidebar footer area (a reset is a link, I3)
 .config-reset-btn {
     font-size: 0.78rem;
     padding: 0.2rem 0.65rem;
@@ -989,7 +870,7 @@
     flex-wrap: wrap;
     align-items: center;
     gap: 0.3rem;
-    background: rgba(0, 0, 0, 0.03);
+    background: rgba(255, 255, 255, 0.04);
     border-radius: $border-radius-sm;
     padding: 0.25rem 0.35rem;
 
@@ -1007,7 +888,7 @@
 
     .threshold-input.is-invalid {
         border-color: var(--bs-danger);
-        background: rgba(192, 57, 43, 0.06);
+        background: rgba($danger, 0.06);
     }
 
     .method-remove-btn {
@@ -1016,15 +897,15 @@
         padding: 0.1rem 0.25rem;
         font-size: 0.75rem;
         line-height: 1;
-        color: #c0392b;
+        color: var(--bs-danger-text-emphasis);
         background: transparent;
         border: 1px solid transparent;
         border-radius: $border-radius-sm;
         cursor: pointer;
 
         &:hover {
-            border-color: #c0392b;
-            background: rgba(192, 57, 43, 0.08);
+            border-color: var(--bs-danger-text-emphasis);
+            background: rgba($danger, 0.10);
         }
     }
 
@@ -1040,7 +921,7 @@
             cursor: pointer;
             user-select: none;
 
-            &:hover { color: $primary; }
+            &:hover { color: var(--bs-primary-text-emphasis); }
         }
     }
 
@@ -1102,22 +983,9 @@
     margin-top: 0.1rem;
 
     &:hover {
-        color: $primary;
+        color: var(--bs-primary-text-emphasis);
         border-color: $primary !important;
-        background: rgba(27, 122, 110, 0.06);
-    }
-}
-
-[data-bs-theme="dark"] {
-    .method-row {
-        background: rgba(255, 255, 255, 0.04);
-    }
-    .method-row .method-remove-btn {
-        color: #e07b74;
-        &:hover {
-            border-color: #e07b74;
-            background: rgba(224, 123, 116, 0.10);
-        }
+        background: rgba($primary, 0.06);
     }
 }
 
@@ -1155,9 +1023,8 @@
 // Grouped two-row replacement for the navbar's flat tab strip, rendered once in
 // page_navbar(header=). The real tab links stay in the DOM — hidden, not
 // removed — because the bar drives them with a synthetic click
-// (inst/app/www/module-bar.js). Only the tab <li>s are hidden: the bslib
-// nav_item carrying the project selector and dark-mode toggle lives in the same
-// <ul> and must stay visible, hence :not(.bslib-nav-item).
+// (inst/app/www/module-bar.js). Only the tab <li>s are hidden: a bslib nav_item
+// in the same <ul> must stay visible, hence :not(.bslib-nav-item).
 .navbar .navbar-nav > li:not(.bslib-nav-item) {
     position: absolute;
     width: 1px;
@@ -1179,7 +1046,7 @@
     // shrinking and the flex min-height:auto default.
     flex: 0 0 auto;
     min-height: 0;
-    background-color: #22304A;   // one step lighter than $navbar-bg (#1A2332)
+    background-color: $lab-modulebar-bg;
     overflow-x: auto;            // narrow viewports scroll the bar, never the page
     // No full-bleed negative margins: the immediate parent is the uiOutput div,
     // which carries no padding of its own, so a `-gutter/2` inset overflows the
@@ -1202,7 +1069,7 @@
         font-weight: 600;
         letter-spacing: 0.08em;
         text-transform: uppercase;
-        color: #8FA3BF;
+        color: $lab-modulebar-muted;
         text-align: center;
         padding: 0.3rem 0.75rem 0.15rem;
         white-space: nowrap;
@@ -1220,13 +1087,13 @@
         flex: 1 1 auto;
         padding: 0.35rem 0.85rem 0.5rem;
         font-size: 0.85rem;
-        color: #E2E8F0;
+        color: $navbar-dark-color;
         text-decoration: none;
         white-space: nowrap;
         border-bottom: 2px solid transparent;
         transition: background-color 0.15s ease, border-color 0.15s ease;
 
-        &:hover  { background-color: rgba(255, 255, 255, 0.07); color: #FFFFFF; }
+        &:hover  { background-color: rgba(255, 255, 255, 0.07); color: $white; }
         &:focus  { outline: none; box-shadow: none; }
     }
 
@@ -1243,9 +1110,52 @@
     .mb-active {
         background-color: rgba(255, 255, 255, 0.10);
         border-bottom-color: $primary;
-        color: #FFFFFF;
+        color: $white;
         font-weight: 600;
     }
+
+    // The module whose pipeline mode is running (I8, the user's pick from six previews): its
+    // name is drawn in the logo's GO gradient, flowing through the letters while the run goes;
+    // no numbers, the runner in its sidebar has the progress. The open tab keeps its underline.
+    .mb-running,
+    .mb-running:hover {
+        font-weight: 600;
+        color: transparent;
+        -webkit-text-fill-color: transparent;
+        background-color: transparent;
+        background-image: $lab-go-gradient;
+        background-size: 200% 100%;
+        -webkit-background-clip: text;
+        background-clip: text;
+        animation: mb-go-flow 3s linear infinite;
+    }
+}
+
+// The one Save, top right (I9); config-dirty.js adds .is-dirty while the working
+// config differs from the saved one.
+.lab-save-btn {
+    margin: 0 0.75rem;
+    white-space: nowrap;
+
+    &.is-dirty::after {
+        content: "";
+        display: inline-block;
+        width: 0.5rem;
+        height: 0.5rem;
+        margin-left: 0.4rem;
+        border-radius: 50%;
+        background: $warning;
+        vertical-align: 0.05em;
+    }
+}
+
+@keyframes mb-go-flow {
+    from { background-position: 0% 0; }
+    to   { background-position: 100% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .module-bar .mb-running { animation: none; }
 }
 
 // ── CLINE-GO wordmark ───────────────────────────────────────────────────────
@@ -1275,4 +1185,28 @@
 // phone-width viewport.
 .snp-set-popover {
     --bs-popover-max-width: min(34rem, calc(100vw - 2rem));
+}
+
+// ── Named classes for what used to be inline styles (I12) ────────────────────
+// Static styles only: a value that comes from data (a trait's colour, a grid's
+// column count or span, the progress bar's width) stays on the element.
+.lab-badge { font-size: 0.75rem; font-weight: 500; vertical-align: middle; }  // one badge size
+.lab-config-badges { opacity: 0.85; }
+.lab-clickable { cursor: pointer; }
+.pipeline-progress-bar { height: 8px; }
+.lab-kv-key { width: 55%; }
+.snp-set-yaml { max-height: 40vh; overflow: auto; white-space: pre; }
+.lab-log-tail { white-space: pre-wrap; font-size: 0.72em; max-height: 120px; overflow-y: auto; }
+.lab-arrow-value {
+    display: flex; align-items: baseline; gap: 0.4rem;
+    .lab-arrow-before { opacity: 0.7; }
+    .lab-arrow { opacity: 0.6; font-size: 0.9em; }
+}
+// Fixed input widths (lab_input_width()); a container rule with `width: auto
+// !important` (dashboard.scss) still wins where a strip sizes its own controls.
+@each $w in 110, 150, 160, 200, 220, 300 {
+    .shiny-input-container.lab-w-#{$w}:not(.shiny-input-container-inline) {
+        width: #{$w}px;
+        max-width: 100%;
+    }
 }

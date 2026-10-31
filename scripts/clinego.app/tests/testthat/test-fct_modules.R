@@ -136,3 +136,12 @@ test_that("module_groups partitions the registry without loss or duplication", {
         expect_identical(length(ids), length(module_ids_for_regime(regime)))
     }
 })
+
+test_that("the running module's bar entry is marked, no other (I8)", {
+    html <- as.character(module_bar_ui(active = "home", running = "gea"))
+    cells <- regmatches(html, gregexpr('<a[^>]*id="mb_[a-z_]+"[^>]*>', html))[[1]]
+    running <- cells[grepl("mb-running", cells)]
+    expect_length(running, 1L)
+    expect_match(running, 'id="mb_gea"')
+    expect_false(grepl("mb-running", as.character(module_bar_ui(active = "home"))))
+})

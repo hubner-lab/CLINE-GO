@@ -332,7 +332,19 @@ check_module_status <- function(project, summary_dt = NULL) {
         gea_x_gwas    = "gea_x_gwas",
         maladaptation = "maladaptation"
     )
-    vapply(module_steps, function(s) s %in% steps_present, logical(1))
+    st <- vapply(module_steps, function(s) s %in% steps_present, logical(1))
+    # mode=gea_x_gwas writes no pipeline_summary.tsv row (summary.smk only touches its
+    # done flag), so its status is read from its own outputs (N3, 813d39)
+    st[["gea_x_gwas"]] <- length(geaxgwas_outputs(project)) > 0
+    st
+}
+
+#' What mode=gea_x_gwas wrote: its Miami plots and pairwise tables, by file name.
+#' @noRd
+geaxgwas_outputs <- function(project) {
+    c(list.files(mod_path(project, MOD_GEAXGWAS, "plots"),
+                 pattern = "^miami_combined_K[0-9]+\\.png$"),
+      list.files(mod_path(project, MOD_GEAXGWAS, "tables"), pattern = "^pairwise_.*\\.tsv$"))
 }
 
 #' Find zoom region tags for an offset run

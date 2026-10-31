@@ -144,23 +144,16 @@ load_compare_rank_stability <- function(project, key_a, key_b) {
 
 # ─── UI helpers ───────────────────────────────────────────────────────────────
 
-#' Render a comparison KPI stat box (value + label + optional p-value).
+#' A comparison KPI tile (value + optional p-value), built like every KPI row (I6);
+#' numbers at 3 significant digits. Rows of them go in lab_kpi_tiles().
 #' @noRd
-compare_stat_box <- function(value, label, p_val = NULL, accent = NULL) {
+compare_stat_box <- function(value, label, p_val = NULL, icon = "bar-chart") {
     p_html <- if (!is.null(p_val) && !is.na(p_val)) {
         p_fmt <- if (p_val < 0.001) "p<0.001" else paste0("p=", signif(p_val, 2))
-        htmltools::tags$small(class = "text-muted ms-1", p_fmt)
+        htmltools::tags$small(class = "compare-stat-p ms-1", p_fmt)
     } else NULL
-
-    value_html <- htmltools::tags$strong(
-        style = if (!is.null(accent)) paste0("color:", accent) else "",
-        value
-    )
-    htmltools::div(
-        class = "d-inline-block text-center me-3 mb-2",
-        htmltools::div(value_html, p_html),
-        htmltools::tags$small(class = "d-block text-muted", label)
-    )
+    if (is.numeric(value)) value <- signif(value, 3)
+    lab_value_box(label, htmltools::tagList(value, p_html), "primary", icon)
 }
 
 #' Honesty banner — rendered once at top of comparison view.
@@ -172,10 +165,7 @@ compare_honesty_banner <- function() {
             class = "py-2",
             htmltools::div(
                 class = "d-flex align-items-center gap-2",
-                htmltools::tags$span(
-                    style = "color:#d97706; font-size:1.1em;",
-                    htmltools::HTML("&#9888;")  # warning triangle
-                ),
+                bsicons::bs_icon("exclamation-triangle-fill", class = "text-warning"),
                 htmltools::tags$small(
                     class = "text-muted",
                     "No fitness ground truth exists for these offsets. This view characterises ",

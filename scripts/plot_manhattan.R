@@ -153,7 +153,7 @@ p_simple <- p_simple +
 if (threshold_ok) {
     p_simple <- p_simple +
         geom_hline(yintercept = threshold_log10, linetype = "dashed",
-                   color = "red", linewidth = 0.5)
+                   color = CLINEGO_SIGNIFICANCE, linewidth = 0.5)   # the significance red (rule 9)
 }
 
 simple_base <- paste0("manhattan_", name_pfx, TRAIT, "_K", Kbest, "_", ADJUST)

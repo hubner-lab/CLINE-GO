@@ -70,9 +70,10 @@
 .lab-section-header {
     display: flex; align-items: center; gap: 0.4rem;
     font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em;
-    text-transform: uppercase; color: var(--bs-primary);
+    // the theme's readable-on-dark primary (N1): plain primary reads at about 2:1 here
+    text-transform: uppercase; color: var(--bs-primary-text-emphasis);
     padding: 0.1rem 0 0.15rem; margin: 0.1rem 0 0;
-    border-bottom: 2px solid rgba(var(--bs-primary-rgb), 0.35);
+    border-bottom: 2px solid rgba(var(--bs-primary-rgb), 0.6);
 }
 
 // A divider carrying a control on its right (lab_section_header(aside=)).
@@ -100,7 +101,7 @@
             font-weight: 700;
             letter-spacing: 0.08em;
             text-transform: uppercase;
-            color: var(--bs-primary);
+            color: var(--bs-primary-text-emphasis);   // the divider's own colour (N1)
             white-space: nowrap;
         }
         > div { width: auto; }
@@ -180,7 +181,7 @@
     transition: box-shadow 0.15s ease;
     > .card-body { min-height: 0; overflow: hidden; }
 }
-.lab-thumb > .card:hover { box-shadow: 0 3px 12px rgba(0, 0, 0, 0.14); }
+.lab-thumb > .card:hover { box-shadow: 0 3px 12px rgba(0, 0, 0, 0.55); }
 
 // The image sits inside uiOutput -> imageOutput; both wrappers must be able to
 // fill and shrink or the img never sees a bounded box to contain against.
@@ -250,10 +251,6 @@
     .lab-thumb--wide > .card { height: calc(var(--lab-overview-h) * 0.255); }
 
     :focus-visible { outline: 2px solid var(--bs-primary); outline-offset: 2px; }
-}
-
-[data-bs-theme="dark"] .lab-v-a .lab-thumb > .card:hover {
-    box-shadow: 0 3px 12px rgba(0, 0, 0, 0.55);
 }
 
 // ── PreStructure (Variant A) tuning ──────────────────────────────────────────
@@ -445,7 +442,7 @@ body:has(.lab-chrome-bar) {
     flex: 0 0 auto;
     min-height: 0;
     margin-bottom: 0.5rem;
-    background-color: #1A2332;
+    background-color: $navbar-bg;
     border-bottom: 1px solid rgba(255, 255, 255, 0.10);
     overflow-x: auto;
 
@@ -476,7 +473,7 @@ body:has(.lab-chrome-bar) {
         font-weight: 700;
         letter-spacing: 0.05em;
         font-size: 0.95rem;
-        color: #E2E8F0;
+        color: $navbar-dark-color;
         white-space: nowrap;
     }
 
@@ -496,9 +493,9 @@ body:has(.lab-chrome-bar) {
 
     .lab-bar-modules { flex: 1 1 auto; min-width: 0; display: flex; }
 
-    // Dark-mode toggle, pinned to the far right. `margin-left: auto` as well as
-    // the flex-grow on .lab-bar-modules, so the toggle stays right even when the
-    // module row is narrower than the space available (few modules, wide screen).
+    // Save (I9), pinned to the far right. `margin-left: auto` as well as the
+    // flex-grow on .lab-bar-modules, so it stays right even when the module row is
+    // narrower than the space available (few modules, wide screen).
     .lab-bar-right {
         display: flex;
         align-items: center;
@@ -730,7 +727,7 @@ body:has(.lab-chrome-bar) {
             width: auto !important;
             margin-left: 1.5rem;
             padding-left: 1.5rem;
-            border-left: 1px solid var(--bs-border-color, #E2E8F0);
+            border-left: 1px solid rgba($navbar-dark-color, 0.18);
 
             > .control-label { display: none; }
 
@@ -750,33 +747,18 @@ body:has(.lab-chrome-bar) {
                 min-width: 82px;
                 // right padding clears selectize's ::after caret (right: 15px)
                 padding: 0.12rem 1.75rem 0.12rem 0.7rem;
-                color: var(--bs-primary);
-                border-color: rgba(27, 122, 110, 0.55);
-                background-color: rgba(27, 122, 110, 0.08);
+                color: var(--bs-primary-text-emphasis);
+                border-color: rgba($primary, 0.55);
+                background-color: rgba($primary, 0.18);
                 border-radius: 999px;
             }
             .selectize-input.focus, .selectize-input.dropdown-active {
                 border-color: var(--bs-primary);
-                box-shadow: 0 0 0 0.15rem rgba(27, 122, 110, 0.2);
+                box-shadow: 0 0 0 0.15rem rgba($primary, 0.2);
             }
             // selectize draws the caret as a border triangle; keep it clear of
             // the text and tinted to match the pill.
             .selectize-input::after { right: 0.85rem !important; }
-        }
-    }
-
-    // Dark mode: the tinted pill needs more lift to read against the dark card,
-    // and the divider must not disappear into the background.
-    [data-bs-theme="dark"] & .lab-gea-methodbar {
-        > .shiny-html-output > .form-group,
-        > .shiny-html-output > .shiny-input-container {
-            border-left-color: rgba(226, 232, 240, 0.18);
-
-            .selectize-input, select.form-control {
-                color: #5FD4C0;
-                border-color: rgba(95, 212, 192, 0.5);
-                background-color: rgba(95, 212, 192, 0.12);
-            }
         }
     }
 
@@ -1020,3 +1002,56 @@ body:has(.lab-chrome-bar) {
     .lab-cmp-b { border-left: 3px solid var(--bs-warning); }
     .lab-cmp-a, .lab-cmp-b { overflow: visible; padding: 0.35rem 0.6rem; }
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  DESIGN PASS (release A4): layout fixes the A3 review approved
+// ═════════════════════════════════════════════════════════════════════════════
+
+// D1 (2ca21e): DataTables pagination wraps and centres instead of overflowing a
+// narrow card; at phone width table cells wrap and pad less.
+.dataTables_wrapper .dataTables_paginate .pagination {
+    flex-wrap: wrap;
+    justify-content: center;
+    row-gap: 4px;
+}
+@media (max-width: 575.98px) {
+    table.dataTable { width: 100% !important; }
+    table.dataTable > thead > tr > th,
+    table.dataTable > tbody > tr > td { white-space: normal; padding: 4px 6px; }
+}
+
+// D2 (8b3a49): a thumb card's title group may shrink and its badges wrap under the
+// title, so a badge never pushes the card into a sideways scroll or clips the title.
+.lab-thumb .card-header > .d-flex { min-width: 0; flex-wrap: wrap; row-gap: 2px; }
+.lab-thumb .card-header > .d-flex > .shiny-text-output { max-width: 100%; }
+
+// I4: every filter strip sits in the .control-bar box (custom.scss); the map strip
+// of Structure and Maladaptation keeps its flex layout and gains the same box.
+.lab-v-a .lab-mapbar {
+    background-color: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: var(--bs-border-radius);
+    padding: 0.5rem 0.75rem;
+}
+
+// I6: a KPI tile keeps the icon-left layout at any width. bslib's value box switches
+// to icon-on-top below 300px (@container bslib-value-box (max-width: 300px), with
+// !important), which is every tile of a 5-tile row (GEA, GWAS, GEAxGWAS: 276px), and
+// the compact row's zero padding then puts the text against the tile's edge. One more
+// class than bslib's selectors wins.
+.lab-kpi-boxes .bslib-value-box:not(.showcase-bottom) .value-box-grid {
+    grid-template-areas: "left right" !important;
+    grid-template-columns: 30% 1fr !important;
+    grid-template-rows: auto !important;
+}
+.lab-kpi-boxes .bslib-value-box:not(.showcase-bottom) .value-box-grid .value-box-showcase {
+    grid-area: left !important;
+}
+.lab-kpi-boxes .bslib-value-box:not(.showcase-bottom) .value-box-grid .value-box-area {
+    grid-area: right !important;
+    justify-content: center !important;
+}
+
+// D3 (cc17b6): the recommendations table's text cells wrap, so its five columns
+// fit the card (458 / 474 px at a 1280px window, 591 / 607 px at 1600).
+.lab-recs-table td { white-space: normal; }

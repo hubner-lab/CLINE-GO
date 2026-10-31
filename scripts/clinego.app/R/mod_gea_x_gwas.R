@@ -73,7 +73,8 @@ mod_gea_x_gwas_server <- function(id, project_data, run_trigger = NULL) {
             sort(unique(all_dt$trait))
         })
 
-        gea_trait_colors  <- shiny::reactive(trait_color_map(gea_all_trait_names()))
+        gea_trait_colors  <- shiny::reactive(trait_color_map(
+            gea_all_trait_names(), trait_color_order(project_data()$config, "gea")))
         gea_method_shapes <- shiny::reactive(method_shape_map(gea_methods()))
 
         gea_combo_counts <- shiny::reactive({
@@ -151,7 +152,8 @@ mod_gea_x_gwas_server <- function(id, project_data, run_trigger = NULL) {
             sort(unique(all_dt$trait))
         })
 
-        gwas_trait_colors  <- shiny::reactive(trait_color_map(gwas_all_trait_names()))
+        gwas_trait_colors  <- shiny::reactive(trait_color_map(
+            gwas_all_trait_names(), trait_color_order(project_data()$config, "gwas")))
         gwas_method_shapes <- shiny::reactive(method_shape_map(gwas_methods()))
 
         gwas_combo_counts <- shiny::reactive({
@@ -563,7 +565,8 @@ mod_gea_x_gwas_server <- function(id, project_data, run_trigger = NULL) {
         # Combine trait/method maps for both sources (unified legend, stable colors)
         all_traits  <- shiny::reactive(sort(union(gea_all_trait_names(), gwas_all_trait_names())))
         all_methods <- shiny::reactive(union(gea_methods(), gwas_methods()))
-        all_trait_colors  <- shiny::reactive(trait_color_map(all_traits()))
+        all_trait_colors  <- shiny::reactive(trait_color_map(
+            all_traits(), trait_color_order(project_data()$config, "both")))
         all_method_shapes <- shiny::reactive(method_shape_map(all_methods()))
 
         # Miami threshold y: min threshold across both sides (most stringent for display)
@@ -695,38 +698,53 @@ mod_gea_x_gwas_ui <- function(id) {
 
         lab_kpi_row(ns, alert_id = NULL),
 
-        bslib::layout_columns(
-            col_widths = c(6, 6),
-            fill = FALSE, fillable = FALSE,
-            gap = "0.6rem",
-
-            bslib::card(
-                class = "lab-xg-filter lab-xg-gea",
-                bslib::card_header(
-                    class = "d-flex justify-content-between align-items-center",
-                    htmltools::span(bsicons::bs_icon("arrow-up"),
-                                    " GEA filter (above the zero line)"),
-                    shiny::actionButton(ns("fill_gea"), "Fill from GEA",
-                                        class = "btn-sm btn-outline-secondary")
+        # One accordion, open by default, as on GEA and GWAS (I5): the two sides'
+        # filters; their outputs stay live while it is collapsed
+        # (mod_geaxgwas_dashboard_outputs()).
+        bslib::accordion(
+            id    = ns("params_accordion"),
+            class = "lab-gea-params",
+            open  = "params",
+            bslib::accordion_panel(
+                value = "params",
+                title = htmltools::tagList(
+                    bsicons::bs_icon("sliders"),
+                    htmltools::span(" Significance, methods & strategy")
                 ),
-                bslib::card_body(
-                    shiny::uiOutput(ns("gea_threshold_bar")),
-                    shiny::uiOutput(ns("gea_filter_bar"))
-                )
-            ),
+                bslib::layout_columns(
+                    col_widths = c(6, 6),
+                    fill = FALSE, fillable = FALSE,
+                    gap = "0.6rem",
 
-            bslib::card(
-                class = "lab-xg-filter lab-xg-gwas",
-                bslib::card_header(
-                    class = "d-flex justify-content-between align-items-center",
-                    htmltools::span(bsicons::bs_icon("arrow-down"),
-                                    " GWAS filter (below the zero line)"),
-                    shiny::actionButton(ns("fill_gwas"), "Fill from GWAS",
-                                        class = "btn-sm btn-outline-secondary")
-                ),
-                bslib::card_body(
-                    shiny::uiOutput(ns("gwas_threshold_bar")),
-                    shiny::uiOutput(ns("gwas_filter_bar"))
+                    bslib::card(
+                        class = "lab-xg-filter lab-xg-gea",
+                        bslib::card_header(
+                            class = "d-flex justify-content-between align-items-center",
+                            htmltools::span(bsicons::bs_icon("arrow-up"),
+                                            " GEA filter (above the zero line)"),
+                            shiny::actionButton(ns("fill_gea"), "Fill from GEA",
+                                                class = "btn-sm btn-outline-secondary")
+                        ),
+                        bslib::card_body(
+                            shiny::uiOutput(ns("gea_threshold_bar")),
+                            shiny::uiOutput(ns("gea_filter_bar"))
+                        )
+                    ),
+
+                    bslib::card(
+                        class = "lab-xg-filter lab-xg-gwas",
+                        bslib::card_header(
+                            class = "d-flex justify-content-between align-items-center",
+                            htmltools::span(bsicons::bs_icon("arrow-down"),
+                                            " GWAS filter (below the zero line)"),
+                            shiny::actionButton(ns("fill_gwas"), "Fill from GWAS",
+                                                class = "btn-sm btn-outline-secondary")
+                        ),
+                        bslib::card_body(
+                            shiny::uiOutput(ns("gwas_threshold_bar")),
+                            shiny::uiOutput(ns("gwas_filter_bar"))
+                        )
+                    )
                 )
             )
         ),

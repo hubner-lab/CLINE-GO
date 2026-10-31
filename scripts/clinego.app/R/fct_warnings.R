@@ -3,33 +3,57 @@
 # Each rule is a pure function: data.tables in, NULL or a zero-row table when there is
 # nothing to say, otherwise what the warning names. The modules render the result with
 # warning_note(). A rule fires only on an exact equality or on the pipeline's own rule,
-# never on a cut chosen by eye. A label is at most WARNING_LABEL_MAX_WORDS English words;
-# what each warning means lives in HELP_NOTES (fct_help_notes.R) under its WARNING_NOTE_IDS
-# id. Both are tested: help_note() returns NULL for an unknown id, so a typo would drop a
-# warning without a word.
+# never on a cut chosen by eye. A label is at most WARNING_LABEL_MAX_WORDS English words.
+# A warning informs, it does not teach (A3): its note lists what was found, item by item
+# (which scan, predictor, trait or sample, which problem, its value), then at most one short
+# clause and the Config line, both from HELP_NOTES (fct_help_notes.R) under its
+# WARNING_NOTE_IDS id. Both are tested: warning_note() returns NULL for an unknown id, so a
+# typo would drop a warning without a word.
 
 #' HELP_NOTES ids the warnings render through.
 #' @noRd
 WARNING_NOTE_IDS <- c(
-    "warn_manhattan_stripe", "warn_ld_decay", "warn_identical_predictors",
-    "warn_binary_predictors", "warn_climate_dropped_samples", "warn_rda_offset_aliased",
-    "warn_predictor_chips", "warn_trait_chips", "warn_cross_entropy", "warn_dbmem_fallback"
+    "warn_manhattan_stripe", "warn_ld_decay", "warn_climate_predictors",
+    "warn_climate_dropped_samples", "warn_predictor_chips", "warn_trait_chips",
+    "warn_cross_entropy", "warn_dbmem_fallback"
 )
 
 #' Longest label a warning badge may carry, in words.
 #' @noRd
 WARNING_LABEL_MAX_WORDS <- 8L
 
-#' An amber help_note badge for one warning.
-#' @param id      One of WARNING_NOTE_IDS.
-#' @param label   The badge text, at most WARNING_LABEL_MAX_WORDS words.
-#' @param results What this project's tables say (a string or tags), or NULL.
-#' @param class   Badge class; neutral ("bg-secondary") for a state that is unknown
+#' An amber badge for one warning. Its tooltip: what was found, one item per line, then
+#' the entry's short clause (if any) and its Config line. No "what it means" block.
+#' @param id    One of WARNING_NOTE_IDS.
+#' @param label The badge text, at most WARNING_LABEL_MAX_WORDS words.
+#' @param items What this project's tables say, one string per item, or NULL.
+#' @param class Badge class; neutral ("bg-secondary") for a state that is unknown
 #'   rather than wrong.
 #' @noRd
-warning_note <- function(id, label, results = NULL, class = "bg-warning text-dark") {
-    help_note(id, results = results, label = label, class = class,
-              icon = "exclamation-triangle-fill")
+warning_note <- function(id, label, items = NULL, class = "bg-warning text-dark") {
+    entry <- HELP_NOTES[[id]]
+    if (is.null(entry)) return(NULL)
+    body <- htmltools::tagList(
+        if (length(items) > 0)
+            htmltools::tags$ul(class = "warn-items", lapply(items, htmltools::tags$li)),
+        if (!is.null(entry$desc)) htmltools::p(class = "warn-why", entry$desc),
+        help_note_config(entry$config)
+    )
+    filter_note(label = label, body = body, class = class, icon = "exclamation-triangle-fill")
+}
+
+#' At most `n` items, then one "and N more <noun>s" item.
+#' @noRd
+capped_items <- function(items, n, noun) {
+    if (length(items) <= n) return(items)
+    c(items[seq_len(n)], paste0("and ", n_noun(length(items) - n, noun), "."))
+}
+
+#' Names joined by ", ", the first `n` only, then "and N more".
+#' @noRd
+name_list <- function(x, n = 12L) {
+    if (length(x) <= n) return(paste(x, collapse = ", "))
+    paste0(paste(x[seq_len(n)], collapse = ", "), " and ", length(x) - n, " more")
 }
 
 #' Number of words in a label (what WARNING_LABEL_MAX_WORDS counts).
@@ -60,7 +84,8 @@ n_noun <- function(n, singular, plural = paste0(singular, "s")) {
 #'   significant SNPs at the live threshold (compute_method_sigsnps_cached()).
 #' @return data.table, one row per method and trait group with a stripe, most stripe hits
 #'   first: method, traits (" = "-joined), n_hits, n_stripes, n_stripe_hits, largest
-#'   (hits in the largest tie), n_chr (its chromosomes). Zero rows when there is none.
+#'   (hits in the largest tie), largest_p (its p), n_chr (its chromosomes). Zero rows when
+#'   there is none.
 #' @noRd
 manhattan_stripes <- function(sig_list) {
     rows <- list()
@@ -85,14 +110,14 @@ manhattan_stripes <- function(sig_list) {
             rows[[length(rows) + 1]] <- data.table::data.table(
                 method = m, traits = paste(sort(trs), collapse = " = "),
                 n_hits = sum(ties$n), n_stripes = nrow(st), n_stripe_hits = sum(st$n),
-                largest = st$n[big], n_chr = st$n_chr[big])
+                largest = st$n[big], largest_p = st$p[big], n_chr = st$n_chr[big])
         }
     }
     if (length(rows) == 0) {
         return(data.table::data.table(method = character(), traits = character(),
                                       n_hits = integer(), n_stripes = integer(),
                                       n_stripe_hits = integer(), largest = integer(),
-                                      n_chr = integer()))
+                                      largest_p = numeric(), n_chr = integer()))
     }
     out <- data.table::rbindlist(rows)
     out[order(-out$n_stripe_hits, out$method, out$traits), ]
@@ -123,26 +148,17 @@ stripe_label <- function(row) {
 #' @noRd
 stripe_note <- function(stripes, wza = FALSE) {
     if (isTRUE(wza) || is.null(stripes) || nrow(stripes) == 0) return(NULL)
-    shown <- utils::head(stripes, 6)
-    # One string per line: htmltools puts a line break, read as a space, between children,
-    # so punctuation given as its own child would print as " :".
-    lines <- lapply(seq_len(nrow(shown)), function(i) {
-        s <- shown[i, ]
-        htmltools::tagList(
-            htmltools::br(), htmltools::strong(s$method),
-            paste0("— ", s$traits, ": ", s$n_stripe_hits, " of ", s$n_hits, " hits in ",
-                   n_noun(s$n_stripes, "tied p-value"), "; the largest, ", s$largest,
-                   " hits on ", s$n_chr, " chromosomes.")
-        )
-    })
-    more <- nrow(stripes) - nrow(shown)
+    # one item per scan: the scan, its ties, the largest tie's p and hits
+    items <- vapply(seq_len(nrow(stripes)), function(i) {
+        s <- stripes[i, ]
+        paste0(s$method, ", ", s$traits, ": ", s$n_stripe_hits, " of ", s$n_hits,
+               " hits in ", n_noun(s$n_stripes, "tie"), "; largest ",
+               if (!is.null(s$largest_p)) paste0("p = ", formatC(s$largest_p, format = "g",
+                                                                 digits = 3), ", "),
+               s$largest, " hits on ", s$n_chr, " chromosomes")
+    }, character(1))
     warning_note("warn_manhattan_stripe", stripe_label(stripes[1, ]),
-        results = htmltools::tagList(
-            "significant SNPs that share one p-value on two or more chromosomes, at the current threshold:",
-            lines,
-            if (more > 0) htmltools::tagList(htmltools::br(),
-                                             paste0("and ", n_noun(more, "more scan"), "."))
-        ))
+                 items = capped_items(items, 6L, "scan"))
 }
 
 # ── LD decay ──────────────────────────────────────────────────────────────────
@@ -154,8 +170,7 @@ ld_decay_note <- function(gw) {
     if (is.null(gw) || identical(gw$status, "reliable")) return(NULL)
     # short: it sits in the LD-decay cards' narrow headers, which name the curve
     label <- if (identical(gw$status, "unreliable")) "unreliable" else "not assessed"
-    warning_note("warn_ld_decay", label,
-                 results = paste0("'All', genome-wide: ", gw$reason, "."))
+    warning_note("warn_ld_decay", label, items = paste0("'All', genome-wide: ", gw$reason))
 }
 
 #' Theme of the Structure tab's LD-decay KPI (8bbdee): green only for a reliable curve.
@@ -227,7 +242,15 @@ selected_predictors <- function(config) {
     if (length(sel) == 0) predictor_chip_choices(config) else sel
 }
 
-#' Twin sets among the selected predictors (each set sorted, the sets in chip order).
+#' Names in chip order: bio_<N> by N, any other name after them, alphabetically.
+#' @noRd
+chip_order <- function(x) {
+    n <- suppressWarnings(as.integer(sub("^bio_", "", x)))
+    n[!grepl("^bio_[0-9]+$", x)] <- NA_integer_
+    x[order(is.na(n), n, x)]
+}
+
+#' Twin sets among the selected predictors (each set in chip order).
 #' @param flags    predictor_flags().
 #' @param selected Selected predictors.
 #' @return List of character vectors, each of two or more selected identical predictors.
@@ -239,35 +262,29 @@ selected_twin_sets <- function(flags, selected) {
     for (i in seq_len(nrow(idn))) {
         p <- idn$predictor[i]
         if (p %in% seen) next
-        set <- intersect(c(p, parse_csv_list(idn$detail[i])), selected)
+        set <- chip_order(intersect(c(p, parse_csv_list(idn$detail[i])), selected))
         seen <- c(seen, set)
         if (length(set) >= 2) sets[[length(sets) + 1]] <- set
     }
-    sets
+    firsts <- vapply(sets, `[[`, "", 1L)
+    sets[match(chip_order(firsts), firsts)]
 }
 
-#' Tab warning: selected predictors that duplicate another selected one.
+#' Tab warning (W4): one badge for the selected predictors that are identical to another
+#' selected one or take two values; its note has one item per twin set and per two-valued
+#' predictor.
 #' @noRd
-identical_predictors_note <- function(flags, selected) {
+climate_predictors_note <- function(flags, selected) {
     sets <- selected_twin_sets(flags, selected)
-    if (length(sets) == 0) return(NULL)
-    n <- sum(lengths(sets) - 1L)
-    warning_note("warn_identical_predictors",
-        paste(n_noun(n, "selected predictor"),
-              if (n == 1) "duplicates another" else "duplicate others"),
-        results = paste0(paste(vapply(sets, paste, "", collapse = " = "), collapse = "; "),
-                         ", at every sample."))
-}
-
-#' Tab warning: selected predictors with two values across the sites.
-#' @noRd
-binary_predictors_note <- function(flags, selected) {
-    bin <- flags[flags$flag == "binary" & flags$predictor %in% selected, ]
-    if (nrow(bin) == 0) return(NULL)
-    n <- nrow(bin)
-    warning_note("warn_binary_predictors",
-        paste(n_noun(n, "selected predictor"), if (n == 1) "takes" else "take", "two values"),
-        results = paste0(paste0(bin$predictor, " (", bin$detail, ")", collapse = "; "), "."))
+    bin  <- flags[flags$flag == "binary" & flags$predictor %in% selected, ]
+    if (length(sets) == 0 && nrow(bin) == 0) return(NULL)
+    n <- length(unique(c(unlist(sets), bin$predictor)))
+    kinds <- c(if (length(sets) > 0) "identical", if (nrow(bin) > 0) "two-valued")
+    warning_note("warn_climate_predictors",
+        paste0(n_noun(n, "selected predictor"), ": ", paste(kinds, collapse = " or ")),
+        items = c(vapply(sets, function(s) paste0(paste(s, collapse = " = "),
+                                                  ": identical at every sample"), ""),
+                  paste0(bin$predictor, ": two values across the sites, ", bin$detail)))
 }
 
 #' Tab counter of invariant predictors over the selected ones only (e83e54).
@@ -278,34 +295,28 @@ selected_invariant <- function(invariant, selected) intersect(selected, invarian
 
 # ── Chip marks ────────────────────────────────────────────────────────────────
 
-#' Bootstrap icon and wording for each chip mark.
+#' A flagged chip's problems, e.g. "identical to bio_11 at every sample".
+#' @param flags Its rows of predictor_flags() / trait_flags().
 #' @noRd
-CHIP_FLAG_ICONS <- c(identical = "link-45deg", binary = "toggles")
+chip_problems <- function(flags) {
+    parts <- vapply(seq_len(nrow(flags)), function(i) {
+        switch(flags$flag[i],
+            identical = paste0("identical to ", flags$detail[i], " at every sample"),
+            binary    = paste0("two values across the sites, ", flags$detail[i]),
+            flags$detail[i])
+    }, character(1))
+    paste(parts, collapse = "; ")
+}
 
 #' Tooltip text for one flagged chip.
 #' @param name  Chip name.
 #' @param flags Its rows of predictor_flags() / trait_flags().
 #' @noRd
-chip_flag_title <- function(name, flags) {
-    parts <- vapply(seq_len(nrow(flags)), function(i) {
-        switch(flags$flag[i],
-            identical = paste0("identical to ", flags$detail[i], " at every sample"),
-            binary    = paste0("only two values across the sites: ", flags$detail[i]),
-            flags$detail[i])
-    }, character(1))
-    paste0(name, ": ", paste(parts, collapse = "; "))
-}
+chip_flag_title <- function(name, flags) paste0(name, ": ", chip_problems(flags))
 
-#' The corner icons of a flagged chip.
-#' @noRd
-chip_flag_icons <- function(flags) {
-    kinds <- intersect(names(CHIP_FLAG_ICONS), flags$flag)
-    htmltools::span(class = "bc-flag-icons",
-                    lapply(kinds, function(k) bsicons::bs_icon(CHIP_FLAG_ICONS[[k]])))
-}
-
-#' Legend badge under a chip grid: what each mark means. Neutral, amber once a marked
-#' chip is selected (the chip script keeps that in step with clicks).
+#' Legend badge under a chip grid: each marked chip and its problem, one item per chip
+#' (no corner icons: a marked chip is orange, A3). Neutral, amber once a marked chip is
+#' selected (the chip script keeps that in step with clicks).
 #' @param flags     The grid's predictor_flags() / trait_flags() rows.
 #' @param struck    Names struck as invariant.
 #' @param selected  Names selected when the grid renders.
@@ -316,37 +327,20 @@ chip_flag_icons <- function(flags) {
 chip_legend <- function(flags, struck, selected, legend_id, id, noun) {
     marked <- unique(c(flags$predictor, struck))
     if (length(marked) == 0) return(NULL)
-    item <- function(icon, text) htmltools::tagList(
-        htmltools::br(), if (is.null(icon)) htmltools::tags$s("struck") else bsicons::bs_icon(icon),
-        text)
-    kinds <- intersect(names(CHIP_FLAG_ICONS), flags$flag)
     amber <- any(unique(flags$predictor) %in% selected)
-    # in chip order: bio_<N> by N, any other name after them
-    in_order <- function(x) {
-        n <- suppressWarnings(as.integer(sub("^bio_", "", x)))
-        n[!grepl("^bio_[0-9]+$", x)] <- NA_integer_
-        x[order(is.na(n), n, x)]
-    }
-    named <- function(kind) paste(in_order(unique(flags$predictor[flags$flag == kind])),
-                                  collapse = ", ")
+    marked <- chip_order(marked)
+    struck_reason <- if (identical(noun, "trait")) "does not vary or has no values"
+                     else "no variance"
+    items <- vapply(marked, function(m) {
+        if (m %in% struck) paste0(m, ": ", struck_reason, ", cannot be selected")
+        else paste0(m, ": ", chip_problems(flags[flags$predictor == m, ]))
+    }, character(1), USE.NAMES = FALSE)
     htmltools::div(
         id = legend_id, class = "bc-legend mt-1",
         `data-amber` = "bg-warning text-dark", `data-neutral` = "bg-secondary",
         warning_note(id, n_noun(length(marked), paste("marked", noun)),
-            class = if (amber) "bg-warning text-dark" else "bg-secondary",
-            results = htmltools::tagList(
-                "hover a marked chip for its reason.",
-                if (length(struck) > 0)
-                    item(NULL, paste0("chips have no variance and cannot be selected (",
-                                      paste(in_order(struck), collapse = ", "), ")")),
-                if ("identical" %in% kinds)
-                    item(CHIP_FLAG_ICONS[["identical"]], paste0(
-                        "identical to another ", noun, " at every sample (",
-                        named("identical"), ")")),
-                if ("binary" %in% kinds)
-                    item(CHIP_FLAG_ICONS[["binary"]], paste0(
-                        "two values across the sites (", named("binary"), ")"))
-            ))
+                     class = if (amber) "bg-warning text-dark" else "bg-secondary",
+                     items = items)
     )
 }
 
@@ -378,49 +372,14 @@ climate_dropped_samples <- function(coord_missing, na_excluded) {
 climate_dropped_note <- function(dropped) {
     if (is.null(dropped)) return(NULL)
     n <- length(dropped$no_coords) + nrow(dropped$no_climate)
+    # one item per reason, its samples named
+    by_reason <- split(dropped$no_climate$sample, dropped$no_climate$reason)
     warning_note("warn_climate_dropped_samples",
         paste(n_noun(n, "sample"), "left out of climate analyses"),
-        results = htmltools::tagList(
-            if (length(dropped$no_coords) > 0)
-                paste0("no coordinates: ", paste(dropped$no_coords, collapse = ", "), "."),
-            if (nrow(dropped$no_climate) > 0) htmltools::tagList(
-                if (length(dropped$no_coords) > 0) htmltools::br(),
-                paste0("no climate value at their coordinates: ",
-                       paste0(dropped$no_climate$sample, " (", dropped$no_climate$reason, ")",
-                              collapse = ", "), "."))
-        ))
-}
-
-# ── RDA offset: aliased predictors ────────────────────────────────────────────
-
-#' Predictors the RDA offset model aliased (rda_offset_diagnostics.tsv, aliased_terms).
-#' @param diag Named list key -> value of the run's rda_offset_diagnostics.tsv.
-#' @return Character vector, empty when none (or no record).
-#' @noRd
-rda_offset_aliased <- function(diag) parse_csv_list(diag[["aliased_terms"]])
-
-#' Warning for an RDA offset run whose model aliased predictors (0214e1). The tooltip
-#' also gives the run's own record, which the app showed nowhere before.
-#' @noRd
-rda_offset_note <- function(diag) {
-    aliased <- rda_offset_aliased(diag)
-    if (length(aliased) == 0) return(NULL)
-    rec <- function(key, label) {
-        v <- diag[[key]]
-        if (is.null(v) || !nzchar(v)) NULL else paste0(label, " ", v)
-    }
-    facts <- c(rec("predictors", "predictors"), rec("n_sites", "sites"),
-               if (!is.null(diag[["rda_axes_used"]])) paste0(
-                   "axes ", diag[["rda_axes_used"]], " of ", diag[["rda_axes_max"]] %||% "?"),
-               rec("adj_r_squared", "adjusted R²"))
-    warning_note("warn_rda_offset_aliased",
-        paste("Offset model dropped", n_noun(length(aliased), "aliased predictor")),
-        results = htmltools::tagList(
-            paste0("aliased: ", paste(aliased, collapse = ", "), "."),
-            if (length(facts) > 0) htmltools::tagList(
-                htmltools::br(),
-                paste0("This run (rda_offset_diagnostics.tsv): ", paste(facts, collapse = "; "), "."))
-        ))
+        items = c(if (length(dropped$no_coords) > 0)
+                      paste0("no coordinates: ", name_list(dropped$no_coords)),
+                  vapply(names(by_reason), function(r) paste0(r, ": ", name_list(by_reason[[r]])),
+                         "", USE.NAMES = FALSE)))
 }
 
 # ── Traits: identical and invariant (GWAS chips) ──────────────────────────────
@@ -483,9 +442,8 @@ cross_entropy_note <- function(nm) {
     # short: the cross-entropy card's header, which names the curve, is narrow
     warning_note("warn_cross_entropy",
         paste0("No minimum up to K = ", nm$k_end),
-        results = paste0("best run per K: ",
-                         paste0("K = ", nm$k_values, ": ", sprintf("%.4f", nm$ce),
-                                collapse = ", "), "."))
+        items = paste0("K = ", nm$k_values, ": ", sprintf("%.4f", nm$ce),
+                       ifelse(nm$k_values == nm$k_end, " (lowest)", "")))
 }
 
 # ── dbMEM: the fallback axis ──────────────────────────────────────────────────
@@ -510,13 +468,10 @@ dbmem_selection_note <- function(st) {
     if (is.null(st)) return(NULL)
     if (identical(st$state, "unknown")) {
         return(warning_note("warn_dbmem_fallback", "dbMEM selection unknown",
-            results = paste0("dbmem_selected.tsv predates its selection column; re-run ",
-                             "mode=climate to record whether the geography term passed ",
-                             "forward selection."),
+            items = "dbmem_selected.tsv has no selection column (written before 2026-10-30)",
             class = "bg-secondary"))
     }
     warning_note("warn_dbmem_fallback", "Geography term is a fallback dbMEM axis",
-        results = paste0("no axis passed forward selection; ",
-                         paste(st$mems, collapse = ", "),
-                         " (the highest marginal R²) stands in."))
+        items = paste0(paste(st$mems, collapse = ", "),
+                       ": highest marginal R²; no axis passed forward selection"))
 }

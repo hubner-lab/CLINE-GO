@@ -463,17 +463,11 @@ if (HAS_DP && DEPTH_SAMPLE_FILE != 'NULL' && file.exists(DEPTH_SAMPLE_FILE)) {
     depth_usable <- depth_ok
 
 if (depth_ok) {
-    # Bin per-site depth for histogram (avoid plotting millions of points). The axis ends at the
-    # 99th percentile and every deeper SNP is counted in the last bar, labelled ">= cap": a few
-    # sites at ~70x stretched it while the bulk sat at 2-10x (d150, 4c).
-    depth_cap <- max(1, ceiling(stats::quantile(depth_l$MEAN_DEPTH[is.finite(depth_l$MEAN_DEPTH)],
-                                                0.99, names = FALSE)))
-    depth_l_hist <- depth_l[is.finite(MEAN_DEPTH),
-                            .(count = .N), by = .(depth_bin = pmin(round(MEAN_DEPTH), depth_cap))]
-    depth_overflow <- any(round(depth_l$MEAN_DEPTH[is.finite(depth_l$MEAN_DEPTH)]) > depth_cap)
-    depth_breaks <- pretty(c(0, depth_cap))
-    depth_breaks <- c(depth_breaks[depth_breaks < depth_cap - diff(depth_breaks[1:2]) / 2],
-                      depth_cap)
+    # Bin per-site depth for histogram (avoid plotting millions of points): one bar per whole
+    # depth, up to the deepest SNP, the sparse tail included (F15: c61f54e's cap at the 99th
+    # percentile, with every deeper SNP in a last ">= cap" bar, is gone). A site with no DP
+    # (vcftools' -nan) has no bar.
+    depth_l_hist <- depth_l[is.finite(MEAN_DEPTH), .(count = .N), by = .(depth_bin = round(MEAN_DEPTH))]
 
     p_depth_s <- ggplot(depth_s, aes(x = MEAN_DEPTH)) +
         geom_histogram(bins = 40, fill = CLINEGO_RETAINED, color = "white", linewidth = 0.2) +
@@ -488,9 +482,6 @@ if (depth_ok) {
 
     p_depth_l <- ggplot(depth_l_hist, aes(x = depth_bin, y = count)) +
         geom_col(fill = CLINEGO_RETAINED, width = 0.8) +
-        scale_x_continuous(breaks = depth_breaks,
-                           labels = function(b) ifelse(depth_overflow & b == depth_cap,
-                                                       paste0("\u2265", b), b)) +
         scale_y_continuous(labels = scales::label_comma()) +
         labs(
             title = "Per-SNP mean depth distribution",

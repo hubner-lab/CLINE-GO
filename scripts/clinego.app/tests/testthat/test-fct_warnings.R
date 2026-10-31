@@ -7,7 +7,7 @@
 badge_text <- function(tag) {
     html <- as.character(tag)
     m <- regmatches(html, regexec(
-        '<span class="badge[^"]*" style="cursor:default[^"]*">(.*?)</span>', html))[[1]]
+        '<span class="badge note-badge[^"]*">(.*?)</span>', html))[[1]]
     if (length(m) < 2) return(NA_character_)
     trimws(gsub("\\s+", " ", gsub("<[^>]+>", "", m[2])))
 }
@@ -21,26 +21,32 @@ test_that("every warning id has its help note, and every label fits in 8 words",
     for (id in WARNING_NOTE_IDS) {
         expect_false(is.null(HELP_NOTES[[id]]), info = id)
         expect_false(is.null(warning_note(id, "x")), info = id)
+        # information, not teaching (A3): items, at most one short clause, the Config line
+        html <- as.character(warning_note(id, "x", items = c("a: 1", "b: 2")))
+        expect_match(html, "<li>a: 1</li>", fixed = TRUE, info = id)
+        expect_false(grepl("What it (means|shows)", html), info = id)
+        expect_lte(nchar(HELP_NOTES[[id]]$desc %||% ""), 100L)
     }
+    expect_null(warning_note("warn_no_such_id", "x"))
     flags <- data.table::data.table(predictor = c("bio_8", "bio_11", "bio_17"),
                                     flag = c("identical", "identical", "binary"),
                                     detail = c("bio_11", "bio_8", "0 and 1"))
     stripe2 <- data.table::data.table(method = "EMMAX", traits = "bio_15", n_hits = 210L,
                                       n_stripes = 8L, n_stripe_hits = 203L, largest = 135L,
-                                      n_chr = 6L)
+                                      largest_p = 2.5e-9, n_chr = 6L)
     notes <- list(
         stripe_note(stripe2),
         stripe_note(data.table::copy(stripe2)[, n_stripes := 1L]),
         ld_decay_note(list(status = "unreliable", reason = "r")),
         ld_decay_note(list(status = "not assessed", reason = "r")),
-        identical_predictors_note(flags, c("bio_8", "bio_11")),
-        binary_predictors_note(flags, "bio_17"),
-        binary_predictors_note(rbind(flags, data.table::data.table(
-            predictor = "bio_18", flag = "binary", detail = "1 and 2")), c("bio_17", "bio_18")),
+        climate_predictors_note(flags, c("bio_8", "bio_11")),
+        climate_predictors_note(flags, "bio_17"),
+        climate_predictors_note(rbind(flags, data.table::data.table(
+            predictor = "bio_18", flag = "binary", detail = "1 and 2")),
+            c("bio_8", "bio_11", "bio_17", "bio_18")),
         climate_dropped_note(list(no_coords = "GAL05",
                                   no_climate = data.table::data.table(sample = "X1",
                                                                       reason = "sea"))),
-        rda_offset_note(list(aliased_terms = "bio_15,bio_16")),
         chip_legend(flags, "bio_14", "bio_8", "leg", "warn_predictor_chips", "predictor"),
         cross_entropy_note(list(k_end = 7L, k_values = 2:7, ce = 7:2 / 10)),
         dbmem_selection_note(list(state = "fallback", mems = "MEM2")),
@@ -71,8 +77,11 @@ test_that("stripes: SNPs of one scan tied on p across chromosomes", {
                      c(6L, 1L, 5L, 5L, 3L))
     expect_identical(stripe_label(st), "Stripe: 5 hits share one genotype")
     expect_match(badge_text(stripe_note(st)), "^Stripe: 5 hits")
-    # punctuation stays on its word (a separate child would print as " :")
-    expect_match(as.character(stripe_note(st)), "bio_15: 5 of 6 hits in 1 tied p-value; the largest")
+    # one item per scan: the scan, its ties, the largest tie's p and hits; no teaching block
+    html <- as.character(stripe_note(st))
+    expect_match(html, "<li>EMMAX, bio_15: 5 of 6 hits in 1 tie; largest p = 2.5e-09, 5 hits on 3 chromosomes</li>",
+                 fixed = TRUE)
+    expect_false(grepl("What it means", html))
     expect_null(stripe_note(st, wza = TRUE))
 
     # ties read at 10 significant digits
@@ -136,18 +145,23 @@ test_that("predictor counters read the selected predictors only (e83e54)", {
     f <- clim_fixture(3)
     fl <- predictor_flags(f$clim, f$meta)
     # SIMDATA-like: the flagged layers are not selected
-    expect_null(identical_predictors_note(fl, c("bio_12")))
-    expect_null(binary_predictors_note(fl, c("bio_12")))
+    expect_null(climate_predictors_note(fl, c("bio_12")))
     # one twin selected alone is no duplicate
-    expect_null(identical_predictors_note(fl, c("bio_8", "bio_12")))
+    expect_null(climate_predictors_note(fl, c("bio_8", "bio_12")))
     expect_identical(selected_twin_sets(fl, c("bio_8", "bio_11", "bio_12")),
                      list(c("bio_8", "bio_11")))
-    expect_identical(badge_text(identical_predictors_note(fl, c("bio_8", "bio_11"))),
-                     "1 selected predictor duplicates another")
-    expect_identical(badge_text(identical_predictors_note(fl, c("bio_1", "bio_8", "bio_11"))),
-                     "2 selected predictors duplicate others")
-    expect_identical(badge_text(binary_predictors_note(fl, c("bio_17", "bio_1"))),
-                     "1 selected predictor takes two values")
+    expect_identical(badge_text(climate_predictors_note(fl, c("bio_8", "bio_11"))),
+                     "2 selected predictors: identical")
+    expect_identical(badge_text(climate_predictors_note(fl, c("bio_1", "bio_8", "bio_11"))),
+                     "3 selected predictors: identical")
+    expect_identical(badge_text(climate_predictors_note(fl, c("bio_17", "bio_12"))),
+                     "1 selected predictor: two-valued")
+    # one badge for both problems (W4), one item per twin set and per two-valued predictor
+    both <- climate_predictors_note(fl, c("bio_8", "bio_11", "bio_17"))
+    expect_identical(badge_text(both), "3 selected predictors: identical or two-valued")
+    expect_match(as.character(both), "<li>bio_8 = bio_11: identical at every sample</li>", fixed = TRUE)
+    expect_match(as.character(both), "<li>bio_17: two values across the sites, 0 and 1</li>",
+                 fixed = TRUE)
     expect_identical(selected_invariant(c("bio_14", "bio_15"), c("bio_1", "bio_15")), "bio_15")
     expect_identical(selected_invariant("bio_14", c("bio_1", "bio_2")), character(0))
 })
@@ -164,16 +178,21 @@ test_that("the chips mark identical and two-valued predictors, selectable; invar
     expect_match(chip("bio_8"), 'data-flag="identical"')
     expect_match(chip("bio_8"), "identical to bio_1, bio_11 at every sample")
     expect_match(chip("bio_17"), 'data-flag="binary"')
-    expect_match(chip("bio_17"), "only two values across the sites: 0 and 1")
+    expect_match(chip("bio_17"), "two values across the sites, 0 and 1")
+    # no corner icons: a marked chip is orange, the legend names each problem (C1)
+    expect_false(grepl("bc-flag-icons", html))
+    expect_match(html, "<li>bio_8: identical to bio_1, bio_11 at every sample</li>", fixed = TRUE)
+    expect_match(html, "<li>bio_14: no variance, cannot be selected</li>", fixed = TRUE)
     expect_false(grepl("bc-active", chip("bio_17")))
     expect_match(chip("bio_14"), "bc-invariant")
     expect_false(grepl("bc-flagged", chip("bio_14")))
     expect_false(grepl("bc-flagged", chip("bio_12")))
     expect_match(html, 'id="cfg-Climate_predictors_legend"')
     # a marked chip is selected (bio_8): the legend starts amber
-    expect_match(html, 'class="badge bg-warning text-dark"')
+    expect_match(html, 'class="badge note-badge bg-warning text-dark"')
     calm <- as.character(render_bio_chips("cfg-x", "bio_12", invariant = "bio_14", flags = fl))
-    expect_false(grepl('class="badge bg-warning', calm))
+    expect_false(grepl('class="badge note-badge bg-warning', calm))
+    expect_match(calm, 'class="badge note-badge bg-secondary"')
     expect_match(calm, "marked predictors")
     # nothing marked: no legend
     none <- as.character(render_bio_chips("cfg-y", "bio_1", choices = c("bio_1", "bio_2")))
@@ -207,18 +226,11 @@ test_that("samples left out of the climate analyses", {
                                reason = "falls on ocean/NoData pixel"))
     expect_identical(d$no_coords, c("GAL05", "GAL06"))
     expect_identical(badge_text(climate_dropped_note(d)), "3 samples left out of climate analyses")
-    expect_match(as.character(climate_dropped_note(d)), "NEG03 \\(falls on ocean/NoData pixel\\)")
+    expect_match(as.character(climate_dropped_note(d)), "<li>no coordinates: GAL05, GAL06</li>",
+                 fixed = TRUE)
+    expect_match(as.character(climate_dropped_note(d)), "<li>falls on ocean/NoData pixel: NEG03</li>",
+                 fixed = TRUE)
     expect_null(climate_dropped_samples(NULL, NULL))
-})
-
-test_that("RDA offset: aliased predictors from the run's own record (0214e1)", {
-    expect_null(rda_offset_note(list(aliased_terms = "", predictors = "bio_1,bio_2,bio_3")))
-    expect_null(rda_offset_note(list()))
-    n <- rda_offset_note(list(aliased_terms = "bio_15", predictors = "bio_1,bio_15",
-                              n_sites = "9", rda_axes_used = "2", rda_axes_max = "3"))
-    expect_identical(badge_text(n), "Offset model dropped 1 aliased predictor")
-    expect_match(as.character(n), "aliased: bio_15\\.")
-    expect_match(as.character(n), "axes 2 of 3")
 })
 
 test_that("cross-entropy without a minimum: lowest at the largest K, three K or more", {
@@ -249,7 +261,7 @@ test_that("dbMEM: the fallback axis is amber, a table without the column unknown
     expect_match(as.character(dbmem_selection_note(fb)), "bg-warning")
     old <- dbmem_selection_state(data.table::data.table(mem = "MEM1", selected = TRUE))
     expect_identical(old$state, "unknown")
-    expect_match(as.character(dbmem_selection_note(old)), 'class="badge bg-secondary"')
+    expect_match(as.character(dbmem_selection_note(old)), 'class="badge note-badge bg-secondary"')
     expect_null(dbmem_selection_state(NULL))
 })
 

@@ -47,13 +47,27 @@ lab_kpi_row <- function(ns, boxes_id = "summary_boxes", alert_id = "lea_losses_a
 }
 
 #' A KPI value box in the house style. Wraps bslib::value_box so every module's
-#' strip looks identical without repeating showcase/theme boilerplate.
-lab_value_box <- function(title, value, theme = "primary", icon = "dot") {
+#' strip looks identical without repeating showcase/theme boilerplate; every KPI row of
+#' the app is built from it (I6). `...` is extra content under the value.
+lab_value_box <- function(title, value, theme = "primary", icon = "dot", ...) {
     bslib::value_box(
         title    = title,
         value    = value,
+        ...,
         theme    = theme,
         showcase = bsicons::bs_icon(icon)
+    )
+}
+
+#' A row of KPI tiles in the compact house style, outside a lab_kpi_row() output
+#' (Home, the RDA details, the offset comparison).
+#' @param width layout_column_wrap() width of one tile.
+lab_kpi_tiles <- function(..., width = "200px") {
+    tiles <- Filter(Negate(is.null), list(...))   # a conditional tile may be NULL
+    htmltools::div(
+        class = "lab-kpi-row lab-kpi-boxes",
+        do.call(bslib::layout_column_wrap,
+                c(list(width = width, fill = FALSE, heights_equal = "row"), tiles))
     )
 }
 
@@ -61,9 +75,9 @@ lab_value_box <- function(title, value, theme = "primary", icon = "dot") {
 #' arguments are display strings; format numbers before passing them.
 lab_arrow_value <- function(before, after) {
     htmltools::div(
-        style = "display:flex; align-items:baseline; gap:0.4rem;",
-        htmltools::span(style = "opacity:0.7;", before),
-        htmltools::span(style = "opacity:0.6; font-size:0.9em;", "\u2192"),
+        class = "lab-arrow-value",
+        htmltools::span(class = "lab-arrow-before", before),
+        htmltools::span(class = "lab-arrow", "\u2192"),
         htmltools::strong(after)
     )
 }
@@ -140,8 +154,7 @@ lab_het_table_card <- function(ns) {
         bslib::card_header(
             class = "d-flex justify-content-between align-items-center",
             htmltools::span(bsicons::bs_icon("table"), " Sample Heterozygosity"),
-            shiny::downloadButton(ns("dl_het"), "CSV",
-                                  class = "btn-sm btn-outline-secondary")
+            lab_download_button(ns("dl_het"), "CSV")
         ),
         bslib::card_body(DT::DTOutput(ns("het_table")))
     )

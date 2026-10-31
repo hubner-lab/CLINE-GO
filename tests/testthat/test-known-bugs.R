@@ -226,8 +226,7 @@ test_that("annotate_cross_trait_overlaps handles NULL the way its own guard impl
 # ---------------------------------------------------------------------------
 
 test_that("get_trait_colors returns an empty palette for no traits", {
-    skip("known bug: manhattan_utils.R:85 uses 1:length(traits) — filed 2026-09-12")
-
+    # fixed in A4 (I1): the rule moved to theme_clinego.R's clinego_trait_colors(), seq_along
     got <- get_trait_colors(character(0))
     expect_length(got, 0L)
 })

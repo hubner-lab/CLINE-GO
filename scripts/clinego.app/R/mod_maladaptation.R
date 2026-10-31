@@ -127,7 +127,7 @@ mod_maladaptation_server <- function(id, project_data, snp_sets_trigger = NULL) 
             if (is.null(selected_set_name())) return(NULL)
             shiny::actionButton(ns("set_delete"),
                 label = htmltools::tagList(bsicons::bs_icon("trash3"), " Delete"),
-                class = "btn btn-outline-danger btn-sm ms-1")
+                class = "btn btn-danger btn-sm ms-1")
         })
 
         shiny::observeEvent(input$set_delete, {
@@ -190,14 +190,13 @@ mod_maladaptation_server <- function(id, project_data, snp_sets_trigger = NULL) 
             n_total <- if (nrow(n_total_row) > 0) suppressWarnings(as.integer(n_total_row$value[1])) else NA_integer_
             label <- if (!is.na(n_total) && n_total > 0) {
                 pct <- round(100 * n / n_total, 1)
-                paste0("\u25c6 ", n, " / ", format(n_total, big.mark = ","), " adaptive SNPs (", pct, "%)")
+                paste0(n, " / ", format(n_total, big.mark = ","), " adaptive SNPs (", pct, "%)")
             } else {
-                paste0("\u25c6 ", n, " adaptive SNPs")
+                paste0(n, " adaptive SNPs")
             }
             htmltools::tags$span(
-                class = "badge bg-secondary ms-2 align-self-center",
-                style = "font-size:0.85rem; vertical-align:middle;",
-                label
+                class = "badge lab-badge bg-secondary ms-2 align-self-center",
+                bsicons::bs_icon("diamond-fill"), label
             )
         })
 
@@ -214,18 +213,6 @@ mod_maladaptation_server <- function(id, project_data, snp_sets_trigger = NULL) 
             pd     <- project_data()
             if (is.null(suf) || is.null(pd) || !identical(method, "gradient_forest")) return(NULL)
             gf_sensitivity_note(load_gf_sensitivity(pd$name, suf, method))
-        })
-
-        # ── RDA offset: predictors its model aliased (0214e1) ────────────────
-        # rda_offset_diagnostics.tsv is the run's own record; an aliased predictor is
-        # one the offset was fitted without, dropped by column order.
-        output$rda_offset_badge <- shiny::renderUI({
-            suf    <- selected_suffix()
-            method <- selected_method()
-            pd     <- project_data()
-            if (is.null(suf) || is.null(pd) || !identical(mala_engine(method), "rda_offset"))
-                return(NULL)
-            rda_offset_note(load_rda_offset_diagnostics(pd$name, suf, method))
         })
 
         # ── G2: Method run parameters badge (method-aware) ───────────────────
@@ -327,9 +314,8 @@ mod_maladaptation_server <- function(id, project_data, snp_sets_trigger = NULL) 
             htmltools::div(
                 class = "ms-1 align-self-center",
                 htmltools::tags$span(
-                    class = "badge bg-info text-dark align-self-center",
-                    style = "font-size:0.75rem;",
-                    paste0("\u2601 Future: ", paste(label_parts, collapse = " "))
+                    class = "badge lab-badge bg-info text-dark align-self-center",
+                    bsicons::bs_icon("cloud"), paste0(" Future: ", paste(label_parts, collapse = " "))
                 )
             )
         })
@@ -529,12 +515,11 @@ mod_maladaptation_server <- function(id, project_data, snp_sets_trigger = NULL) 
 
         output$site_table <- DT::renderDataTable({
             dt <- site_data()
+            # the card header's CSV is the table's one download (I3)
             safe_datatable(
                 as.data.frame(dt),
-                extensions = "Buttons",
                 options    = list(
-                    dom       = "Bfrtip",
-                    buttons   = list("csv"),
+                    dom       = "frtip",
                     scrollX   = TRUE,
                     pageLength = 20
                 ),
@@ -594,10 +579,9 @@ mod_maladaptation_server <- function(id, project_data, snp_sets_trigger = NULL) 
             if (!identical(tag_a, tag_b)) {
                 htmltools::div(
                     class = "alert alert-warning py-1 px-2 small mt-1 mb-0",
-                    htmltools::HTML("&#9888; Spatial tags differ (",
-                                   htmltools::strong(tag_a),
-                                   " vs ", htmltools::strong(tag_b),
-                                   "). Rank comparison is still valid; absolute magnitudes are not directly comparable.")
+                    bsicons::bs_icon("exclamation-triangle-fill"), " Spatial tags differ (",
+                    htmltools::strong(tag_a), " vs ", htmltools::strong(tag_b),
+                    "). Rank comparison is still valid; absolute magnitudes are not directly comparable."
                 )
             } else NULL
         })
@@ -705,8 +689,7 @@ mod_maladaptation_server <- function(id, project_data, snp_sets_trigger = NULL) 
             }
 
             # KPI strip
-            kpi_strip <- htmltools::div(
-                class = "mb-3",
+            kpi_strip <- lab_kpi_tiles(
                 compare_stat_box(
                     value  = stats$spearman_rho,
                     label  = "Spearman ρ (sites)",
@@ -787,7 +770,7 @@ mod_maladaptation_server <- function(id, project_data, snp_sets_trigger = NULL) 
             nov_info <- if (file_ok(nov_t)) {
                 tryCatch({
                     dt <- data.table::fread(nov_t)
-                    htmltools::div(
+                    lab_kpi_tiles(
                         compare_stat_box(paste0(dt$pct_cells_novel, "%"), "Novel cells (NT1 < 0 or NT2 > 1)"),
                         compare_stat_box(paste0(dt$pct_cells_type1 %||% NA, "%"), "Type 1: outside univariate range"),
                         compare_stat_box(paste0(dt$pct_cells_type2 %||% NA, "%"), "Type 2: novel combination"),
@@ -845,16 +828,14 @@ mod_maladaptation_server <- function(id, project_data, snp_sets_trigger = NULL) 
                     htmltools::span(class = "fw-semibold", "Rank concordance"),
                     help_note("compare_concordance")
                 ),
-                htmltools::div(
-                    compare_stat_box(stats$spearman_rho, "Spearman ρ", stats$spearman_p,
-                                     accent = "#1B7A6E"),
+                lab_kpi_tiles(
+                    compare_stat_box(stats$spearman_rho, "Spearman ρ", stats$spearman_p),
                     compare_stat_box(stats$kendall_tau,  "Kendall τ",  stats$kendall_p),
                     if (!is.null(stats$dutilleul_p) && !is.na(stats$dutilleul_p))
                         compare_stat_box(
                             signif(stats$dutilleul_p, 3),
                             paste0("Dutilleul p (nₑₓₓ≈",
-                                   round(stats$dutilleul_n_eff), ")"),
-                            accent = "#5b9bd5"
+                                   round(stats$dutilleul_n_eff), ")")
                         )
                 ),
                 # Scatter: Model A vs Model B offset per site
@@ -862,8 +843,8 @@ mod_maladaptation_server <- function(id, project_data, snp_sets_trigger = NULL) 
                     ggplot2::ggplot(as.data.frame(dt),
                                     ggplot2::aes(x = offset_a, y = offset_b,
                                                   label = site)) +
-                        ggplot2::geom_point(color = "#1B7A6E", alpha = 0.7, size = 2.5) +
-                        ggplot2::geom_smooth(method = "lm", color = "#888", se = TRUE, linewidth = 0.8) +
+                        ggplot2::geom_point(color = APP_COLORS[["primary"]], alpha = 0.7, size = 2.5) +
+                        ggplot2::geom_smooth(method = "lm", color = APP_COLORS[["secondary"]], se = TRUE, linewidth = 0.8) +
                         ggplot2::labs(
                             x = stats$model_a_label,
                             y = stats$model_b_label
@@ -883,11 +864,10 @@ mod_maladaptation_server <- function(id, project_data, snp_sets_trigger = NULL) 
                     htmltools::span(class = "fw-semibold", "Site stability"),
                     help_note("compare_stability")
                 ),
-                htmltools::div(
+                lab_kpi_tiles(
                     compare_stat_box(
                         paste0(round(stats$jaccard_top_k * 100), "%"),
-                        paste0("Jaccard top-", stats$top_k, " high-risk sites"),
-                        accent = "#d97706"
+                        paste0("Jaccard top-", stats$top_k, " high-risk sites")
                     )
                 ),
                 if (nrow(dt) > 0) {
@@ -896,7 +876,7 @@ mod_maladaptation_server <- function(id, project_data, snp_sets_trigger = NULL) 
                         dd$site <- factor(dd$site, levels = dd$site[order(dd$rank_diff, decreasing = TRUE)])
                         ggplot2::ggplot(utils::head(dd[order(-dd$rank_diff), ], 20),
                                         ggplot2::aes(x = site, y = rank_diff)) +
-                            ggplot2::geom_col(fill = "#d97706", alpha = 0.8) +
+                            ggplot2::geom_col(fill = APP_COLORS[["warning"]], alpha = 0.8) +
                             ggplot2::coord_flip() +
                             ggplot2::labs(x = NULL, y = "|Rank A − Rank B|") +
                             ggplot2::theme_minimal(base_size = 11)
@@ -919,8 +899,7 @@ mod_maladaptation_server <- function(id, project_data, snp_sets_trigger = NULL) 
                     htmltools::span(class = "fw-semibold", "N-way concordance"),
                     help_note("compare_nway")
                 ),
-                compare_stat_box(stats$kendall_w, "Kendall's W", stats$kendall_w_p,
-                                  accent = "#1B7A6E"),
+                lab_kpi_tiles(compare_stat_box(stats$kendall_w, "Kendall's W", stats$kendall_w_p)),
                 htmltools::p(
                     class = "small text-muted",
                     "Kendall's W = 0 (no concordance) to 1 (perfect concordance) across ",
@@ -952,7 +931,6 @@ mod_maladaptation_ui <- function(id) {
             shiny::uiOutput(ns("method_params_badge")),
             shiny::uiOutput(ns("climate_scenario_badge")),
             shiny::uiOutput(ns("sensitivity_badge")),
-            shiny::uiOutput(ns("rda_offset_badge")),
             htmltools::div(class = "ms-auto d-flex align-items-center gap-2",
                            shiny::uiOutput(ns("set_details_btn")),
                            shiny::uiOutput(ns("set_delete_btn")))
@@ -1004,8 +982,7 @@ mod_maladaptation_ui <- function(id) {
                     bslib::card_header(
                         class = "d-flex justify-content-between align-items-center",
                         htmltools::span(bsicons::bs_icon("geo-alt"), " Site offsets"),
-                        shiny::downloadButton(ns("dl_site"), "CSV",
-                                              class = "btn-sm btn-outline-secondary")
+                        lab_download_button(ns("dl_site"), "CSV")
                     ),
                     bslib::card_body(DT::DTOutput(ns("site_table")))
                 )

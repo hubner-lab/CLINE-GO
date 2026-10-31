@@ -145,3 +145,13 @@ Shiny.addCustomMessageHandler("config_dirty_update", function(msg) {
         }
     }
 });
+
+// The top bar's Save (I9): an amber dot while any sidebar holds a value that differs
+// from the saved config (app_server.R sums the sidebars' dirty counts).
+Shiny.addCustomMessageHandler("config_dirty_global", function(msg) {
+    var btn = document.getElementById("save_project_files");
+    if (!btn) return;
+    btn.classList.toggle("is-dirty", !!msg.dirty);
+    btn.title = msg.dirty ? "Unsaved changes: save the config of this project"
+                          : "Save the config of this project (config_<project>.yaml)";
+});

@@ -13,15 +13,20 @@ test_that("the semantic color constants hold their documented meanings", {
     expect_identical(CLINEGO_THRESHOLD, "#35274A")   # plum   — cutoff lines
     # Aliased on purpose: "no more grey dots" (user preference, documented :34-35).
     expect_identical(CLINEGO_NEUTRAL, CLINEGO_RETAINED)
+    # Aliased on purpose: every significance-threshold line in one red (F7, region plot).
+    expect_identical(CLINEGO_SIGNIFICANCE, CLINEGO_REMOVED)
 })
 
-test_that("CLINEGO_CATEGORICAL is the same Okabe-Ito palette manhattan_utils.R uses", {
-    # The file header claims these two palettes were converged. get_trait_colors()
-    # holds the other copy (manhattan_utils.R:82-83); if either is edited alone,
-    # a trait changes color between a Manhattan and a processing plot.
+test_that("the Manhattans take their trait colours from CLINEGO_CATEGORICAL (one rule, I1)", {
+    # get_trait_colors() (manhattan_utils.R) is clinego_trait_colors(): one palette, one rule,
+    # which the app's overlays read too (zzz.R's shared libs)
     from_manhattan <- unname(get_trait_colors(sprintf("t%d", 1:8)))
     expect_identical(CLINEGO_CATEGORICAL, from_manhattan)
     expect_length(CLINEGO_CATEGORICAL, 8L)
+    expect_identical(get_trait_colors(c("bio_2", "bio_1")),
+                     c(bio_2 = CLINEGO_CATEGORICAL[[1]], bio_1 = CLINEGO_CATEGORICAL[[2]]))
+    expect_length(clinego_trait_colors(character(0)), 0L)
+    expect_length(unique(clinego_trait_colors(sprintf("t%d", 1:9))), 9L)   # turbo past 8
 })
 
 test_that("clinego_cluster_palette returns the first n colors within the palette", {

@@ -65,7 +65,8 @@ Biological data is messy. Different tools and file formats introduce inconsisten
 9. **Use the shared theme for new plots** — `scripts/R/utils/theme_clinego.R` (`source()` it, same pattern as `scripts/R/utils/manhattan_utils.R`) defines the pipeline's plot look, rolled out to `plot_qc_processing.R` first and intended to extend to the rest of `scripts/*.R` over time. Reuse it rather than inventing per-script themes/palettes:
    - `theme_clinego()` — "Publication Classic": `theme_classic()` base (axis lines, no gridlines), no `base_family` (Docker ships no fonts; setting one silently falls back to default sans while implying a match that isn't there).
    - Semantic colors (from `wesanderson::wes_palette("Rushmore1")`'s last 3 entries, user preference) — always use these constants, never raw hex, so meaning stays consistent everywhere: `CLINEGO_RETAINED` (green `#0B775E`, also aliased as `CLINEGO_NEUTRAL` for plain/no-flag data points — no grey dots by request), `CLINEGO_REMOVED` (red `#F2300F`, flagged/dropped/discarded), `CLINEGO_THRESHOLD` (dark plum `#35274A`, cutoff/reference lines).
-   - `CLINEGO_CATEGORICAL` — Okabe-Ito colorblind-safe palette + `scale_color_clinego()`/`scale_fill_clinego()`, for multi-level categorical grouping (traits, methods, etc.) — converges the palette already duplicated across `manhattan_utils.R`/`fct_manhattan.R`/`mod_gea.R`.
+   - `CLINEGO_SIGNIFICANCE` (alias of `CLINEGO_REMOVED`, red) — significance-threshold lines (A4, F7): the region plot draws every threshold in it, one line per distinct threshold, each with its own dash pattern (never solid; dotted is the region's edges), named in its "Significance threshold" legend by the methods it carries, or by its series when a method is split over lines (`threshold_lines()` / `add_threshold_lines()`, `scripts/R/lib/region_plot.R`). The Manhattans' and the Miami's dashed significance lines take it too (the user, A4); the other plots keep their cutoffs in plum `CLINEGO_THRESHOLD`.
+   - `CLINEGO_CATEGORICAL` — Okabe-Ito colorblind-safe palette + `scale_color_clinego()`/`scale_fill_clinego()`, for multi-level categorical grouping (traits, methods, etc.). Its one copy since A4 (I1): `clinego_trait_colors()` (the palette in the order given, turbo above 8) is the rule the Manhattans (`get_trait_colors()`, which the three Manhattan scripts reach by sourcing `theme_clinego.R`) and the Shiny app's overlays (`trait_color_map()`, `theme_clinego.R` being one of `zzz.R`'s shared libs, traits in the config's order) share.
 
 ## Build and Run Commands
 
@@ -600,7 +601,7 @@ aesthetic. Playwright replaces the *mechanical* half of that loop, not the judge
 
 **Module files** (`R/`):
 - `app_ui.R`, `app_server.R`, `run_app.R` — top-level app entry point
-- `app_theme.R` — bslib Bootstrap 5 theme ("Precision Genomics": primary #1B7A6E, navbar #1A2332)
+- `app_theme.R` — bslib Bootstrap 5 theme ("Precision Genomics": primary #1B7A6E, navbar #1A2332); `APP_COLORS` is the one place the app writes its colours (the SCSS reads the theme's Sass variables, R code reads `APP_COLORS`). Dark mode only since A4: `app_ui.R` sets `data-bs-theme="dark"` in `<head>`, there is no light theme and no toggle, and the SCSS has no light variant to keep in step
 - `app_config.R` — `get_pipeline_path()` (option → golem-config.yml → env var → /pipeline)
 - `fct_paths.R` — all output path functions, MOD_* constants
 - `fct_discovery.R` — runtime discovery: `find_projects()`, `find_k_values()`, `find_assoc_methods()`, etc.
@@ -614,7 +615,7 @@ aesthetic. Playwright replaces the *mechanical* half of that loop, not the judge
 - `fct_regions.R`, `fct_combine.R`, `fct_overlap.R` — on-the-fly regions, combine strategies and GEA x GWAS overlap for interactive exploration
 - `fct_threshold_rules.R`, `fct_region_params.R`, `fct_snp_sets.R` — per-cell significance rules; per-region parameter persistence; curated SNP sets
 - `fct_help_notes.R`, `fct_method_registry.R`, `fct_model_compare.R` — plot help notes; the GEA method registry bridged from Python; offset-model comparison (`compare_offsets.R`)
-- `fct_warnings.R` — amber warnings about data problems (Manhattan stripes, LD decay unreliable, identical / two-valued predictors and traits on the chips, samples without climate, aliased RDA-offset predictors, cross-entropy without a minimum, the dbMEM fallback): pure rules on exact equalities or the pipeline's own rule, rendered as `help_note()` badges whose texts are the `warn_*` entries of `HELP_NOTES`; they never change an analysis
+- `fct_warnings.R` — amber warnings about data problems (Manhattan stripes, LD decay unreliable, identical / two-valued predictors and traits on the chips, samples without climate, cross-entropy without a minimum, the dbMEM fallback): pure rules on exact equalities or the pipeline's own rule, rendered by `warning_note()`, whose tooltip informs rather than teaches: what was found, item by item (which scan, predictor, trait or sample, which problem, its value), then at most one short clause and the Config line from the `warn_*` entry of `HELP_NOTES`; they never change an analysis
 - `utils_ui.R`, `utils_dashboard.R` — `plot_placeholder()`, `region_info_bar()`, `help_note()` and the shared dashboard primitives
 - `utils_helpers.R` — `file_ok()`, `resolve_adjust()`, `make_project_data()`, `safe_datatable()`
 - `zzz.R` — loads the shared pipeline libraries into the package namespace at load time

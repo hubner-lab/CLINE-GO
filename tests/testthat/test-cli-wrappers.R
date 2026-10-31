@@ -1237,6 +1237,64 @@ test_that("plot_regionplot.R repels the gene labels instead of falling back to t
     expect_true(file.exists(file.path(d, "regionplot_custom_1_10040000_10060000_genes.svg")))
 })
 
+test_that("plot_regionplot.R draws every threshold in one red, a dash pattern each, named in the legend (F7)", {
+    # fx_regionplot_inputs' two rules give two lines, each shared by two series: LFMM's custom
+    # 1e-3 (bio_2, bio_10) and EMMAX's Bonferroni 0.05/41 (bio_1, bio_2). Read from the SVGs the
+    # script writes beside the PNG: svglite gives every line its stroke and dash pattern.
+    skip_if_not(dir.exists(SCRIPTS), "scripts/ not mounted")
+    d <- withr::local_tempdir()
+    sandbox <- file.path(d, "cwd"); dir.create(sandbox)
+    f <- fx_regionplot_inputs(d)
+    res <- run_wrapper("plot_regionplot.R",
+                       c("NULL", f[1], paste0("EMMAX:bonf_0.05:", f[2], ",LFMM:custom_1e-3:", f[2]),
+                         "0", "all", f[3], "1:10040000-10060000",
+                         "bio_2:EMMAX|LFMM,bio_10:LFMM,bio_1:EMMAX", "NULL", "snp", "20000"),
+                       wd = sandbox)
+    expect_identical(res$status, 0L, info = res$output)
+    # each line carries all of its method's series, so it is named by the method
+    expect_match(res$output, "Threshold line 1 (dashed): p = 0.001, LFMM", fixed = TRUE)
+    expect_match(res$output, "Threshold line 2 (dotdash): p = 0.00122, EMMAX", fixed = TRUE)
+    svg <- function(panel) paste(readLines(file.path(
+        d, paste0("regionplot_custom_1_10040000_10060000_", panel, ".svg")), warn = FALSE),
+        collapse = "\n")
+    red_lines <- function(x) grep(paste0("stroke: ", CLINEGO_SIGNIFICANCE, ";"),
+                                  regmatches(x, gregexpr("<line [^>]*>", x))[[1]],
+                                  fixed = TRUE, value = TRUE)
+    dashes <- function(l) sub(".*stroke-dasharray: ([0-9.,]+);.*", "\\1", l)
+
+    main <- svg("main")
+    red <- red_lines(main)
+    expect_length(red, 4L)                                 # two lines in the panel, two legend keys
+    expect_true(all(grepl("stroke-dasharray", red)))       # no solid one
+    expect_length(unique(dashes(red)), 2L)                 # a pattern per line
+    expect_false(grepl(CLINEGO_THRESHOLD, main, fixed = TRUE))   # the old shared-line plum
+    for (lab in c("Significance threshold", "LFMM", "EMMAX"))
+        expect_true(grepl(paste0(">", lab, "<"), main, fixed = TRUE), info = lab)
+
+    ov <- red_lines(svg("overview"))                       # the same two lines, no legend
+    expect_length(ov, 2L)
+    expect_length(unique(dashes(ov)), 2L)
+})
+
+test_that("plot_regionplot.R draws no line, and still draws the plot, when no rule yields a threshold", {
+    # top_100 on the fixture's 41 SNPs yields no threshold. Until A4 the script then passed
+    # sign_thresh = NULL to topr, whose overview panel (topr 2.0.4) stops on it with "object 'i'
+    # not found" on a custom-region call, and no file was written.
+    skip_if_not(dir.exists(SCRIPTS), "scripts/ not mounted")
+    d <- withr::local_tempdir()
+    sandbox <- file.path(d, "cwd"); dir.create(sandbox)
+    f <- fx_regionplot_inputs(d)
+    res <- run_wrapper("plot_regionplot.R",
+                       c("NULL", f[1], paste0("EMMAX:top_100:", f[2]), "0", "all", f[3],
+                         "1:10040000-10060000", "bio_1:EMMAX", "NULL", "snp"),
+                       wd = sandbox)
+    expect_identical(res$status, 0L, info = res$output)
+    expect_match(res$output, "no significance line drawn", fixed = TRUE)
+    main <- readLines(file.path(d, "regionplot_custom_1_10040000_10060000_main.svg"), warn = FALSE)
+    expect_false(any(grepl(CLINEGO_SIGNIFICANCE, main, fixed = TRUE)))
+    expect_gt(file.size(file.path(d, "regionplot_custom_1_10040000_10060000.png")), 0)
+})
+
 test_that("plot_regionplot.R draws every gene when no gene list is given", {
     # 5080b0: the app passes "NULL" when the config names no genes, which used to filter the
     # gene track to gene_symbol %in% "NULL" -- zero rows, an empty track.

@@ -113,7 +113,7 @@ test_that("a prepared config round-trips through yaml", {
     expect_identical(back$GEA$configs[[2]]$method, "LFMM")
 })
 
-test_that("Save Project Files keeps GEA.snp_sets / GWAS.snp_sets", {
+test_that("Save keeps GEA.snp_sets / GWAS.snp_sets", {
     # The app re-writes the whole project config on Save and on Run. snp_sets
     # declarations are lists of maps the sidebar has no input for, so they must
     # pass through collect_tab_config() + write_project_config() untouched. Read

@@ -47,8 +47,7 @@ region_info_bar <- function(region_id, n_snps = NULL, n_exon = NULL,
 #' @noRd
 config_badge <- function(label, value, class = "bg-secondary") {
     htmltools::tags$span(
-        class = paste("badge me-1", class),
-        style = "font-size:0.75rem; font-weight:500;",
+        class = paste("badge lab-badge me-1", class),
         paste0(label, ": ", value)
     )
 }
@@ -58,8 +57,7 @@ config_badge <- function(label, value, class = "bg-secondary") {
 #' @noRd
 config_badges_bar <- function(...) {
     htmltools::div(
-        class = "d-flex flex-wrap align-items-center gap-1 mb-2",
-        style = "opacity:0.85;",
+        class = "d-flex flex-wrap align-items-center gap-1 mb-2 lab-config-badges",
         bsicons::bs_icon("gear-fill", size = "0.8em", class = "text-muted me-1"),
         ...
     )
@@ -165,8 +163,7 @@ wza_window_note <- function(context = "gea") {
     bslib::popover(
         trigger = bsicons::bs_icon("info-circle",
                                    title = "WZA window size",
-                                   class = "text-muted ms-1",
-                                   style = "cursor:pointer;"),
+                                   class = "text-muted ms-1 lab-clickable"),
         title = "WZA window size",
         body
     )
@@ -199,6 +196,21 @@ wza_collapse_note <- function(stats) {
     )
 }
 
+#' An input at one of the app's fixed widths, kept in SCSS (.lab-w-<px>) rather than an
+#' inline style, so the widths sit beside the rules that override them (I12).
+#' @noRd
+lab_input_width <- function(input, px) {
+    htmltools::tagAppendAttributes(input, class = paste0("lab-w-", px))
+}
+
+#' A download button in the house style: the Bootstrap download icon (shiny's default
+#' is Font Awesome, a second icon set, I3) and the outline-secondary class.
+#' @noRd
+lab_download_button <- function(id, label, class = "btn-sm btn-outline-secondary") {
+    shiny::downloadButton(id, htmltools::tagList(bsicons::bs_icon("download"), label),
+                          class = class, icon = NULL)
+}
+
 #' Small badge that reveals a note in a hover tooltip.
 #'
 #' Generic building block for the "instructional text belongs in Shiny, not baked into
@@ -216,8 +228,7 @@ wza_collapse_note <- function(stats) {
 filter_note <- function(label, body, class = "bg-secondary", placement = "right",
                         icon = "info-circle-fill") {
     trigger <- htmltools::tags$span(
-        class = paste("badge", class),
-        style = "cursor:default; font-size:0.7rem; font-weight:500;",
+        class = paste("badge note-badge", class),
         bsicons::bs_icon(icon, size = "0.75em"), " ", label
     )
     bslib::tooltip(trigger, body, placement = placement)

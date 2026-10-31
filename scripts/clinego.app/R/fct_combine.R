@@ -2,21 +2,29 @@
 # Ports combine logic from scripts/combine_selected_snps.R using data.table
 # (avoids GenomicRanges dependency in Shiny).
 
-#' Okabe-Ito colour palette (8 colours, colour-blind safe)
-#' @noRd
-OKABE_ITO <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442",
-               "#0072B2", "#D55E00", "#CC79A7", "#999999")
-
-#' Map traits to Okabe-Ito colours (sorted order, consistent with build_manhattan_plotly)
+#' Trait -> colour by the pipeline's own rule (clinego_trait_colors(), theme_clinego.R:
+#' the Okabe-Ito palette in order, turbo above 8 traits) and in the pipeline's order, so an
+#' overlay marker has the colour its trait has in the pipeline's Manhattan PNG (I1): the
+#' configured list first (Climate.predictors, GWAS.traits: what combine_predictors()
+#' passes the plot scripts), then any other trait, sorted (a multivariate pseudo-trait,
+#' which the pipeline also puts last; every trait when the list is unset).
 #'
 #' @param traits character vector of trait names
+#' @param order  the configured trait list, in config order
 #' @return named character vector: trait → hex colour
 #' @noRd
-trait_color_map <- function(traits) {
-    traits_sorted <- sort(unique(traits))
-    n <- length(traits_sorted)
-    colors <- rep(OKABE_ITO, ceiling(n / length(OKABE_ITO)))[seq_len(n)]
-    stats::setNames(colors, traits_sorted)
+trait_color_map <- function(traits, order = character(0)) {
+    traits <- unique(as.character(traits))
+    clinego_trait_colors(c(intersect(order, traits), sort(setdiff(traits, order))))
+}
+
+#' The configured trait lists a source's colours follow (trait_color_map()).
+#' @param source "gea", "gwas", or "both" (GEAxGWAS: GEA's then GWAS's).
+#' @noRd
+trait_color_order <- function(config, source) {
+    gea  <- parse_csv_list(config_get(config, "Climate", "predictors", default = NULL))
+    gwas <- parse_csv_list(config_get(config, "GWAS", "traits", default = NULL))
+    switch(source, gea = gea, gwas = gwas, both = unique(c(gea, gwas)))
 }
 
 #' Plotly symbol names for methods (8 symbols, reused via recycling)
@@ -209,30 +217,29 @@ build_threshold_bar_ui <- function(ns, input_prefix = "",
             ),
             wza_window_note(regime_context)
         ),
-        # Threshold type + value
+        # Threshold type + value; the row wraps at narrow widths, so the hint moves
+        # under the inputs instead of being squeezed (d1b327)
         htmltools::div(
-            class = "d-flex align-items-end gap-2",
+            class = "d-flex flex-wrap align-items-end gap-2",
             htmltools::div(
                 class = "d-flex flex-column",
                 htmltools::span("Significance threshold", class = "filter-label mb-1"),
-                shiny::selectInput(
+                lab_input_width(shiny::selectInput(
                     pid("threshold_type"),
                     label = NULL,
                     choices = THRESHOLD_TYPE_CHOICES,
-                    selected = threshold_type_value,
-                    width = "150px"
-                )
+                    selected = threshold_type_value
+                ), 150)
             ),
             htmltools::div(
                 class = "d-flex flex-column",
                 htmltools::span(" ", class = "filter-label mb-1"),
-                shiny::numericInput(
+                lab_input_width(shiny::numericInput(
                     pid("threshold_value"),
                     label = NULL,
                     value = threshold_value_value,
-                    min = 0, step = NA,
-                    width = "110px"
-                )
+                    min = 0, step = NA
+                ), 110)
             ),
             shiny::uiOutput(pid("threshold_hint")),
             if (show_apply_to_config) htmltools::div(
@@ -246,7 +253,7 @@ build_threshold_bar_ui <- function(ns, input_prefix = "",
                     title = paste(
                         "Collapse the master/registry/override rules into one",
                         "adjust+threshold per method and write it into the",
-                        "project config (Run or Save Project Files to persist to YAML)."
+                        "project config (Run or Save, top right, to write it to the YAML)."
                     )
                 )
             )
@@ -555,11 +562,10 @@ build_filter_bar_ui <- function(ns, traits, methods, trait_colors,
                         )
                     )
                 ),
-                shiny::numericInput(
+                lab_input_width(shiny::numericInput(
                     pid("snp_clumping_distance"), label = NULL,
-                    value = snp_clumping_distance_value, min = 1L, step = 1000L,
-                    width = "160px"
-                ),
+                    value = snp_clumping_distance_value, min = 1L, step = 1000L
+                ), 160),
                 htmltools::span(
                     class = "text-muted small mt-1",
                     if (is.null(region_clumping_distance_value))
@@ -882,7 +888,7 @@ setup_matrix_rules_server <- function(input, output, session, ns, input_prefix =
                 config_state$working <- config_set_by_path(
                     config_state$working, paste0(config_module_key, ".configs"), new_configs)
                 shiny::showNotification(
-                    "Rules applied to config (working copy) — Run or Save Project Files to persist to YAML.",
+                    "Rules applied to config (working copy) — Run or Save, top right, to write it to the YAML.",
                     type = "message", duration = 5)
             } else {
                 names_conflict <- paste(vapply(conflicts, `[[`, character(1), "method"), collapse = ", ")

@@ -18,8 +18,7 @@ mod_pairwise_overlap_ui <- function(id) {
                     bsicons::bs_icon("intersect"),
                     " Pairwise Trait Overlap"
                 ),
-                shiny::downloadButton(ns("dl_pairwise"), "CSV",
-                                      class = "btn-sm btn-outline-secondary")
+                lab_download_button(ns("dl_pairwise"), "CSV")
             ),
             bslib::card_body(
                 htmltools::div(
@@ -45,7 +44,7 @@ mod_pairwise_overlap_ui <- function(id) {
                                 label = htmltools::tagList(
                                     bsicons::bs_icon("play-fill"), " Compute pairwise overlaps"
                                 ),
-                                class = "btn-primary"
+                                class = "btn-sm btn-primary"
                             )
                         ),
                         shiny::uiOutput(ns("status_badge"))
@@ -215,8 +214,9 @@ mod_pairwise_overlap_server <- function(id, project_data, coords,
                             htmltools::pre(class = "pipeline-log-content mt-2 small",
                                            cached$log_tail)
                     ),
-                    shiny::actionButton(ns("retry_pairwise"), "Retry",
-                                         class = "btn-sm btn-warning")
+                    shiny::actionButton(ns("retry_pairwise"),
+                                        htmltools::tagList(bsicons::bs_icon("arrow-clockwise"), "Retry"),
+                                        class = "btn-sm btn-outline-secondary")
                 ))
             }
 
@@ -313,6 +313,12 @@ mod_pairwise_overlap_server <- function(id, project_data, coords,
         output$miami_panel_ui <- shiny::renderUI({
             pair <- selected_pair()
             if (is.null(pair)) return(NULL)
+            # an empty state instead of empty axes (I11): the Miami needs the pair's
+            # collapsed SNPs on both sides and the genome coordinates
+            snps <- collapsed_snps()
+            missing <- c(pair$trait_a, pair$trait_b)[
+                !c(pair$trait_a, pair$trait_b) %in% snps$trait]
+            drawable <- !is.null(coords()) && nrow(snps) > 0 && length(missing) == 0
             bslib::card(
                 bslib::card_header(
                     htmltools::div(
@@ -325,7 +331,12 @@ mod_pairwise_overlap_server <- function(id, project_data, coords,
                     )
                 ),
                 bslib::card_body(
-                    plotly::plotlyOutput(ns("pairwise_miami"), height = "420px")
+                    if (drawable) plotly::plotlyOutput(ns("pairwise_miami"), height = "420px")
+                    else if (length(missing) > 0)
+                        plot_placeholder(paste("No collapsed SNPs for", paste(missing, collapse = " and ")),
+                                         "pairwise_collapsed_snps.tsv holds none for this trait.")
+                    else plot_placeholder("Genome coordinates not available",
+                                          "Run GEAxGWAS to write the Miami plot's coordinates.")
                 )
             )
         })
@@ -435,10 +446,8 @@ mod_pairwise_overlap_server <- function(id, project_data, coords,
 #' Build the pairwise Miami plotly
 #' @noRd
 .build_pairwise_plotly <- function(dt_a, dt_b, pair, exact_ids, window_snps, coords) {
-    okabe_ito <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442",
-                   "#0072B2", "#D55E00", "#CC79A7", "#999999")
-    col_a <- okabe_ito[1L]
-    col_b <- okabe_ito[2L]
+    col_a <- CLINEGO_CATEGORICAL[1L]   # the shared palette (theme_clinego.R, I1)
+    col_b <- CLINEGO_CATEGORICAL[2L]
 
     y_max <- max(c(dt_a$log10p, dt_b$log10p), na.rm = TRUE) * 1.05
 

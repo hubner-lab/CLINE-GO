@@ -2,6 +2,10 @@
 # Usage: source("/pipeline/scripts/R/utils/manhattan_utils.R")
 # Requires: dplyr, ggplot2, stringr, scales, scattermore loaded by the sourcing script
 
+# The trait colours' palette and rule (clinego_trait_colors(), A4 I1), so every script that
+# sources this file draws traits as the app's overlays do, whatever else it sources.
+source("/pipeline/scripts/R/utils/theme_clinego.R")
+
 # Parse "METHOD:ADJUST:FILEPATH,..." string into a named list.
 parse_assoc_files_str <- function(files_str) {
     assoc_list <- stringr::str_split(files_str, ',')[[1]]
@@ -76,16 +80,9 @@ get_chr_colors <- function(n_chr) {
     rep(c("#2166AC", "#92C5DE"), length.out = n_chr)
 }
 
-# Okabe-Ito colorblind-safe palette for traits (up to 8); turbo for more.
-get_trait_colors <- function(traits) {
-    okabe_ito <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442",
-                   "#0072B2", "#D55E00", "#CC79A7", "#999999")
-    if (length(traits) <= 8) {
-        setNames(okabe_ito[1:length(traits)], traits)
-    } else {
-        setNames(viridis::turbo(length(traits)), traits)
-    }
-}
+# Trait colours: theme_clinego.R's clinego_trait_colors() (Okabe-Ito up to 8, turbo for more),
+# the rule the Shiny app's overlays use too (A4 I1); theme_clinego.R is sourced at the top.
+get_trait_colors <- function(traits) clinego_trait_colors(traits)
 
 # Up to 10 distinct region highlight colors.
 get_region_colors <- function(n_regions) {

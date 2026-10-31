@@ -136,8 +136,8 @@ mod_traits_server <- function(id, project_data) {
         output$phenomap_trait_selector <- shiny::renderUI({
             tr <- trait_names()
             if (length(tr) == 0) return(NULL)
-            shiny::selectInput(ns("phenomap_trait"), "Trait",
-                               choices = tr, selected = tr[1], width = "200px")
+            lab_input_width(shiny::selectInput(ns("phenomap_trait"), "Trait",
+                               choices = tr, selected = tr[1]), 200)
         })
 
         selected_phenomap_trait <- shiny::reactive({

@@ -364,3 +364,22 @@ test_that("the pairs a saved set records are the selection, minus cells that do 
     expect_identical(snp_set_pairs_for_save(json, list(), c("bio_1", "bio_2"), pv),
                      c("bio_1::EMMAX", "bio_2::EMMAX"))
 })
+
+test_that("trait colours follow the pipeline's rule and order (I1)", {
+    # config order first (combine_predictors()), a multivariate pseudo-trait after it
+    got <- trait_color_map(c("climate_multivariate", "bio_2", "bio_10", "bio_1"),
+                           order = c("bio_1", "bio_2", "bio_10"))
+    expect_identical(names(got), c("bio_1", "bio_2", "bio_10", "climate_multivariate"))
+    expect_identical(got, clinego_trait_colors(names(got)))       # theme_clinego.R's rule
+    expect_identical(unname(got[1:4]), CLINEGO_CATEGORICAL[1:4])
+    # SIMDATA's GWAS traits in their config order, not alphabetical
+    gw <- trait_color_map(c("disease_score", "flowering_time", "height"),
+                          order = c("height", "flowering_time", "disease_score"))
+    expect_identical(names(gw)[1], "height")
+    # past 8 traits the pipeline switches to turbo instead of recycling
+    many <- trait_color_map(sprintf("t%02d", 1:9))
+    expect_length(unique(many), 9L)
+    expect_identical(trait_color_order(list(Climate = list(predictors = "bio_3,bio_1"),
+                                            GWAS = list(traits = "height")), "both"),
+                     c("bio_3", "bio_1", "height"))
+})

@@ -294,23 +294,24 @@ assoc_live_kpis <- function(sigsnps, regions, traits_hit, traits_all, methods, w
 }
 
 
+#' Keep a collapsible filter accordion's outputs rendering while it is closed (I5), so
+#' the values saved in region_params.json still reach the controls and the plots.
+#' @noRd
+keep_outputs_live <- function(output, out_ids) {
+    for (out_id in out_ids) {
+        tryCatch(shiny::outputOptions(output, out_id, suspendWhenHidden = FALSE),
+                 error = function(e) message("[lab] could not un-suspend '", out_id, "': ",
+                                             conditionMessage(e)))
+    }
+}
+
 mod_gea_dashboard_outputs <- function(id, project_data, kpis) {
     shiny::moduleServer(id, function(input, output, session) {
         output$summary_boxes <- shiny::renderUI({
             pd <- project_data()
             assoc_summary_boxes(as.data.frame(load_pipeline_summary(pd$name)), "gea", kpis())
         })
-
-        for (out_id in c("threshold_bar", "filter_bar", "wza_collapse_note")) {
-            ok <- tryCatch({
-                shiny::outputOptions(output, out_id, suspendWhenHidden = FALSE)
-                TRUE
-            }, error = function(e) {
-                message("[lab] could not un-suspend '", out_id, "': ", conditionMessage(e))
-                FALSE
-            })
-            if (!ok) next
-        }
+        keep_outputs_live(output, c("threshold_bar", "filter_bar", "wza_collapse_note"))
     })
 }
 
@@ -321,6 +322,7 @@ mod_gwas_dashboard_outputs <- function(id, project_data, kpis) {
             pd <- project_data()
             assoc_summary_boxes(as.data.frame(load_pipeline_summary(pd$name)), "gwas", kpis())
         })
+        keep_outputs_live(output, c("threshold_bar", "filter_bar", "wza_collapse_note"))
     })
 }
 
@@ -345,6 +347,8 @@ mod_geaxgwas_dashboard_outputs <- function(id, project_data, kpis) {
                               if (k$overlaps == 0) "secondary" else "primary", "intersect")
             )
         })
+        keep_outputs_live(output, c("gea_threshold_bar", "gea_filter_bar",
+                                    "gwas_threshold_bar", "gwas_filter_bar"))
     })
 }
 

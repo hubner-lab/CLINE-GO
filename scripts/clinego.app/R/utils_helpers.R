@@ -127,11 +127,79 @@ tab_to_mode <- function(tab) {
 
 #' Safe DT rendering with "no data" message fallback
 #' @noRd
-safe_datatable <- function(dt, ...) {
+safe_datatable <- function(dt, ..., options = list()) {
     if (is.null(dt) || nrow(dt) == 0) {
         dt <- data.frame(Message = "No data available")
     }
-    DT::datatable(dt, ...)
+    # a table's own CSV button exports the data, not the 3-digit display (N2)
+    if (!is.null(options$buttons)) {
+        options$buttons <- lapply(options$buttons, function(b) {
+            if (identical(b, "csv")) list(extend = "csv", exportOptions = list(orthogonal = "export"))
+            else b
+        })
+    }
+    dt_round_doubles(DT::datatable(dt, ..., options = options), dt)
+}
+
+#' Numbers on screen at 3 significant digits (N2), per cell as A3's mock had it: each value
+#' of a double column that holds non-integer values shows as
+#' String(Number(Number(x).toPrecision(3))), so 0.185926 reads 0.186, 2.5e-09 reads 2.5e-9
+#' and 1234.5 reads 1230, whatever else the column holds. The render runs for display only:
+#' sorting, the card's CSV download and the table's own CSV button (orthogonal "export")
+#' keep full precision. Integer-valued columns (positions, counts, ids) are left alone.
+#' @param tbl A DT::datatable() of `df`.
+#' @noRd
+dt_round_doubles <- function(tbl, df) {
+    frac <- names(df)[vapply(df, function(x) {
+        is.double(x) && any(is.finite(x) & x != round(x))
+    }, logical(1))]
+    # by the data's own names: a rownames column shifts the index, colnames = does not
+    targets <- stats::na.omit(match(frac, names(tbl$x$data))) - 1L
+    if (length(targets) == 0) return(tbl)
+    tbl$x$options$columnDefs <- c(tbl$x$options$columnDefs, list(list(
+        targets = as.integer(targets),
+        render  = DT::JS(
+            "function(d, t) {",
+            "  if (t !== 'display' || d === null || d === '' || isNaN(Number(d))) return d;",
+            "  return String(Number(Number(d).toPrecision(3)));",
+            "}"))))
+    tbl
+}
+
+#' PreGEA's recommendations as the app shows them (D3, cc17b6): Method, Parameter, Value,
+#' Rule (a "note" badge carries the row's note in its title) and Evidence as
+#' "metric = value" at 3 significant digits. HTML-escaped here: the table renders with
+#' escape = FALSE for the badge.
+#' @param dt pregea_recommendations.tsv as read (any column may be missing).
+#' @noRd
+recommendations_display <- function(dt) {
+    if (is.null(dt) || nrow(dt) == 0) return(data.frame())
+    col <- function(name) {
+        v <- if (name %in% names(dt)) as.character(dt[[name]]) else rep("", nrow(dt))
+        v[is.na(v)] <- ""
+        v
+    }
+    esc <- function(x) vapply(x, function(v) as.character(htmltools::htmlEscape(v)), "",
+                              USE.NAMES = FALSE)
+    value <- vapply(col("evidence_value"), function(v) {
+        num <- suppressWarnings(as.numeric(v))
+        if (is.na(num)) v else format(signif(num, 3))
+    }, "", USE.NAMES = FALSE)
+    metric <- col("evidence_metric")
+    note   <- col("note")
+    data.frame(
+        Method    = esc(col("method")),
+        Parameter = esc(col("param")),
+        Value     = esc(col("recommended_value")),
+        Rule      = paste0(esc(col("rule")),
+                           ifelse(nzchar(note),
+                                  paste0(' <span class="badge bg-secondary" title="', esc(note),
+                                         '">note</span>'), "")),
+        Evidence  = ifelse(!nzchar(metric), "",
+                           ifelse(nzchar(value), paste0(esc(metric), " = ", esc(value)),
+                                  esc(metric))),
+        stringsAsFactors = FALSE
+    )
 }
 
 #' Format p-value columns in a DT with signif formatting

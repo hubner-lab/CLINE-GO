@@ -222,7 +222,7 @@ build_threshold_lines <- function(is_miami, threshold_y, coords) {
             threshold_lines <- c(threshold_lines, list(
                 list(type = "line", xref = "paper", yref = "y",
                      x0 = 0, x1 = 1, y0 = thr_val, y1 = thr_val,
-                     line = list(color = "red", dash = "dash", width = 1))
+                     line = list(color = APP_COLORS[["danger"]], dash = "dash", width = 1))
             ))
         }
     }
@@ -245,14 +245,14 @@ build_threshold_lines <- function(is_miami, threshold_y, coords) {
             threshold_lines <- c(threshold_lines, list(
                 list(type = "line", xref = "paper", yref = "y",
                      x0 = 0, x1 = 1, y0 = thr_gea, y1 = thr_gea,
-                     line = list(color = "red", dash = "dash", width = 1))
+                     line = list(color = APP_COLORS[["danger"]], dash = "dash", width = 1))
             ))
         }
         if (!is.null(thr_gwas)) {
             threshold_lines <- c(threshold_lines, list(
                 list(type = "line", xref = "paper", yref = "y",
                      x0 = 0, x1 = 1, y0 = thr_gwas, y1 = thr_gwas,
-                     line = list(color = "red", dash = "dash", width = 1))
+                     line = list(color = APP_COLORS[["danger"]], dash = "dash", width = 1))
             ))
         }
         # Zero line separating GEA / GWAS panels (structural)
@@ -380,12 +380,7 @@ build_manhattan_plotly <- function(bg_uri, coords, sig_snps = NULL,
     # Add sig SNP markers
     if (!is.null(sig_snps) && nrow(sig_snps) > 0) {
         # Map trait colors to plotly marker colors
-        if (is.null(trait_colors)) {
-            okabe_ito <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442",
-                           "#0072B2", "#D55E00", "#CC79A7", "#999999")
-            traits <- unique(sig_snps$trait)
-            trait_colors <- setNames(okabe_ito[seq_along(traits)], traits)
-        }
+        if (is.null(trait_colors)) trait_colors <- trait_color_map(sig_snps$trait)
 
         # Default method symbols (plotly symbol names)
         if (is.null(method_shapes)) {

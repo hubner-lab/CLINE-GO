@@ -88,7 +88,7 @@ mod_gwas_server <- function(id, project_data, run_trigger = NULL, config_state =
         trait_colors <- shiny::reactive({
             tr <- all_trait_names_rv()
             if (length(tr) == 0) return(character(0))
-            trait_color_map(tr)
+            trait_color_map(tr, trait_color_order(project_data()$config, "gwas"))
         })
 
         method_shapes <- shiny::reactive({
@@ -284,7 +284,7 @@ mod_gwas_server <- function(id, project_data, run_trigger = NULL, config_state =
             missing_strat <- config_get(cfg, "GWAS", "missing_strategy", default = "DROP")
             config_badges_bar(
                 if (!is.na(k)) config_badge("K", k, "bg-primary"),
-                config_badge("combine", cmb),
+                config_badge("strategy", cmb),
                 config_badge("missing", missing_strat),
                 if (regime_wza()) config_badge("regime", "WZA", "bg-info"),
                 if (!is.null(region_merge()$bp))
@@ -374,7 +374,7 @@ mod_gwas_server <- function(id, project_data, run_trigger = NULL, config_state =
             tr <- all_trait_names_rv()
             if (length(tr) == 0)
                 return(shiny::p("No traits found.", class = "text-muted small"))
-            shiny::selectInput(ns("pheno_trait"), "Trait (phenomap)",
+            shiny::selectInput(ns("pheno_trait"), "Trait",
                                choices = tr, selected = tr[1])
         })
 
@@ -391,7 +391,7 @@ mod_gwas_server <- function(id, project_data, run_trigger = NULL, config_state =
             if (file_ok(path)) {
                 shiny::imageOutput(ns("phenomap_img"), height = "auto", width = "100%")
             } else {
-                plot_placeholder("Phenotype map not available",
+                plot_placeholder("Trait map not available",
                     "Run mode=gwas to generate phenotype piemaps")
             }
         })
@@ -483,8 +483,8 @@ mod_gwas_server <- function(id, project_data, run_trigger = NULL, config_state =
         output$per_method_trait_ui <- shiny::renderUI({
             tr <- all_trait_names_rv()
             if (length(tr) == 0) return(NULL)
-            shiny::selectInput(ns("per_method_trait"), "Trait",
-                               choices = tr, selected = tr[1], width = "200px")
+            lab_input_width(shiny::selectInput(ns("per_method_trait"), "Trait",
+                               choices = tr, selected = tr[1]), 200)
         })
 
         per_method_trait <- shiny::reactive({
@@ -566,11 +566,25 @@ mod_gwas_ui <- function(id) {
         shiny::uiOutput(ns("config_badges")),
         shiny::uiOutput(ns("pheno_missing_alert")),
 
-        htmltools::div(
-            class = "control-bar lab-gea-controls",
-            shiny::uiOutput(ns("threshold_bar")),
-            shiny::uiOutput(ns("wza_collapse_note")),
-            shiny::uiOutput(ns("filter_bar"))
+        # One accordion, open by default, as on GEA and GEAxGWAS (I5); its outputs
+        # stay live while it is collapsed (mod_gwas_dashboard_outputs()).
+        bslib::accordion(
+            id    = ns("params_accordion"),
+            class = "lab-gea-params",
+            open  = "params",
+            bslib::accordion_panel(
+                value = "params",
+                title = htmltools::tagList(
+                    bsicons::bs_icon("sliders"),
+                    htmltools::span(" Significance, methods & strategy")
+                ),
+                htmltools::div(
+                    class = "lab-gea-controls",
+                    shiny::uiOutput(ns("threshold_bar")),
+                    shiny::uiOutput(ns("wza_collapse_note")),
+                    shiny::uiOutput(ns("filter_bar"))
+                )
+            )
         ),
 
         htmltools::div(
@@ -586,7 +600,7 @@ mod_gwas_ui <- function(id) {
             # LEFT: phenotype map + the two controls that drive only it
             htmltools::div(
                 class = "lab-hero-col",
-                lab_section_header("Phenotype map", icon = "geo-alt"),
+                lab_section_header("Trait map", icon = "geo-alt"),
                 htmltools::div(
                     class = "control-bar lab-phenomap-bar d-flex align-items-center gap-3",
                     shiny::uiOutput(ns("trait_selector")),

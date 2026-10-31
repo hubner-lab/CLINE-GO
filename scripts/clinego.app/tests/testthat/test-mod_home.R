@@ -20,7 +20,8 @@ test_that("the Home KPIs read the summary's own metric names", {
         value  = c("3", "50", "337", "4", "2")))
 
     pd <- shiny::reactiveVal(list(name = a, config = list(), k_best = 3L))
-    shiny::testServer(mod_home_server, args = list(project_data = pd), {
+    shiny::testServer(mod_home_server, args = list(project_data = pd,
+                                                   has_project = shiny::reactive(TRUE)), {
         expect_identical(output$n_samples, "50")
         expect_identical(output$n_snps, "337")
         expect_identical(output$n_regions, "4")
@@ -28,6 +29,40 @@ test_that("the Home KPIs read the summary's own metric names", {
         pd(list(name = a, config = list(Regime = list(mode = "gwas_only")), k_best = 3L))
         session$flushReact()
         expect_identical(output$n_regions, "2")
+    })
+})
+
+# Home's Pipeline Status (N3, 813d39): every module of the bar, Environmental included,
+# and GEAxGWAS done when its own outputs exist (mode=gea_x_gwas writes no summary row).
+test_that("the status list has Environmental and reads GEAxGWAS from its outputs", {
+    a <- paste0("home_status_", as.integer(Sys.time()))
+    withr::defer(unlink(project_base(a), recursive = TRUE))
+    home_summary(a, data.table::data.table(step = c("processing", "climate"),
+                                           metric = c("snps_raw", "n_predictors"),
+                                           value = c("354", "3")))
+    st <- check_module_status(a)
+    expect_true(st[["climate"]])
+    expect_false(st[["gea_x_gwas"]])
+    plots <- mod_path(a, MOD_GEAXGWAS, "plots")
+    dir.create(plots, recursive = TRUE)
+    file.create(file.path(plots, "miami_combined_K3.png"))
+    expect_true(check_module_status(a)[["gea_x_gwas"]])
+    expect_identical(geaxgwas_outputs(a), "miami_combined_K3.png")
+
+    pd <- shiny::reactiveVal(list(name = a, config = list(), k_best = 3L))
+    shiny::testServer(mod_home_server, args = list(project_data = pd,
+                                                   has_project = shiny::reactive(TRUE)), {
+        html <- as.character(output$module_status$html)
+        expect_match(html, "Environmental")
+        expect_match(html, "GEAxGWAS")
+    })
+})
+
+test_that("Home without a project says so instead of staying blank (I11)", {
+    shiny::testServer(mod_home_server,
+                      args = list(project_data = shiny::reactive(shiny::req(FALSE)),
+                                  has_project = shiny::reactive(FALSE)), {
+        expect_match(as.character(output$home_content$html), "No project yet")
     })
 })
 

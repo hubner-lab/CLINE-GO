@@ -63,11 +63,16 @@ app_server <- function(input, output, session) {
     # match bslib's markup, so it cannot be relied on either.
     active_module <- shiny::reactiveVal("home")
 
+    # The tab whose pipeline mode is running (NULL when idle): its bar entry changes
+    # colour while the run goes (I8). Set and cleared by the runners.
+    running_module <- shiny::reactiveVal(NULL)
+
     # Regime comes from `saved`, not `working`: the bar reflects what is on disk,
     # and `working` mutates on every sidebar keystroke.
     output$module_bar <- shiny::renderUI({
         module_bar_ui(active = active_module(),
-                      regime = config_regime(config_state$saved))
+                      regime = config_regime(config_state$saved),
+                      running = running_module())
     })
 
     # One observer per module, created once at startup — the bar re-renders on
@@ -137,20 +142,30 @@ app_server <- function(input, output, session) {
                            cache = "session")
 
     # ── Config sidebar servers (one per tab) ───────────────────────────────────
-    mod_config_sidebar_server("config_home",          config_state, "home")
-    mod_config_sidebar_server("config_processing",    config_state, "processing")
-    mod_config_sidebar_server("config_prestructure",  config_state, "prestructure")
-    mod_config_sidebar_server("config_structure",     config_state, "structure")
-    mod_config_sidebar_server("config_climate",       config_state, "climate")
-    mod_config_sidebar_server("config_traits",        config_state, "traits")
-    mod_config_sidebar_server("config_pregea",        config_state, "pregea")
-    mod_config_sidebar_server("config_gea",           config_state, "gea")
-    mod_config_sidebar_server("config_gwas",          config_state, "gwas")
-    mod_config_sidebar_server("config_gea_x_gwas",    config_state, "gea_x_gwas")
-    mod_config_sidebar_server("config_maladaptation", config_state, "maladaptation",
-                              snp_sets_trigger = snp_sets_trigger)
+    # Each returns its count of fields that differ from the saved config.
+    sidebar_dirty <- list(
+        mod_config_sidebar_server("config_home",          config_state, "home"),
+        mod_config_sidebar_server("config_processing",    config_state, "processing"),
+        mod_config_sidebar_server("config_prestructure",  config_state, "prestructure"),
+        mod_config_sidebar_server("config_structure",     config_state, "structure"),
+        mod_config_sidebar_server("config_climate",       config_state, "climate"),
+        mod_config_sidebar_server("config_traits",        config_state, "traits"),
+        mod_config_sidebar_server("config_pregea",        config_state, "pregea"),
+        mod_config_sidebar_server("config_gea",           config_state, "gea"),
+        mod_config_sidebar_server("config_gwas",          config_state, "gwas"),
+        mod_config_sidebar_server("config_gea_x_gwas",    config_state, "gea_x_gwas"),
+        mod_config_sidebar_server("config_maladaptation", config_state, "maladaptation",
+                                  snp_sets_trigger = snp_sets_trigger)
+    )
 
-    # ── Save project files button (Home tab) ──────────────────────────────────
+    # The Save button's unsaved-changes mark (I9): any sidebar with a field that differs
+    # from the saved config (config-dirty.js).
+    shiny::observe({
+        dirty <- any(vapply(sidebar_dirty, function(d) d() > 0, logical(1)))
+        session$sendCustomMessage("config_dirty_global", list(dirty = dirty))
+    })
+
+    # ── Save (top bar, every tab) ─────────────────────────────────────────────
     shiny::observeEvent(input$save_project_files, {
         shiny::req(config_state$project)
         tryCatch({
@@ -165,30 +180,32 @@ app_server <- function(input, output, session) {
     })
 
     # ── Pipeline runner servers (one per tab / mode) ───────────────────────────
-    mod_pipeline_runner_server("runner_processing",    config_state, pipeline_running,
+    mod_pipeline_runner_server("runner_processing",    config_state, pipeline_running, running_module,
                                 project_data_trigger, project_files_trigger, tab_name = "processing")
-    mod_pipeline_runner_server("runner_prestructure",  config_state, pipeline_running,
+    mod_pipeline_runner_server("runner_prestructure",  config_state, pipeline_running, running_module,
                                 project_data_trigger, project_files_trigger, tab_name = "prestructure")
-    mod_pipeline_runner_server("runner_structure",     config_state, pipeline_running,
+    mod_pipeline_runner_server("runner_structure",     config_state, pipeline_running, running_module,
                                 project_data_trigger, project_files_trigger, tab_name = "structure")
-    mod_pipeline_runner_server("runner_climate",       config_state, pipeline_running,
+    mod_pipeline_runner_server("runner_climate",       config_state, pipeline_running, running_module,
                                 project_data_trigger, project_files_trigger, tab_name = "climate")
-    mod_pipeline_runner_server("runner_traits",        config_state, pipeline_running,
+    mod_pipeline_runner_server("runner_traits",        config_state, pipeline_running, running_module,
                                 project_data_trigger, project_files_trigger, tab_name = "traits")
-    mod_pipeline_runner_server("runner_pregea",        config_state, pipeline_running,
+    mod_pipeline_runner_server("runner_pregea",        config_state, pipeline_running, running_module,
                                 project_data_trigger, project_files_trigger, tab_name = "pregea")
-    mod_pipeline_runner_server("runner_gea",           config_state, pipeline_running,
+    mod_pipeline_runner_server("runner_gea",           config_state, pipeline_running, running_module,
                                 project_data_trigger, project_files_trigger, tab_name = "gea")
-    mod_pipeline_runner_server("runner_gwas",          config_state, pipeline_running,
+    mod_pipeline_runner_server("runner_gwas",          config_state, pipeline_running, running_module,
                                 project_data_trigger, project_files_trigger, tab_name = "gwas")
-    mod_pipeline_runner_server("runner_gea_x_gwas",    config_state, pipeline_running,
+    mod_pipeline_runner_server("runner_gea_x_gwas",    config_state, pipeline_running, running_module,
                                 project_data_trigger, project_files_trigger, tab_name = "gea_x_gwas")
-    mod_pipeline_runner_server("runner_maladaptation", config_state, pipeline_running,
+    mod_pipeline_runner_server("runner_maladaptation", config_state, pipeline_running, running_module,
                                 project_data_trigger, project_files_trigger, tab_name = "maladaptation",
                                 snp_sets_trigger = snp_sets_trigger)
 
     # ── Module servers ─────────────────────────────────────────────────────────
-    mod_home_server("home",                    project_data = project_data)
+    mod_home_server("home",                    project_data = project_data,
+                    has_project = shiny::reactive(isTRUE(nzchar(input$project_selector)) &&
+                                                  input$project_selector != "__new__"))
     mod_processing_server("processing",        project_data = project_data)
     mod_prestructure_server("prestructure",    project_data = project_data)
     mod_structure_server("structure",          project_data = project_data)

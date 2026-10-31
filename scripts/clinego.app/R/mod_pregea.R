@@ -32,10 +32,16 @@ mod_pregea_server <- function(id, project_data) {
                            rownames = FALSE)
         }
 
-        # ── Recommendations ─────────────────────────────────────────────────
+        # ── Recommendations: five columns (cc17b6) ───────────────────────────
+        # recommendations_display(): value_type, alternatives and the ladder paths are
+        # left out (the ladder cards beside it show them), so the table fits its card.
         output$recommendations_table <- DT::renderDataTable({
             pd <- project_data()
-            render_tsv_table(pregea_table_path(pd$name, "", "pregea_recommendations"))
+            dt <- load_tsv_dt(pregea_table_path(pd$name, "", "pregea_recommendations"))
+            safe_datatable(recommendations_display(dt), escape = FALSE,
+                           class = "display lab-recs-table",
+                           options = list(dom = "t", pageLength = -1, autoWidth = FALSE),
+                           rownames = FALSE)
         })
 
         # ── LFMM K ladder ────────────────────────────────────────────────────
@@ -177,7 +183,7 @@ mod_pregea_server <- function(id, project_data) {
                                                if (has_rec) ifelse(models == recommended,
                                                                    " (recommended)", "")
                                                else ""))
-            shiny::selectInput(ns("rda_model_pc"), "RDA model", choices = choices, selected = default_sel, width = "300px")
+            lab_input_width(shiny::selectInput(ns("rda_model_pc"), "RDA model", choices = choices, selected = default_sel), 300)
         })
         shiny::observeEvent(input$rda_model_pc, rda_selected_pc(input$rda_model_pc), ignoreInit = TRUE)
 

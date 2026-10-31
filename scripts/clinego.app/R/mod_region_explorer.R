@@ -669,9 +669,8 @@ mod_region_explorer_server <- function(id, project_data, module = MOD_GEA,
                         bsicons::bs_icon("exclamation-triangle"), " ", cached$error,
                         htmltools::br(),
                         shiny::actionButton(ns("run_enrichment"),
-                            "Re-run Enrichment",
-                            class = "btn-sm btn-outline-secondary mt-2",
-                            icon  = shiny::icon("rotate-right"))
+                            htmltools::tagList(bsicons::bs_icon("arrow-clockwise"), "Re-run Enrichment"),
+                            class = "btn-sm btn-outline-secondary mt-2")
                     ))
                 }
                 return(htmltools::tagList(
@@ -728,9 +727,8 @@ mod_region_explorer_server <- function(id, project_data, module = MOD_GEA,
             htmltools::tagList(
                 go_status,
                 shiny::actionButton(ns("run_enrichment"),
-                    "Run Enrichment",
-                    class = "btn-sm btn-outline-primary",
-                    icon  = shiny::icon("play"))
+                    htmltools::tagList(bsicons::bs_icon("play-fill"), "Run Enrichment"),
+                    class = "btn-sm btn-outline-primary")
             )
         })
 
@@ -809,9 +807,8 @@ mod_region_explorer_server <- function(id, project_data, module = MOD_GEA,
                         bsicons::bs_icon("exclamation-triangle"), " ", cached$error,
                         htmltools::br(),
                         shiny::actionButton(ns("run_regionplot"),
-                            "Retry Region Plot",
-                            class = "btn-sm btn-outline-secondary mt-2",
-                            icon  = shiny::icon("rotate-right"))
+                            htmltools::tagList(bsicons::bs_icon("arrow-clockwise"), "Retry Region Plot"),
+                            class = "btn-sm btn-outline-secondary mt-2")
                     ))
                 }
                 path <- cached$path
@@ -821,9 +818,8 @@ mod_region_explorer_server <- function(id, project_data, module = MOD_GEA,
             }
 
             shiny::actionButton(ns("run_regionplot"),
-                "Generate Region Plot",
-                class = "btn-sm btn-outline-primary",
-                icon  = shiny::icon("chart-line"))
+                htmltools::tagList(bsicons::bs_icon("graph-up"), "Generate Region Plot"),
+                class = "btn-sm btn-outline-primary")
         })
 
         shiny::observe({
@@ -965,14 +961,13 @@ mod_region_explorer_server <- function(id, project_data, module = MOD_GEA,
                     )
                 ),
                 htmltools::div(
-                    shiny::selectInput(ns("hap_meta_type"), "Metadata grouping",
+                    lab_input_width(shiny::selectInput(ns("hap_meta_type"), "Metadata grouping",
                         choices  = c("site", paste0("cluster_K", pd$k_best)),
-                        selected = user_meta_type() %||% use_meta, width = "220px"),
+                        selected = user_meta_type() %||% use_meta), 220),
                     .scan_modified("meta_type", user_meta_type() %||% use_meta)
                 ),
-                shiny::actionButton(ns("reset_scan_defaults"), "Reset to defaults",
-                    class = "btn-sm btn-link text-muted px-0",
-                    icon  = shiny::icon("arrow-rotate-left")),
+                shiny::actionButton(ns("reset_scan_defaults"), htmltools::tagList(bsicons::bs_icon("arrow-counterclockwise"), "Reset to defaults"),
+                    class = "btn-sm btn-link text-muted px-0"),
                 htmltools::tags$details(
                     htmltools::tags$summary(
                         class = "text-muted small mb-1",
@@ -1011,9 +1006,8 @@ mod_region_explorer_server <- function(id, project_data, module = MOD_GEA,
                             "Proceed to Step 2 Visualization."
                     ),
                     scan_inputs,
-                    shiny::actionButton(ns("run_hap_scan"), "Re-run Scan",
-                        class = "btn-sm btn-outline-secondary mt-1",
-                        icon  = shiny::icon("rotate-right"))
+                    shiny::actionButton(ns("run_hap_scan"), htmltools::tagList(bsicons::bs_icon("arrow-clockwise"), "Re-run Scan"),
+                        class = "btn-sm btn-outline-secondary mt-1")
                 )
             } else if (!is.null(scan_res) && is.null(scan_res$error)) {
                 htmltools::tagList(
@@ -1022,9 +1016,8 @@ mod_region_explorer_server <- function(id, project_data, module = MOD_GEA,
                     htmltools::p(class = "text-muted small fw-semibold mb-1",
                         bsicons::bs_icon("arrow-repeat"), " Re-run scan with different parameters"),
                     scan_inputs,
-                    shiny::actionButton(ns("run_hap_scan"), "Re-run Scan",
-                        class = "btn-sm btn-outline-secondary mt-1",
-                        icon  = shiny::icon("rotate-right"))
+                    shiny::actionButton(ns("run_hap_scan"), htmltools::tagList(bsicons::bs_icon("arrow-clockwise"), "Re-run Scan"),
+                        class = "btn-sm btn-outline-secondary mt-1")
                 )
             } else if (!is.null(scan_res) && !is.null(scan_res$error)) {
                 htmltools::tagList(
@@ -1036,29 +1029,25 @@ mod_region_explorer_server <- function(id, project_data, module = MOD_GEA,
                                 htmltools::br(),
                                 htmltools::tags$details(
                                     htmltools::tags$summary(
-                                        class = "text-muted",
-                                        style = "cursor:pointer",
+                                        class = "text-muted lab-clickable",
                                         "Show log"
                                     ),
                                     htmltools::tags$pre(
-                                        class = "text-muted mb-0 mt-1",
-                                        style = "white-space:pre-wrap;font-size:0.72em;max-height:120px;overflow-y:auto",
+                                        class = "text-muted mb-0 mt-1 lab-log-tail",
                                         scan_res$log_tail
                                     )
                                 )
                             )
                     ),
                     scan_inputs,
-                    shiny::actionButton(ns("run_hap_scan"), "Retry Scan",
-                        class = "btn-sm btn-outline-secondary",
-                        icon  = shiny::icon("rotate-right"))
+                    shiny::actionButton(ns("run_hap_scan"), htmltools::tagList(bsicons::bs_icon("arrow-clockwise"), "Retry Scan"),
+                        class = "btn-sm btn-outline-secondary")
                 )
             } else {
                 htmltools::tagList(
                     scan_inputs,
-                    shiny::actionButton(ns("run_hap_scan"), "Run Scan",
-                        class = "btn-sm btn-outline-primary",
-                        icon  = shiny::icon("magnifying-glass"))
+                    shiny::actionButton(ns("run_hap_scan"), htmltools::tagList(bsicons::bs_icon("search"), "Run Scan"),
+                        class = "btn-sm btn-outline-primary")
                 )
             }
 
@@ -1080,13 +1069,11 @@ mod_region_explorer_server <- function(id, project_data, module = MOD_GEA,
                             htmltools::br(),
                             htmltools::tags$details(
                                 htmltools::tags$summary(
-                                    class = "text-muted",
-                                    style = "cursor:pointer",
+                                    class = "text-muted lab-clickable",
                                     "Show log"
                                 ),
                                 htmltools::tags$pre(
-                                    class = "text-muted mb-0 mt-1",
-                                    style = "white-space:pre-wrap;font-size:0.72em;max-height:120px;overflow-y:auto",
+                                    class = "text-muted mb-0 mt-1 lab-log-tail",
                                     viz_res$log_tail
                                 )
                             )
@@ -1121,11 +1108,11 @@ mod_region_explorer_server <- function(id, project_data, module = MOD_GEA,
                 htmltools::div(
                     class = "d-flex align-items-center gap-2 flex-wrap",
                     if (length(eps_choices) > 0)
-                        shiny::selectInput(ns("hap_epsilon_selected"), "Epsilon (from scan)",
-                            choices = eps_choices, selected = eps_selected, width = "160px")
+                        lab_input_width(shiny::selectInput(ns("hap_epsilon_selected"), "Epsilon (from scan)",
+                            choices = eps_choices, selected = eps_selected), 160)
                     else
-                        shiny::numericInput(ns("hap_epsilon_selected"), "Epsilon",
-                            value = eps_value %||% NA_real_, min = 0.01, step = 0.1, width = "160px"),
+                        lab_input_width(shiny::numericInput(ns("hap_epsilon_selected"), "Epsilon",
+                            value = eps_value %||% NA_real_, min = 0.01, step = 0.1), 160),
                     if (isTRUE(eps_modified))
                         htmltools::span(class = "badge bg-warning text-dark small mt-3", "modified")
                 ),
@@ -1136,9 +1123,8 @@ mod_region_explorer_server <- function(id, project_data, module = MOD_GEA,
                     htmltools::p(class = "text-muted small",
                         bsicons::bs_icon("arrow-up"), " Run the scan first to get epsilon choices."),
                 shiny::actionButton(ns("run_hap_viz"),
-                    if (viz_run) "Running..." else "Run Visualization",
-                    class = paste("btn-sm", if (viz_run) "btn-outline-secondary disabled" else "btn-outline-primary"),
-                    icon  = shiny::icon("chart-bar")),
+                    htmltools::tagList(bsicons::bs_icon("bar-chart"), if (viz_run) "Running..." else "Run Visualization"),
+                    class = paste("btn-sm", if (viz_run) "btn-outline-secondary disabled" else "btn-outline-primary")),
                 viz_status,
                 # Viz plots always present — servers use reactive paths (placeholder when empty)
                 if (!is.null(viz_res) && is.null(viz_res$error)) {
@@ -1179,8 +1165,8 @@ mod_region_explorer_server <- function(id, project_data, module = MOD_GEA,
             trait_selector <- if (length(all_traits) > 1) {
                 htmltools::div(
                     class = "mb-3",
-                    shiny::selectInput(ns("hap_trait"), "Trait",
-                        choices = all_traits, width = "220px")
+                    lab_input_width(shiny::selectInput(ns("hap_trait"), "Trait",
+                        choices = all_traits), 220)
                 )
             } else if (length(all_traits) == 1) {
                 # Single trait — no selector needed, but set the value

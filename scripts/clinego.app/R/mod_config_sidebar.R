@@ -39,7 +39,7 @@ mod_config_sidebar_ui <- function(id, tab_title = "Config", runner_ui = NULL) {
                         bsicons::bs_icon("arrow-counterclockwise", size = "0.85em"),
                         " Reset to saved"
                     ),
-                    class = "btn btn-outline-secondary btn-sm w-100 config-reset-btn"
+                    class = "btn btn-link btn-sm w-100 config-reset-btn"
                 )
             )
         ),
@@ -649,7 +649,8 @@ render_recommendation_badge <- function(spec, value) {
     title <- if (!is.null(spec$evidence)) paste0("PreGEA recommends ", spec$recommended, " (", spec$evidence, ")")
              else paste0("PreGEA recommends ", spec$recommended)
     if (matches) {
-        htmltools::tags$span(class = "pregea-match-badge", title = title, "✓ preGEA")
+        htmltools::tags$span(class = "pregea-match-badge", title = title,
+                             bsicons::bs_icon("check2"), " preGEA")
     } else {
         htmltools::tags$button(
             type = "button", class = "pregea-apply-btn", `data-role` = "apply-recommendation",
@@ -883,6 +884,7 @@ render_method_editor <- function(input_id, local_id, configs_list,
   var editorId  = "%s";
   var jsonInputId = "%s";
   var PARAM_SPECS = %s;   // method -> {param_name -> {type, default, min, max, choices, help}}
+  var CHECK_ICON  = %s;   // bsicons check2, the icon the R renderer draws
 
   function escapeAttr(s) {
     return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
@@ -896,7 +898,7 @@ render_method_editor <- function(input_id, local_id, configs_list,
       ? ("PreGEA recommends " + spec.recommended + " (" + spec.evidence + ")")
       : ("PreGEA recommends " + spec.recommended);
     if (matches) {
-      return "<span class=\\"pregea-match-badge\\" title=\\"" + escapeAttr(title) + "\\">\\u2713 preGEA</span>";
+      return "<span class=\\"pregea-match-badge\\" title=\\"" + escapeAttr(title) + "\\">" + CHECK_ICON + " preGEA</span>";
     }
     return "<button type=\\"button\\" class=\\"pregea-apply-btn\\" data-role=\\"apply-recommendation\\" data-apply-value=\\"" +
            escapeAttr(spec.recommended) + "\\" title=\\"" + escapeAttr(title) + "\\">\\u2192 " + spec.recommended + "</button>";
@@ -943,7 +945,9 @@ render_method_editor <- function(input_id, local_id, configs_list,
 ',
             paste0(input_id, "_editor"),  # %s 1: editorId
             full_json_id,                 # %s 2: jsonInputId (DOM id, namespaced)
-            jsonlite::toJSON(param_specs_resolved, auto_unbox = TRUE)  # %s 3: PARAM_SPECS
+            jsonlite::toJSON(param_specs_resolved, auto_unbox = TRUE),  # %s 3: PARAM_SPECS
+            jsonlite::toJSON(as.character(bsicons::bs_icon("check2")),  # %s 4: CHECK_ICON
+                             auto_unbox = TRUE)
         ), sprintf(
 '
   function collectRows(editor) {
@@ -1149,9 +1153,9 @@ predictor_chip_choices <- function(config, selected = character(0)) {
 #' Replaces the plain text input for climate.predictors with clickable pills.
 #' A hidden textInput (input_id) carries the comma-separated value for Shiny.
 #' Invariant predictors are struck and cannot be selected (LFMM and EMMAX fail on
-#' them, 130e0e). Identical and two-valued ones (predictor_flags()) are orange with a
-#' corner icon naming the reason and stay selectable: the choice is the user's. A
-#' legend badge under the grid explains the marks and turns amber while a marked
+#' them, 130e0e). Identical and two-valued ones (predictor_flags()) are orange, their
+#' title naming the reason, and stay selectable: the choice is the user's. A legend
+#' badge under the grid lists each marked chip's problem and turns amber while a marked
 #' chip is selected (chip_legend()).
 #' @param choices the chips, predictor_chip_choices()
 #' @param flags   predictor_flags() of the project, or NULL
@@ -1190,8 +1194,7 @@ render_bio_chips <- function(input_id, display_val, invariant = character(0),
             `data-flag`        = if (nrow(mine) > 0) paste(mine$flag, collapse = " ") else NULL,
             title              = if (is_inv) paste0(b, ": no variance in current map extent")
                                  else if (nrow(mine) > 0) chip_flag_title(b, mine) else NULL,
-            b,
-            if (nrow(mine) > 0) chip_flag_icons(mine)
+            b
         )
     })
 
@@ -1319,8 +1322,7 @@ render_pheno_chips <- function(input_id, display_val, project) {
             `data-flag`  = if (nrow(mine) > 0) paste(mine$flag, collapse = " ") else NULL,
             title      = if (is_inv) paste0(tr, ": does not vary, or has no values")
                          else if (nrow(mine) > 0) chip_flag_title(tr, mine) else NULL,
-            tr,
-            if (nrow(mine) > 0) chip_flag_icons(mine)
+            tr
         )
     })
 

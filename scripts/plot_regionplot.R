@@ -63,26 +63,37 @@ parse_trait_method_pairs <- function(custom_traits_str) {
   })
 }
 
-# One series per trait x method: topr's data frame, its legend label and its threshold, computed
-# per (method, trait) under the method's own rule (c34204).
-region_series <- function(md, trait, label) {
+# One series per trait x method: topr's data frame, its legend label, its method and its
+# threshold, computed per (method, trait) under the method's own rule (c34204).
+region_series <- function(md, trait, label, method) {
   list(data = md$data %>%
          dplyr::select(SNPID, chr, pos, !!trait) %>%
          setNames(c('SNP', 'CHROM', 'POS', 'P')) %>%
          dplyr::mutate(CHROM = extract_chr_num(CHROM)),
        label = label,
+       method = method,
        threshold = series_threshold(md$data[[trait]], md$adjust))
 }
 
+# topr's ntop, its default, passed explicitly: series past the 10th are drawn below the axis, and
+# every threshold line is then mirrored there as topr mirrored its own.
+TOPR_NTOP <- 10
+
 # Draw one region: topr's three panels (overview, main, genes) with every series' threshold line
-# (c34204), the region's edges when the window is wider (ad9f15) and gene labels that do not
-# overprint (e9466a), stacked in topr's unit ratios. The PNG is that stack; the three panels are
-# also written as SVGs, as before.
+# (c34204) in one red, a dash pattern and a legend entry per line (F7), the region's edges when
+# the window is wider (ad9f15) and gene labels that do not overprint (e9466a), stacked in topr's
+# unit ratios. The PNG is that stack; the three panels are also written as SVGs, as before.
 draw_region <- function(series, region_str, title, gff_table, filename_base, vlines,
                         png_width, svg_width) {
   series_col <- rep_len(topr::get_topr_colors(), length(series))
-  lines <- threshold_lines(vapply(series, `[[`, numeric(1), 'threshold'), series_col,
-                           CLINEGO_THRESHOLD)
+  series_lab <- vapply(series, `[[`, character(1), 'label')
+  lines <- threshold_lines(vapply(series, `[[`, numeric(1), 'threshold'), series_lab,
+                           vapply(series, `[[`, character(1), 'method'))
+  if (nrow(lines) == 0)
+    message('WARNING: no series has a threshold under its rule; no significance line drawn')
+  for (k in seq_len(nrow(lines)))
+    message(sprintf('INFO:   Threshold line %d (%s): p = %.4g, %s', k, lines$linetype[k],
+                    lines$thresh[k], gsub('\n', ' ', lines$label[k])))
   rp_args <- list(
     build = gff_table,
     region = region_str,
@@ -101,23 +112,29 @@ draw_region <- function(series, region_str, title, gff_table, filename_base, vli
     legend_position = 'right',
     scale = 1,
     segment.size = 3,
-    legend_labels = vapply(series, `[[`, character(1), 'label'),
-    sign_thresh_label_size = 0,
+    legend_labels = series_lab,
+    # topr draws no threshold line: add_threshold_lines() draws them below. numeric(0), not NULL,
+    # which topr 2.0.4's overview stops on ("object 'i' not found" unless a global i exists), and
+    # not topr's default of 5e-08, a line no rule set.
+    sign_thresh = numeric(0),
+    ntop = TOPR_NTOP,
     title = title
   )
-  if (length(lines$thresh) > 0) {
-    rp_args <- c(rp_args, list(sign_thresh = lines$thresh, sign_thresh_color = lines$color))
-  } else {
-    # NULL, not topr's default of 5e-08, which would draw a line no rule set
-    rp_args <- c(rp_args, list(sign_thresh = NULL))
-    message('WARNING: no series has a threshold under its rule; no significance line drawn')
-  }
   if (length(vlines) > 0)
     rp_args <- c(rp_args, list(vline = vlines, vline_color = CLINEGO_COL$muted,
                                vline_linetype = 'dotted'))
 
   plot_list <- do.call(regionplot, c(list(lapply(series, `[[`, 'data')), rp_args,
                                      list(extract_plots = TRUE)))
+  # The lines on the main panel, named in the legend, and on the overview, thinner and unnamed,
+  # at the widths topr drew its own (0.5, 0.2).
+  mirror <- length(series) > TOPR_NTOP
+  plot_list$main_plot <- add_threshold_lines(plot_list$main_plot, lines, linewidth = 0.5,
+                                             mirror = mirror)
+  if (!is.null(plot_list$overview_plot))
+    plot_list$overview_plot <- add_threshold_lines(plot_list$overview_plot, lines,
+                                                   linewidth = 0.2, legend = FALSE,
+                                                   mirror = mirror)
   if (!is.null(plot_list$gene_plot)) {
     plot_list$gene_plot <- tryCatch(repel_gene_labels(plot_list$gene_plot, CLINEGO_COL$fg),
       error = function(e) {
@@ -130,8 +147,13 @@ draw_region <- function(series, region_str, title, gff_table, filename_base, vli
               gene_plot = rp_args$unit_gene)
   # One legend column beside the stack, as topr's own figure has it: per-panel legends cut a long
   # series legend at its panel's height.
+  # Transparent legend boxes: the column is centred on the whole stack, so a legend can sit
+  # beside the x axis, and a white box hid the end of the last tick label (A4 F7, d150 region 12:
+  # "6000000" read "600000(").
   fig <- patchwork::wrap_plots(panels, ncol = 1, heights = unname(units[names(panels)]),
-                               guides = "collect")
+                               guides = "collect") &
+    ggplot2::theme(legend.background = ggplot2::element_blank(),
+                   legend.box.background = ggplot2::element_blank())
   ggsave(paste0(filename_base, '.png'), fig, width = png_width, height = 5, units = 'in',
          dpi = 300)
   message(paste0('INFO:   Saved ', filename_base, '.png'))
@@ -164,7 +186,7 @@ plot_region_multi_trait <- function(region_str, trait_method_pairs, assoc_list, 
       md <- assoc_list[[md_name]]
       if (is.null(md) || !pair$trait %in% md$trait_cols) next
       series <- c(series, list(region_series(md, pair$trait,
-                                             paste0(pair$trait, ' (', md_name, ')'))))
+                                             paste0(pair$trait, ' (', md_name, ')'), md_name)))
     }
   }
 
@@ -184,7 +206,7 @@ plot_region_trait <- function(region_str, trait, assoc_list, gff_table, filename
   for (md_name in names(assoc_list)) {
     md <- assoc_list[[md_name]]
     if (!trait %in% md$trait_cols) next
-    series <- c(series, list(region_series(md, trait, md_name)))
+    series <- c(series, list(region_series(md, trait, md_name, md_name)))
   }
 
   if (length(series) == 0) {

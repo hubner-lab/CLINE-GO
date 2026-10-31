@@ -48,12 +48,17 @@ app_ui <- function(request) {
         # default navbar tab links are visually hidden in custom.scss; the bar
         # replaces them and drives them (see module-bar.js).
         header = htmltools::tagList(
+            # Dark mode only (A4 I2): the attribute Bootstrap's dark colour mode keys on,
+            # set before the body renders (htmltools hoists tags$head into <head>), so
+            # the page never paints light first. There is no light theme and no toggle.
+            htmltools::tags$head(htmltools::tags$script(htmltools::HTML(
+                "document.documentElement.setAttribute('data-bs-theme', 'dark');"))),
             shinyjs::useShinyjs(),
             shiny::useBusyIndicators(spinners = TRUE),
             htmltools::tags$script(src = "www/config-dirty.js"),
             htmltools::tags$script(src = "www/module-bar.js"),
 
-            # ONE bar at the top: brand | project | module tabs | dark toggle.
+            # ONE bar at the top: brand | project | module tabs | Save.
             # The app's own navbar is visually hidden by dashboard.scss (NOT
             # display:none -- module-bar.js switches tabs by firing synthetic
             # clicks on its anchors, so they must stay in the tree), and this
@@ -64,23 +69,28 @@ app_ui <- function(request) {
                 htmltools::div(
                     class = "lab-bar-left",
                     brand_logo(),
-                    shiny::selectInput(
+                    lab_input_width(shiny::selectInput(
                         "project_selector", label = NULL,
                         choices = c(
                             "+ New Project" = "__new__",
                             if (length(projects) > 0) setNames(projects, projects)
                             else character(0)
                         ),
-                        selected = if (length(projects) > 0) projects[1] else "__new__",
-                        width = "200px"
-                    )
+                        selected = if (length(projects) > 0) projects[1] else "__new__"
+                    ), 200)
                 ),
                 htmltools::div(class = "lab-bar-modules",
                                shiny::uiOutput("module_bar")),
-                # Display preference, not identity and not navigation -- so it
-                # sits apart from both, at the far right.
+                # The one Save (I9): writes the working config to config_{project}.yaml,
+                # as Run does, from any tab. config-dirty.js marks it while the
+                # working config differs from the saved one.
                 htmltools::div(class = "lab-bar-right",
-                               bslib::input_dark_mode(id = "dark_mode", mode = "dark"))
+                    shiny::actionButton(
+                        "save_project_files",
+                        label = htmltools::tagList(bsicons::bs_icon("floppy"), "Save"),
+                        class = "btn-sm btn-outline-light lab-save-btn",
+                        title = "Save the config of this project (config_<project>.yaml)"
+                    ))
             )
         ),
 
@@ -89,17 +99,7 @@ app_ui <- function(request) {
         bslib::nav_panel("Home", value = "home",
             class = "bslib-page-dashboard",
             bslib::layout_sidebar(
-                sidebar = mod_config_sidebar_ui(
-                    "config_home", "Project Files",
-                    runner_ui = shiny::actionButton(
-                        "save_project_files",
-                        label = htmltools::tagList(
-                            bsicons::bs_icon("floppy", size = "0.9em"),
-                            " Save Project Files"
-                        ),
-                        class = "btn btn-primary btn-sm w-100 mt-1"
-                    )
-                ),
+                sidebar = mod_config_sidebar_ui("config_home", "Project Files"),
                 fill = TRUE, fillable = TRUE,
                 mod_home_ui("home")
             )
@@ -144,9 +144,9 @@ app_ui <- function(request) {
         bslib::nav_panel("Environmental", value = "climate",
             bslib::layout_sidebar(
                 sidebar = mod_config_sidebar_ui(
-                    "config_climate", "Climate Config",
+                    "config_climate", "Environmental Config",
                     runner_ui = mod_pipeline_runner_ui("runner_climate",
-                                                       btn_label = "Run Climate")
+                                                       btn_label = "Run Environmental")
                 ),
                 fill = FALSE, fillable = FALSE,
                 mod_climate_ui("climate")
@@ -156,9 +156,9 @@ app_ui <- function(request) {
         bslib::nav_panel("Phenotypic", value = "traits",
             bslib::layout_sidebar(
                 sidebar = mod_config_sidebar_ui(
-                    "config_traits", "Traits Config",
+                    "config_traits", "Phenotypic Config",
                     runner_ui = mod_pipeline_runner_ui("runner_traits",
-                                                       btn_label = "Run Traits")
+                                                       btn_label = "Run Phenotypic")
                 ),
                 fill = FALSE, fillable = FALSE,
                 mod_traits_ui("traits")

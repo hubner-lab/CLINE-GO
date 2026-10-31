@@ -41,7 +41,8 @@ CLINEGO_SHARED_LIBS <- c(
     "/pipeline/scripts/R/utils/pval_threshold.R",# compute_pval_threshold() etc.
     "/pipeline/scripts/R/lib/gff_parsing.R",     # extract_gene_id() etc.
     "/pipeline/scripts/R/lib/snp_set_select.R",  # combine_sigsnps_long(), select_snp_set() etc.
-    "/pipeline/scripts/R/lib/region_distance.R"  # resolve_clumping_distance() (LD-decay distance)
+    "/pipeline/scripts/R/lib/region_distance.R", # resolve_clumping_distance() (LD-decay distance)
+    "/pipeline/scripts/R/utils/theme_clinego.R"  # CLINEGO_CATEGORICAL, clinego_trait_colors() (I1)
 )
 
 #' Source the shared libraries into an environment.

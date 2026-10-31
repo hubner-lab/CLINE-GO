@@ -99,15 +99,15 @@ mod_climate_server <- function(id, project_data) {
         })
 
         # ── Predictor and sample warnings (fct_warnings.R) ───────────────────
-        # Counted over the selected predictors (e83e54); the chips in the sidebar mark
-        # every predictor, selected or not.
+        # One badge for the selected predictors' problems (identical, two-valued; W4),
+        # counted over the selected predictors (e83e54); the chips in the sidebar mark
+        # every predictor, selected or not. Samples left out stay a badge of their own.
         output$predictor_warnings <- shiny::renderUI({
             pd <- project_data()
             shiny::req(pd$name)
             flags <- load_predictor_flags(pd$name)
             sel   <- selected_predictors(pd$config)
-            notes <- list(identical_predictors_note(flags, sel),
-                          binary_predictors_note(flags, sel),
+            notes <- list(climate_predictors_note(flags, sel),
                           if (!identical(config_regime(pd$config), "gwas_only"))
                               climate_dropped_note(load_climate_dropped(pd$name)))
             notes <- Filter(Negate(is.null), notes)

@@ -36,43 +36,15 @@ mod_home_ui <- function(id) {
     htmltools::tagList(
         .regime_badge(regime),
 
-        # Value box row
-        bslib::layout_column_wrap(
-            width = "200px",
-            fill  = FALSE,
-            bslib::value_box(
-                title = "Samples",
-                value = shiny::textOutput(ns("n_samples")),
-                theme = "primary",
-                showcase = bsicons::bs_icon("people")
-            ),
-            bslib::value_box(
-                title = "SNPs (filtered)",
-                value = shiny::textOutput(ns("n_snps")),
-                theme = "info",
-                showcase = bsicons::bs_icon("database")
-            ),
-            bslib::value_box(
-                title = "K best",
-                value = shiny::textOutput(ns("k_best")),
-                theme = "success",
-                showcase = bsicons::bs_icon("diagram-3")
-            ),
-            bslib::value_box(
-                title = "Assoc. methods",
-                value = shiny::textOutput(ns("n_methods")),
-                theme = "warning",
-                showcase = bsicons::bs_icon("bar-chart")
-            ),
-            bslib::value_box(
-                title = "Regions",
-                value = shiny::textOutput(ns("n_regions")),
-                theme = "danger",
-                showcase = bsicons::bs_icon("geo-alt")
-            )
+        # Value box row: compact, like every tab's (I7)
+        lab_kpi_tiles(
+            lab_value_box("Samples", shiny::textOutput(ns("n_samples")), "primary", "people"),
+            lab_value_box("SNPs (filtered)", shiny::textOutput(ns("n_snps")), "info", "database"),
+            lab_value_box("K best", shiny::textOutput(ns("k_best")), "success", "diagram-3"),
+            lab_value_box("Assoc. methods", shiny::textOutput(ns("n_methods")), "warning",
+                          "bar-chart"),
+            lab_value_box("Regions", shiny::textOutput(ns("n_regions")), "danger", "geo-alt")
         ),
-
-        shiny::br(),
 
         # Pipeline status card — click a completed module to see its summary
         bslib::card(
@@ -83,8 +55,7 @@ mod_home_ui <- function(id) {
                     bsicons::bs_icon("check-circle"),
                     " Pipeline Status"
                 ),
-                shiny::downloadButton(ns("dl_summary"), "CSV",
-                                      class = "btn-sm btn-outline-secondary")
+                lab_download_button(ns("dl_summary"), "CSV")
             ),
             bslib::card_body(
                 shiny::uiOutput(ns("module_status"))
@@ -97,8 +68,9 @@ mod_home_ui <- function(id) {
 #'
 #' @param id module namespace id
 #' @param project_data reactive project data bundle
+#' @param has_project  reactive: TRUE once a project is selected
 #' @noRd
-mod_home_server <- function(id, project_data) {
+mod_home_server <- function(id, project_data, has_project) {
     shiny::moduleServer(id, function(input, output, session) {
         ns <- session$ns
 
@@ -112,6 +84,11 @@ mod_home_server <- function(id, project_data) {
         regime <- shiny::reactive(config_regime(project_data()$config))
 
         output$home_content <- shiny::renderUI({
+            # with no project every tab would stay blank (I11)
+            if (!has_project()) {
+                return(plot_placeholder("No project yet",
+                    "Choose \u201c+ New Project\u201d in the project list at the top left."))
+            }
             pd <- project_data()
             st <- check_module_status(pd$name, summary_data())
             gwas_only <- identical(regime(), "gwas_only")
@@ -132,40 +109,36 @@ mod_home_server <- function(id, project_data) {
                             class = "getting-started-steps",
                             htmltools::tags$li(
                                 htmltools::tags$strong("Review your config"),
-                                " \u2014 Open the sidebar on the left to check input paths and filtering parameters. Adjust MAF, missingness thresholds, and K range as needed."
+                                " \u2014 Open the sidebar on the left of any tab to check input paths and parameters; Save, top right, writes them to the project's config."
                             ),
                             htmltools::tags$li(
                                 htmltools::tags$strong("Run Processing"),
-                                " \u2014 Click \u2018Run Processing\u2019 in the sidebar. This filters your VCF, computes sample QC, and prepares intermediate files."
+                                " \u2014 Click \u2018Run Processing\u2019 in the ", htmltools::tags$strong("Processing"), " sidebar. It filters your VCF, computes sample QC and prepares intermediate files; its tab shows the QC plots."
                             ),
                             htmltools::tags$li(
-                                htmltools::tags$strong("Check QC"),
-                                " \u2014 Switch to the ", htmltools::tags$strong("Processing"), " tab to review QC plots (missingness, MAF, SNP density, filtering attrition)."
+                                htmltools::tags$strong("Run PreStructure"),
+                                " \u2014 In the ", htmltools::tags$strong("PreStructure"), " tab, run sNMF across the K range (sNMF.k_start to sNMF.k_end) and read the cross-entropy plot and the PCA."
                             ),
                             htmltools::tags$li(
                                 htmltools::tags$strong("Run Structure"),
-                                " \u2014 Go to the ", htmltools::tags$strong("Structure"), " tab and run sNMF to estimate population structure across K values."
-                            ),
-                            htmltools::tags$li(
-                                htmltools::tags$strong("Select K"),
                                 if (gwas_only)
-                                    " \u2014 Review the cross-entropy plot, set snmf.k_best in the sidebar, then run Structure K."
+                                    " \u2014 Set sNMF.k_best in the Structure sidebar, then run Structure."
                                 else
-                                    " \u2014 Review the cross-entropy plot, set snmf.k_best in the sidebar, then run Structure K to generate piemaps."
+                                    " \u2014 Set sNMF.k_best in the Structure sidebar, then run Structure: the ancestry piemaps and the climate extraction."
                             ),
                             if (gwas_only) htmltools::tags$li(
-                                htmltools::tags$strong("Run GWAS"),
-                                " \u2014 Pick traits and association methods in the ", htmltools::tags$strong("GWAS"), " tab, then run."
+                                htmltools::tags$strong("Run Phenotypic, then GWAS"),
+                                " \u2014 Characterize the traits in the ", htmltools::tags$strong("Phenotypic"), " tab, then pick traits and methods in the ", htmltools::tags$strong("GWAS"), " sidebar and run."
                             ) else htmltools::tags$li(
-                                htmltools::tags$strong("Run Association"),
-                                " \u2014 Configure climate predictors and association methods in the ", htmltools::tags$strong("Association"), " tab, then run."
+                                htmltools::tags$strong("Run Environmental and Phenotypic, then GEA"),
+                                " \u2014 Characterize the predictors and traits in the ", htmltools::tags$strong("Environmental"), " and ", htmltools::tags$strong("Phenotypic"), " tabs, then pick predictors and methods in the ", htmltools::tags$strong("GEA"), " sidebar and run."
                             ),
                             if (gwas_only) htmltools::tags$li(
                                 htmltools::tags$strong("Explore results"),
                                 " \u2014 Drill into significant regions, genes, GO enrichment and haplotypes from the GWAS Manhattan plots."
                             ) else htmltools::tags$li(
                                 htmltools::tags$strong("Explore results"),
-                                " \u2014 Continue with Phenotype Association, Overlapping Regions, Maladaptation, and Haplotype Analysis as your research requires."
+                                " \u2014 Continue with GWAS, GEAxGWAS and Maladaptation as your research requires; regions, genes, GO enrichment and haplotypes open from any Manhattan plot."
                             )
                         )
                     )
@@ -205,29 +178,11 @@ mod_home_server <- function(id, project_data) {
         output$n_regions <- shiny::renderText(summary_val(assoc_step(), "regions_combined"))
 
         # ── Module status — clickable rows ────────────────────────────────────
-        module_labels <- c(
-            processing    = "Processing",
-            prestructure  = "PreStructure",
-            structure     = "Structure",
-            traits        = "Phenotypic",
-            pregea        = "PreGEA",
-            gea           = "GEA",
-            gwas          = "GWAS",
-            gea_x_gwas    = "GEAxGWAS",
-            maladaptation = "Maladaptation"
-        )
-        # Step name used in pipeline_summary.tsv per module
-        module_steps <- c(
-            processing    = "processing",
-            prestructure  = "prestructure",
-            structure     = "structure",
-            traits        = "traits",
-            pregea        = "pregea",
-            gea           = "gea",
-            gwas          = "gwas",
-            gea_x_gwas    = "gea_x_gwas",
-            maladaptation = "maladaptation"
-        )
+        # Every module but Home, in the module bar's order and names (N3: the
+        # Environmental row was missing); a module's pipeline_summary.tsv step is its id.
+        reg <- module_registry()
+        reg <- reg[reg$id != "home", , drop = FALSE]
+        module_labels <- stats::setNames(reg$label, reg$id)
 
         selected_module <- shiny::reactiveVal(NULL)
 
@@ -248,7 +203,7 @@ mod_home_server <- function(id, project_data) {
                     htmltools::div(
                         class = paste("mode-status mode-status-clickable", if (active) "mode-status-active" else ""),
                         onclick = sprintf("Shiny.setInputValue('%s', '%s', {priority: 'event'})", ns("module_click"), nm),
-                        htmltools::span(class = "status-icon status-ok", "\u2713"),
+                        htmltools::span(class = "status-icon status-ok", bsicons::bs_icon("check-lg")),
                         htmltools::span(module_labels[[nm]]),
                         htmltools::span(
                             class = paste("ms-auto status-chevron", if (!active) "text-muted" else ""),
@@ -265,8 +220,13 @@ mod_home_server <- function(id, project_data) {
 
                 # Inline detail panel immediately after this row when active
                 detail <- if (active) {
-                    step      <- module_steps[[nm]]
-                    metrics   <- if (nrow(s) > 0) s[s$step == step, c("metric", "value")] else data.frame(metric = character(), value = character())
+                    metrics   <- if (identical(nm, "gea_x_gwas")) {
+                        # no summary rows: the outputs that make it done
+                        files <- geaxgwas_outputs(project_data()$name)
+                        data.frame(metric = rep("output", length(files)), value = files)
+                    } else if (nrow(s) > 0) {
+                        s[s$step == nm, c("metric", "value")]
+                    } else data.frame(metric = character(), value = character())
                     tbl_rows  <- lapply(seq_len(nrow(metrics)), function(i) {
                         htmltools::tags$tr(
                             htmltools::tags$td(class = "detail-metric", as.character(metrics$metric[i])),

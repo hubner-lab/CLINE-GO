@@ -62,8 +62,7 @@ mod_pipeline_runner_ui <- function(id, btn_label = NULL, mode_override = NULL) {
 
                 # Progress bar (clickable after completion to open .run.log)
                 htmltools::div(
-                    class   = "progress pipeline-progress-bar",
-                    style   = "height: 8px; cursor: pointer;",
+                    class   = "progress pipeline-progress-bar lab-clickable",
                     onclick = sprintf(
                         "Shiny.setInputValue('%s', Date.now(), {priority: 'event'});",
                         ns("progress_bar_click")
@@ -112,6 +111,8 @@ mod_pipeline_runner_ui <- function(id, btn_label = NULL, mode_override = NULL) {
 #' @param id module namespace id
 #' @param config_state reactiveValues from app_server ($saved, $working, $project)
 #' @param pipeline_running reactiveVal (logical) — global run lock
+#' @param running_module reactiveVal — the id of the tab whose mode is running, NULL when
+#'   idle; the module bar colours that tab's entry (I8)
 #' @param project_data_trigger reactiveVal — increment to force project_data refresh
 #'   and the modules' p-value reload (a run that succeeded)
 #' @param project_files_trigger reactiveVal — increment to re-read the project's
@@ -119,7 +120,7 @@ mod_pipeline_runner_ui <- function(id, btn_label = NULL, mode_override = NULL) {
 #' @param tab_name tab name for mode derivation
 #' @param mode_override character — override derived mode (for haplotype)
 #' @noRd
-mod_pipeline_runner_server <- function(id, config_state, pipeline_running,
+mod_pipeline_runner_server <- function(id, config_state, pipeline_running, running_module,
                                         project_data_trigger, project_files_trigger,
                                         tab_name, mode_override = NULL,
                                         snp_sets_trigger = NULL) {
@@ -251,6 +252,7 @@ mod_pipeline_runner_server <- function(id, config_state, pipeline_running,
 
             proc(p)
             pipeline_running(TRUE)
+            running_module(tab_name)
             run_status("running")
 
             # Reset rule list + warning state for new run
@@ -280,6 +282,7 @@ mod_pipeline_runner_server <- function(id, config_state, pipeline_running,
             }
             proc(NULL)
             pipeline_running(FALSE)
+            running_module(NULL)
             run_status("idle")
             shinyjs::hide("stop_btn")
             shinyjs::hide("progress_container")
@@ -341,6 +344,7 @@ mod_pipeline_runner_server <- function(id, config_state, pipeline_running,
             exit_code <- tryCatch(p$get_exit_status(), error = function(e) -1L)
             proc(NULL)
             pipeline_running(FALSE)
+            running_module(NULL)
             # A failed run may still have written a mode's outputs and its summary
             project_files_trigger(project_files_trigger() + 1L)
             # Final progress read — updates label + rule list one last time, then stops
@@ -537,8 +541,7 @@ mod_pipeline_runner_server <- function(id, config_state, pipeline_running,
                     safe_path <- gsub("'", "\\\\'", r$log_file)
                     safe_rule <- gsub("'", "\\\\'", r$rule)
                     htmltools::span(
-                        class   = "pipeline-rule-link small",
-                        style   = "cursor:pointer;",
+                        class   = "pipeline-rule-link small lab-clickable",
                         onclick = sprintf(
                             "Shiny.setInputValue('%s', {path:'%s',rule:'%s',ts:Date.now()},{priority:'event'});",
                             ns("rule_click"), safe_path, safe_rule
@@ -579,13 +582,7 @@ mod_pipeline_runner_server <- function(id, config_state, pipeline_running,
                     paste(log_content, collapse = "\n")
                 ),
                 footer = htmltools::tagList(
-                    shiny::downloadButton(
-                        ns("download_log"),
-                        label = htmltools::tagList(
-                            bsicons::bs_icon("download", size = "0.85em"), " Download"
-                        ),
-                        class = "btn btn-outline-secondary btn-sm"
-                    ),
+                    lab_download_button(ns("download_log"), "Download"),
                     shiny::modalButton("Close")
                 )
             ))
@@ -617,13 +614,7 @@ mod_pipeline_runner_server <- function(id, config_state, pipeline_running,
                     paste(log_content, collapse = "\n")
                 ),
                 footer = htmltools::tagList(
-                    shiny::downloadButton(
-                        ns("download_log"),
-                        label = htmltools::tagList(
-                            bsicons::bs_icon("download", size = "0.85em"), " Download"
-                        ),
-                        class = "btn btn-outline-secondary btn-sm"
-                    ),
+                    lab_download_button(ns("download_log"), "Download"),
                     shiny::modalButton("Close")
                 )
             ))

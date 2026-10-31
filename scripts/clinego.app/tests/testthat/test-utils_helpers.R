@@ -460,3 +460,40 @@ test_that("project_files_stamp moves when the config is written (fb53fe)", {
     expect_false(identical(project_files_stamp(a), s1))
     expect_identical(project_files_stamp(NULL), "")
 })
+
+test_that("tables show non-integer doubles at 3 significant digits, display only (N2)", {
+    df <- data.frame(site = c("A", "B"), pos = c(14125182, 16669175), n = c(3, 4),
+                     offset = c(0.185926453717905, 0.0324312347722451),
+                     km = c(1234.5678, 15.25), stringsAsFactors = FALSE)
+    renders <- function(tbl) {
+        defs <- Filter(function(d) !is.null(d$render), tbl$x$options$columnDefs)
+        stats::setNames(vapply(defs, function(d) paste(as.character(d$render), collapse = "\n"), ""),
+                        vapply(defs, function(d) paste(d$targets, collapse = ":"), ""))
+    }
+    r <- renders(safe_datatable(df, rownames = FALSE))
+    # offset and km (0-based 3, 4) per cell at 3 significant digits, display only; the
+    # integer-valued doubles pos and n are left alone
+    expect_identical(names(r), "3:4")
+    expect_match(r[[1]], "toPrecision(3)", fixed = TRUE)
+    expect_match(r[[1]], "t !== 'display'", fixed = TRUE)
+    # a rownames column shifts the targets by one
+    expect_identical(names(renders(safe_datatable(df))), "4:5")
+    expect_length(renders(safe_datatable(df[, c("site", "pos")], rownames = FALSE)), 0L)
+    # a table's own CSV button exports the data, not the display
+    b <- safe_datatable(df, extensions = "Buttons",
+                        options = list(dom = "Bfrtip", buttons = list("csv")))$x$options$buttons
+    expect_identical(b[[1]]$exportOptions$orthogonal, "export")
+})
+
+test_that("PreGEA recommendations show five columns, the note in a badge (D3)", {
+    dt <- data.table::data.table(method = "EMMAX", param = "n_pcs", recommended_value = "1",
+        value_type = "int", rule = "smallest n_pcs with lambda in [0.90, 1.15]",
+        evidence_metric = "lambda_gc", evidence_value = "0.915433641864018",
+        alternatives = "0,1,2", ladder_table = "x.tsv", ladder_plot = "x.png",
+        note = "a <note> & more")
+    out <- recommendations_display(dt)
+    expect_identical(names(out), c("Method", "Parameter", "Value", "Rule", "Evidence"))
+    expect_identical(out$Evidence, "lambda_gc = 0.915")
+    expect_match(out$Rule, 'title="a &lt;note&gt; &amp; more">note</span>', fixed = TRUE)
+    expect_identical(nrow(recommendations_display(data.table::data.table())), 0L)
+})

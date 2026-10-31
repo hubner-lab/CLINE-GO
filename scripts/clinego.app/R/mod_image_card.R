@@ -83,10 +83,8 @@ mod_image_card_server <- function(id, path, title = shiny::reactive("Plot"),
                 trigger = bsicons::bs_icon("download", title = "Download plot"),
                 title = "Download",
                 if (!is.null(svg_file()))
-                    shiny::downloadButton(ns("dl_svg"), "SVG",
-                                          class = "btn-sm btn-outline-secondary"),
-                shiny::downloadButton(ns("dl_png"), "PNG",
-                                      class = "btn-sm btn-outline-secondary")
+                    lab_download_button(ns("dl_svg"), "SVG"),
+                lab_download_button(ns("dl_png"), "PNG")
             )
         })
 

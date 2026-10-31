@@ -87,7 +87,7 @@ mod_gea_server <- function(id, project_data, run_trigger = NULL, module = MOD_GE
         trait_colors <- shiny::reactive({
             tr <- all_trait_names_rv()
             if (length(tr) == 0) return(character(0))
-            trait_color_map(tr)
+            trait_color_map(tr, trait_color_order(project_data()$config, "gea"))
         })
 
         # Method shapes (stable across filtering — keyed on full method list)
@@ -392,7 +392,7 @@ mod_gea_server <- function(id, project_data, run_trigger = NULL, module = MOD_GE
                 footer = htmltools::tagList(
                     shiny::modalButton("Cancel"),
                     shiny::actionButton(ns("snp_set_save_confirm"), "Save",
-                                        class = "btn btn-success")
+                                        class = "btn btn-primary")
                 ),
                 easyClose = TRUE
             ))
@@ -553,8 +553,8 @@ mod_gea_server <- function(id, project_data, run_trigger = NULL, module = MOD_GE
         output$per_method_trait_ui <- shiny::renderUI({
             tr <- all_trait_names_rv()
             if (length(tr) == 0) return(NULL)
-            shiny::selectInput(ns("per_method_trait"), "Trait",
-                               choices = tr, selected = tr[1], width = "200px")
+            lab_input_width(shiny::selectInput(ns("per_method_trait"), "Trait",
+                               choices = tr, selected = tr[1]), 200)
         })
 
         per_method_trait <- dedupe_reactive(shiny::reactive({
@@ -650,8 +650,9 @@ mod_gea_ui <- function(id) {
 
         shiny::uiOutput(ns("config_badges")),
 
-        # ── Controls: collapsed by default, above the plot they drive ─────────
-        # Safe to collapse: mod_gea_server() has exactly one req() in 729 lines
+        # ── Controls: one accordion, open by default, above the plot they drive ─
+        # (I5: the same container on GEA, GWAS and GEAxGWAS; collapse it to give the
+        # plots room). Safe to collapse: mod_gea_server() has exactly one req() in 729 lines
         # (on project_data(), inside the save observer), and every control input
         # it reads is guarded by `%||%` fallback -- input$threshold_type %||%
         # bar$threshold_type(), input$combine_strategy %||% bar$strategy(), and so on. A
@@ -661,7 +662,7 @@ mod_gea_ui <- function(id) {
         bslib::accordion(
             id    = ns("params_accordion"),
             class = "lab-gea-params",
-            open  = FALSE,
+            open  = "params",
             bslib::accordion_panel(
                 value = "params",
                 title = htmltools::tagList(
@@ -681,7 +682,7 @@ mod_gea_ui <- function(id) {
                                 bsicons::bs_icon("save"),
                                 " Save SNP set for maladaptation"
                             ),
-                            class = "btn-sm btn-success"
+                            class = "btn-sm btn-primary"
                         )
                     )
                 )

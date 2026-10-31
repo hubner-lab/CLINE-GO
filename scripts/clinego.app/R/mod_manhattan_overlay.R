@@ -23,10 +23,8 @@ mod_manhattan_overlay_ui <- function(id, height = "400px", filter_ui = NULL) {
                 bslib::popover(
                     trigger = bsicons::bs_icon("download", title = "Download plot"),
                     title = "Download",
-                    shiny::downloadButton(ns("dl_svg"), "SVG",
-                                          class = "btn-sm btn-outline-secondary"),
-                    shiny::downloadButton(ns("dl_png"), "PNG",
-                                          class = "btn-sm btn-outline-secondary")
+                    lab_download_button(ns("dl_svg"), "SVG"),
+                    lab_download_button(ns("dl_png"), "PNG")
                 )
             )
         ),
@@ -124,8 +122,6 @@ mod_manhattan_overlay_server <- function(id, project_data,
                 });
             }
             function revealDebounced() {
-                // INSTRUMENTATION — remove after blink fix is verified.
-                console.log('[overlay] afterplot', performance.now());
                 clearTimeout(debounce);
                 debounce = setTimeout(doReveal, 350);
             }
@@ -257,7 +253,7 @@ mod_manhattan_overlay_server <- function(id, project_data,
                         x         = 0.5, y = 0.5,
                         xref      = "paper", yref = "paper",
                         showarrow = FALSE,
-                        font      = list(size = 14, color = "#888888")
+                        font      = list(size = 14, color = APP_COLORS[["navbar_fg"]])
                     )),
                     paper_bgcolor = "rgba(0,0,0,0)",
                     plot_bgcolor  = "rgba(0,0,0,0)"
@@ -274,13 +270,6 @@ mod_manhattan_overlay_server <- function(id, project_data,
                     "Manhattan plot not available — run this mode from the sidebar to generate it.")))
             }
             bg_uri_val <- bg_uri()
-
-            # INSTRUMENTATION — remove after blink fix is verified.
-            # Counts how many times renderPlotly actually re-executes so we can
-            # confirm the fix collapsed cold-load to a single render.
-            message("[overlay render] id=", id, " bg_ok=", !is.null(bg_uri_val),
-                    " snps_rows=", if (!is.null(sig_snps())) nrow(sig_snps()) else "NULL",
-                    " thr_y=", shiny::isolate(threshold_y()))
 
             snps <- sig_snps()
             # For per-method views the loaded data is already method-specific;
