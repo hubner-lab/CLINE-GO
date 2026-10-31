@@ -1,0 +1,11 @@
+key	value
+date	2026-10-31
+host	lab (Linux x86-64)
+image	cline-go:latest sha256:005aa13b65f0877e310509c79b17bb52565032b21d19168e81bcfc81c21baa58
+lane_head	c5c33bec70b6ac92cca69eec49d062c7bb47bb47
+run_copy_uncommitted_edits	yes: 19 files (Phase 3 site pages, uncommitted; docs only, no pipeline code or config)
+config	test_data/config_testdata.yaml (unedited)
+commands	the clinego-run blocks of the built quickstart.html, run_testdata_processing then run_testdata_prestructure
+lane_changes	--name clinego-docs-site-<mode>, --cpus=16, a TEMP dir mounted as /tmp, docker via nix shell nixpkgs#docker-client
+run_folder	/mnt/data/eugene/clinego_tutorial/wave1/site-quickcheck (fresh rsync, no prior results)
+climate_download	none (neither mode reads climate)

@@ -1,0 +1,14 @@
+key	value	source
+qc_samples_raw	51	testdata_results/Processing/tables/filtering_summary.tsv (Raw VCF)
+qc_samples_removed_missingness	1	testdata_results/Processing/tables/filtering_summary.tsv (After sample missingness filter)
+qc_samples_removed_relatedness	3	testdata_results/pipeline_summary.tsv (samples_removed_relatedness)
+qc_samples_kept	47	testdata_results/Processing/tables/filtering_summary.tsv (After LD pruning)
+qc_snps_raw	354	testdata_results/Processing/tables/filtering_summary.tsv (Raw VCF)
+qc_snps_filtered	354	testdata_results/Processing/tables/filtering_summary.tsv (After MAF + SNP missingness filter)
+qc_snps_ld_pruned	247	testdata_results/Processing/tables/filtering_summary.tsv (After LD pruning)
+qc_k_min_cross_entropy	2	testdata_results/PreStructure/tables/cross_entropy_K2-7.tsv (lowest mean over 10 runs: 1.1212 at K=2, 1.1951 at K=3)
+qc_k_best_config	3	test_data/config_testdata.yaml (sNMF.k_best)
+qc_tw_significant_axes	1	testdata_results/PreStructure/tables/tracy_widom.tsv (tw_pvalue < 0.05: axis 1 only, p = 0.0125)
+qc_seconds_processing	12	timings.tsv
+qc_seconds_prestructure	90	timings.tsv
+qc_minutes_total	2	timings.tsv (102 s, rounded up)

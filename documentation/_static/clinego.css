@@ -1,0 +1,66 @@
+/* CLINE-GO site styles, loaded after the sphinx-book-theme stylesheet. */
+
+/* Wide figures (metro map, piemaps) never push the page sideways on a phone. */
+.bd-article img {
+  max-width: 100%;
+  height: auto;
+}
+
+/* "In development" block (directive in _ext/clinego_docs.py): marks what is not built yet.
+   Own purple tokens: sphinx-book-theme redefines --pst-color-secondary as orange, so borrowing
+   it gave an orange border under a purple title band. Values are pydata-sphinx-theme's purples. */
+html {
+  --clinego-indev: #8045e5;
+  --clinego-indev-bg: #e0c7ff;
+}
+html[data-theme="dark"] {
+  --clinego-indev: #9c5ffd;
+  --clinego-indev-bg: #341a61;
+}
+.admonition.clinego-indev,
+div.admonition.clinego-indev {
+  border-color: var(--clinego-indev);
+}
+.admonition.clinego-indev > .admonition-title,
+div.admonition.clinego-indev > .admonition-title {
+  background-color: var(--clinego-indev-bg);
+}
+.admonition.clinego-indev > .admonition-title::after,
+div.admonition.clinego-indev > .admonition-title::after {
+  color: var(--clinego-indev);
+  content: "\f7d9"; /* Font Awesome 6 solid: screwdriver-wrench */
+}
+
+/* Placeholder slot (directive `slot` in _ext/clinego_docs.py): a dashed box for a figure,
+   numbers or a run time that a later run fills in. */
+.bd-article div.clinego-slot {
+  border: 2px dashed var(--pst-color-border);
+  border-radius: 0.375rem;
+  padding: 0.75rem 1rem;
+  margin: 1rem 0;
+  color: var(--pst-color-text-muted);
+}
+.clinego-slot > p:last-child {
+  margin-bottom: 0;
+}
+.clinego-slot-title {
+  margin-bottom: 0.25rem;
+}
+
+/* Long inline paths (PopulusTutorial_results/...) wrap instead of pushing a phone page sideways:
+   Sphinx's basic.css sets span.pre to nowrap. Code blocks keep their own horizontal scroll. */
+.bd-article code.literal,
+.bd-article code.literal span.pre {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* Margin tips: below the theme's 992px breakpoint they float at 40% width and squeeze the command
+   block and the text beside them into narrow columns (phone and portrait tablet). Stack them there. */
+@media (max-width: 991.98px) {
+  .bd-main .bd-content aside.margin {
+    float: none;
+    width: 100%;
+    margin: 1rem 0;
+  }
+}
