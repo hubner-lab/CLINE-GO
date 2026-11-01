@@ -78,6 +78,6 @@ docker run ... snakemake -c10 --config mode=maladaptation --configfile config_po
 - The Arabidopsis VCF download is ~18 GB. The script caches it in `benchmarks/.cache/arabidopsis/` and thins to ~50K SNPs for pipeline use.
 - Phenotype data (FT10, FT16) has ~1,100 values out of 1,135 accessions. The pipeline's `missing_strategy: "DROP"` handles samples without phenotype values.
 - Populus uses P. trichocarpa reference genome for P. balsamifera (standard practice).
-- Populus coordinates for 37/42 populations from Gougherty et al.; 5 missing populations (NIC, VER, USDA8, USDA19) use approximate coordinates.
+- Populus coordinates: Gougherty et al. cover 38 of the 42 populations (`github.com/agougher/poplarAdaptiveOffset`, `data/popInfo.csv`, which writes `USDA_N` where the VCF has `USDAN`); the other 4 (NIC, VER, USDA8, USDA19) have no published source and use approximate coordinates.
 - Downloads are cached in `benchmarks/.cache/` (gitignored).
 - `climate: false` mode can be tested by running either dataset with `climate.enabled: false` in config.
