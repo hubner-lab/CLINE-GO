@@ -54,7 +54,38 @@ without them is supported (keep the `latitude` and `longitude` columns, empty).
   <img src="assets/clinego-metromap.png" alt="CLINE-GO pipeline overview">
 </p>
 
+## Get started
+
+CLINE-GO needs Docker on x86-64 Linux (on a Mac with Apple silicon it runs emulated, slowly,
+and without EMMAX). Clone the release, build the image once, and put the `clinego` launcher on
+your `PATH`:
+
+```bash
+git clone --branch v1.0 https://github.com/hubner-lab/CLINE-GO.git
+cd CLINE-GO
+./clinego build
+ln -s "$PWD/clinego" ~/.local/bin/clinego
+```
+
+The first build compiles R and Bioconductor packages and takes a long time. Then check the
+installation on the bundled test dataset, in an empty folder:
+
+```bash
+mkdir clinego-quick && cd clinego-quick
+clinego example
+clinego run processing --config config_testdata.yaml
+clinego run prestructure --config config_testdata.yaml
+```
+
+Results land in `testdata_results/`, and `clinego app` opens them in the Shiny viewer on
+<http://localhost:3838>. The documentation, with the steps for your own data, every mode and
+every setting, is at **<https://cline-go.readthedocs.io/>**.
+
 ## Status
 
 CLINE-GO is **under active development**. Interfaces, configuration keys and output layouts
 may still change between commits. **A publication describing the method is in preparation.**
+
+## License
+
+MIT, copyright the CLINE-GO authors; see [LICENSE](LICENSE).

@@ -1,55 +1,63 @@
 # Install
 
-CLINE-GO runs in Docker. Today the image holds the software but not the pipeline code: you clone
-the repository, build the image once, and every command mounts the repository into the container
-as `/pipeline`. Run all commands from the repository root.
+CLINE-GO runs in Docker. You clone the repository, build the image once with the `clinego`
+launcher that ships in it, and from then on run every mode and the Shiny app from your own
+project folder with short `clinego` commands. The pipeline code is built into the image, so
+nothing from the repository is mounted at run time.
 
-:::{margin} Tip
-A packaged image with the code inside and a single `clinego` command is planned. When it ships,
-these pages switch to it.
-:::
+## Requirements
+
+- **Docker** on **x86-64 (amd64) Linux**. The image is built for amd64 only; there everything
+  runs natively.
+- **Mac with Apple silicon (M1 and later)**: Docker runs the image under emulation. The build is
+  slow and can stop with a compiler crash (`internal compiler error: Segmentation fault`); run
+  `./clinego build` again, it resumes from the packages already built. Most modes then work,
+  more slowly. EMMAX does not: it refuses to start under emulation, so a GEA or GWAS run that
+  includes EMMAX stops there (see the [FAQ](faq.md#emmax-stops-at-once-on-my-mac)).
+- **git** and **bash**, to get the code and run the launcher.
+- Disk and memory to match your data; see the
+  [FAQ](faq.md#the-container-runs-out-of-memory) for a small machine.
 
 ## 1. Get the code
 
 ```{code-block} text
-git clone https://github.com/hubner-lab/CLINE-GO.git
+|clone|
 cd CLINE-GO
 ```
 
 ## 2. Build the image
 
 ```{code-block} text
-docker build -t cline-go .
+|build|
 ```
 
-The build compiles R and Bioconductor packages and takes a while. Build again only after the
-`Dockerfile` changes; a change to the pipeline code needs no rebuild, because the code is mounted.
+The first build compiles R and Bioconductor packages from source and takes a long time, longer
+still under emulation. The pipeline code is copied into the image last, so a
+rebuild after [updating the code](faq.md#how-do-i-update) reuses every package layer and takes a
+minute or two.
 
-## 3. Run a mode
+The image is tagged `cline-go:<version>`, after the version of the code it was built from (`1.0`
+for the release). Each clone's launcher runs the image built from that clone's code.
 
-Every pipeline step is one mode, run like this (here `processing` on the bundled test data):
+## 3. Put `clinego` on your PATH
+
+From the repository folder:
 
 ```{code-block} text
-|run_testdata_processing|
+|link|
 ```
 
-- `--user $(id -u):$(id -g)` makes the output files yours, not root's.
-- `-e USER=pipeline` is needed with `--user`; see the [FAQ](faq.md#the-run-stops-at-once-with-keyerror-getpwuid).
-- `--name` lets you stop the run by name; see the [FAQ](faq.md#how-do-i-stop-a-run).
-- `--memory=20g` caps the container; lower it on a small machine and see the
-  [FAQ](faq.md#the-container-runs-out-of-memory).
-
-The Shiny viewer starts the same way and serves on <http://localhost:3838>:
+or add the repository folder to your `PATH`. Then check that the launcher finds its image:
 
 ```{code-block} text
-|app|
+|version|
 ```
 
-## Linux and Mac
+It prints the code version and whether the image for it exists. If it says there is no image,
+run `./clinego build` again.
 
-The image is built for x86-64 (amd64) only.
+## 4. Next
 
-- **Linux on x86-64**: everything runs natively.
-- **Mac with Apple silicon (M1 and later)**: Docker runs the image under emulation. Most modes
-  work, more slowly. EMMAX does not: it refuses to start under emulation, so a GEA or GWAS run
-  that includes EMMAX stops there. Use LFMM and RDA on a Mac, or run EMMAX on a Linux machine.
+The [quick check](quickstart.md) runs the bundled test dataset in a fresh folder and starts the
+Shiny viewer, to show that everything works. Every `clinego` command runs in the current folder:
+inputs, configs and results all live there.

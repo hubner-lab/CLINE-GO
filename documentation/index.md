@@ -42,8 +42,8 @@ A gene annotation for the same assembly as the VCF, used to name genes near asso
 :::
 ::::
 
-Everything else runs in one Docker image; present-day and future climate rasters are downloaded
-for you.
+Everything else runs in one Docker image that you build once from the repository; present-day
+and future climate rasters are downloaded for you.
 
 ## Where to start
 
@@ -57,16 +57,13 @@ for you.
 Run the bundled test dataset in a few minutes and see that your installation works.
 :::
 
-:::{grid-item-card} Tutorial: balsam poplar
-:link: tutorial/index
+:::{grid-item-card} Run on your own data
+:link: own-data
 :link-type: doc
 
-Run CLINE-GO on public data from 42 balsam poplar populations, from the VCF to the offset map.
+Set up a project folder for your VCF and metadata, write its config and run the modes in order.
 :::
 ::::
-
-Does the offset mean anything? [Chapter 7](tutorial/07-gardens.md) tests it against tree growth
-in two common gardens, the test Fitzpatrick et al. (2021) used for these same trees.
 
 ```{toctree}
 :hidden:
@@ -74,8 +71,8 @@ in two common gardens, the test Fitzpatrick et al. (2021) used for these same tr
 
 install
 quickstart
-tutorial/index
-faq
+own-data
 manual/index
+faq
 citing
 ```

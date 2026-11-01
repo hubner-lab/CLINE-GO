@@ -1,24 +1,38 @@
 # Quick check
 
-Runs the first two modes on the small simulated dataset that ships in `test_data/`
+Runs the first two modes on the small simulated dataset that ships in the image
 ({{qc_samples_raw}} samples, {{qc_snps_raw}} SNPs), to show that your installation works. It needs
 no climate download. Run time on the lab: about {{qc_minutes_total}} minutes.
 
 :::{margin} Tips
 - **Change:** nothing; the test config is meant to run as it is.
-- **Trap:** run from the repository root, after the [install](install.md); the commands mount
-  the current directory.
-- **In Shiny:** start the [app](install.md#3-run-a-mode) and pick the `testdata` project.
+- **Trap:** run every command from the same folder, after the [install](install.md); `clinego`
+  reads and writes only the current folder.
+- **In Shiny:** the last command below starts the app; pick the `testdata` project.
 :::
 
+## Make a folder for it
+
+Any empty folder works:
+
+```{code-block} text
+mkdir clinego-quick && cd clinego-quick
+```
+
 ## Run it
+
+Copy the test dataset into the folder, then run the two modes:
 
 ```{code-block} text
 :class: clinego-run
 
+|example|
 |run_testdata_processing|
 |run_testdata_prestructure|
 ```
+
+`clinego example` writes `test_data/` (the VCF, metadata and gene annotation) and
+`config_testdata.yaml`, and refuses to overwrite them if they are already there.
 
 ## What should come out
 
@@ -42,4 +56,16 @@ What a run on the lab gave:
   *K* = {{qc_k_best_config}}, the number of populations the data was simulated from.
 - `processing` took {{qc_seconds_processing}} s and `prestructure` {{qc_seconds_prestructure}} s.
 
-If your counts match, the pipeline works. Go on to the [tutorial](tutorial/index.md).
+## Look at it in the app
+
+Start the Shiny viewer in the same folder; it serves on <http://localhost:3838>:
+
+```{code-block} text
+:class: clinego-run
+
+|app|
+```
+
+Stop it with Ctrl-C.
+
+If your counts match, the pipeline works. Go on to [run it on your own data](own-data.md).

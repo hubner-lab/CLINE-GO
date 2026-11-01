@@ -1,5 +1,16 @@
 # Manual
 
-The reference manual, with every configuration key and every output file, is not written yet.
-Until it is, the [tutorial](../tutorial/index.md) shows the main settings in context, and
-`scripts/clinego.app/inst/config_default.yaml` in the repository lists every key with its default.
+The reference for running CLINE-GO on your own data. [Run on your own data](../own-data.md)
+walks through a first project; these pages hold the details.
+
+- [The modes](modes.md): what each of the ten modes does, what it needs, what it writes, and
+  its command.
+- [Configuration reference](configuration.md): the settings a project sets, group by group,
+  with their defaults, and the template `clinego init` writes.
+
+```{toctree}
+:hidden:
+
+modes
+configuration
+```

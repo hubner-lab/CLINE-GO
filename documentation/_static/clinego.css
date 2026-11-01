@@ -63,4 +63,8 @@ div.admonition.clinego-indev > .admonition-title::after {
     width: 100%;
     margin: 1rem 0;
   }
+  /* Stacked, the box keeps its bullets, and the theme's 16px list indent puts them on its border. */
+  .bd-main .bd-content aside.margin ul {
+    padding-left: 2rem;
+  }
 }
