@@ -158,3 +158,78 @@ test_that("LDdecay.exclude_chromosomes leaves its contigs out of the curve and t
     expect_identical(bg[group == "All", n_unlinked_pairs], length(r2))
     expect_identical(bg[group == "All", n_markers], sum(keep))
 })
+
+test_that("a VCF whose chromosomes are out of PLINK's order keeps its names and values", {
+    # PLINK writes its chromosomes in its own order (1, 2, 10, 11, then other names). The
+    # script used to pair .bim rows with VCF rows, so this VCF stopped it ("PLINK merged
+    # distinct VCF chromosome names"), and LDdecay.exclude_chromosomes dropped the rows of
+    # another chromosome. The same VCF in PLINK's order must give the same files.
+    require_tools(c("plink", "bcftools"))
+    d  <- withr::local_tempdir()
+    fx <- heavy_ld_fixture(d, chr_names = c("10", "2", "chr1", "Pt", "11"))
+    lines <- readLines(fx$vcf)
+    body  <- lines[!startsWith(lines, "#")]
+    ord   <- order(match(sub("\t.*$", "", body), c("chr1", "2", "10", "11", "Pt")),
+                   seq_along(body))
+    sorted_vcf <- file.path(d, "ld_sorted.vcf")
+    writeLines(c(lines[startsWith(lines, "#")], body[ord]), sorted_vcf)
+
+    run <- function(vcf, out, exclude) {
+        res <- run_wrapper("ld_decay_pairs.R",
+                           c(vcf, fx$sl, "20", "1e6", "1", "both", file.path(d, out, "gw"),
+                             file.path(d, out, "chr"), file.path(d, out, "summary.tsv"),
+                             exclude), wd = d)
+        expect_identical(res$status, 0L, info = paste(res$output, collapse = "\n"))
+        file.path(d, out)
+    }
+    same_files <- function(a, b) {
+        fa <- sort(list.files(a, recursive = TRUE))
+        expect_identical(fa, sort(list.files(b, recursive = TRUE)))
+        for (f in fa) {
+            got <- if (grepl("\\.gz$", f)) read_stat(file.path(a, f)) else data.table::fread(file.path(a, f))
+            exp <- if (grepl("\\.gz$", f)) read_stat(file.path(b, f)) else data.table::fread(file.path(b, f))
+            expect_identical(got, exp, info = f)
+        }
+    }
+
+    unsorted <- run(fx$vcf, "unsorted", "NULL")
+    expect_setequal(list.files(file.path(unsorted, "chr"), pattern = "^All_"),
+                    paste0("All_", c("10", "2", "chr1", "Pt", "11"), ".stat.gz"))
+    # each chromosome's file holds that chromosome's pairs, recomputed in R
+    for (ch in unique(fx$info$chr)) {
+        one <- fx
+        one$info <- fx$info[chr == ch]
+        one$X <- fx$X[, fx$info$chr == ch, drop = FALSE]
+        got <- read_stat(file.path(unsorted, "chr", paste0("All_", ch, ".stat.gz")))
+        exp <- heavy_ld_expected(one, 20000)
+        expect_identical(got$n_pairs, exp$n_pairs, info = ch)
+        expect_equal(got$sum_r2, exp$sum_r2, tolerance = 1e-5, info = ch)
+    }
+    same_files(unsorted, run(sorted_vcf, "sorted", "NULL"))
+
+    # "10" is the VCF's first chromosome and PLINK's third: its own SNPs are left out
+    unsorted_ex <- run(fx$vcf, "unsorted_ex", "10")
+    expect_setequal(list.files(file.path(unsorted_ex, "chr"), pattern = "^All_"),
+                    paste0("All_", c("2", "chr1", "Pt", "11"), ".stat.gz"))
+    s <- data.table::fread(file.path(unsorted_ex, "summary.tsv"))
+    expect_identical(s$n_snps[1], sum(fx$info$chr != "10"))
+    same_files(unsorted_ex, run(sorted_vcf, "sorted_ex", "10"))
+
+    # the background matches each marker to a chromosome by name, so it was never
+    # order-bound; 15 markers per chromosome = every SNP, the same set in both orders
+    bg <- function(vcf, out) {
+        res <- run_wrapper("ld_decay_background.R",
+                           c(vcf, fx$sl, "15", "0.95", "1", file.path(d, out), "NULL"), wd = d)
+        expect_identical(res$status, 0L, info = paste(res$output, collapse = "\n"))
+        data.table::fread(file.path(d, out))
+    }
+    got_bg <- bg(fx$vcf, "bg_unsorted.tsv")
+    expect_identical(got_bg, bg(sorted_vcf, "bg_sorted.tsv"))
+    # and none of chr1's or Pt's markers was lost on the way into PLINK
+    expect_identical(got_bg[group == "All", n_markers], nrow(fx$info))
+    X <- fx$X; chr <- fx$info$chr
+    ij <- which(upper.tri(diag(ncol(X))) & outer(chr, chr, "!="), arr.ind = TRUE)
+    r2 <- apply(ij, 1, function(p) suppressWarnings(stats::cor(X[, p[1]], X[, p[2]],
+                                                               use = "pairwise.complete.obs")^2))
+    expect_identical(got_bg[group == "All", n_unlinked_pairs], sum(is.finite(r2)))
+})

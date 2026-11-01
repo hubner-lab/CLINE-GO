@@ -2,14 +2,22 @@
 # Usage: source("/pipeline/scripts/R/lib/rdadapt.R")
 # Requires: robust, qvalue loaded by the sourcing script.
 #
+# Source: rdadapt() follows the function of the same name in Script_RDA.R of
+# https://github.com/Capblancq/RDA-genome-scan (the code accompanying the paper;
+# the repository carries no license file), which implements the test of
+#   Capblancq T, Luu K, Blum MGB, Bazin E (2018). Evaluation of redundancy
+#   analysis to identify signatures of local adaptation. Molecular Ecology
+#   Resources 18(6): 1223-1233. doi:10.1111/1755-0998.12906
+# The statistic is unchanged. Differences from Script_RDA.R: drop = FALSE on the
+# loadings subset (behaviour-preserving given the K >= 2 floor callers must
+# enforce; guards against silent vector coercion if that floor is ever relaxed),
+# q-values through qvalue_with_fallback() instead of a bare qvalue(), and a list
+# return that also carries lambda, the q-value method and the distances.
+#
 # Extracted from scripts/rda.R (the GEA-mode RDA scan) so it can be shared
 # with preGEA's RDA-setup block (scripts/pregea_rda_setup.R) without
 # duplicating the statistic — both need the SAME candidate-calling math, just
-# applied to different Condition()-PC ladders. Verbatim port from
-# Capblancq/RDA-genome-scan/Script_RDA.R; one deviation: drop=FALSE on the
-# loadings subset (behavior-preserving given the K>=2 floor callers must
-# enforce; guards against silent vector coercion if that floor is ever
-# relaxed).
+# applied to different Condition()-PC ladders.
 
 #' qvalue fallback chain — storey -> qvalue(lambda=0) -> BH.
 #'

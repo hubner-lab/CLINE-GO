@@ -43,11 +43,12 @@ args <- commandArgs(trailingOnly = TRUE)
 # old loop refitted the identical model N times (measured on the SS-Clines garden sweep:
 # 112 identical genome-wide fits per job, ~92 % of the sweep's compute;
 # docs/pipeline_improvement_requests.md, 2026-10-01). With N > 1 the fit now runs once (§7a)
-# and every scenario is projected with genetic.gap()'s own post-fit lines, copied verbatim.
+# and every scenario is projected from that one fit by our own code (§7a), which follows
+# the floating-point steps of genetic.gap() in the same order.
 # Scenario 1 still goes through the real LEA::genetic.gap(), which (a) keeps gap_first --
 # the eigen-pair the diagnostics and the importance plot read -- exactly as before, and
 # (b) GUARDS the hoisted path: if the two disagree beyond HOIST_TOL the job stops, so a
-# future LEA whose genetic.gap() changes cannot drift silently away from the copy below.
+# future LEA whose genetic.gap() changes cannot drift silently away from §7a.
 # With N = 1 nothing changes: one genetic.gap() call, as before.
 #
 # The previous note here objected to STACKING all scenarios into one genetic.gap() call
@@ -205,37 +206,51 @@ site_ids <- samples[, c('site', 'sample')] %>% unique()
 gap_first <- NULL; newenv_first <- NULL; predenv_first <- NULL
 
 # ── 7a. One LFMM2 fit for every scenario (N > 1 only) ────────────────────────
-# The lines marked VERBATIM are LEA::genetic.gap()'s own (LEA 3.22.0, the scalar-K branch),
-# so the hoisted offset is the same arithmetic on the same inputs. Scenario 1 asserts it.
+# The geometric offset of a row (Gain et al. 2023) is the mean over candidate loci of the
+# squared genotype change its effect sizes predict: with B the candidates' LFMM2 effects
+# (loci x predictors) and d = new - pred for that row, offset = sum_l (B_l . d)^2 / n_loci.
+# Below, the effects come from ONE lfmm2() fit and each scenario only redoes the projection.
+# Floating-point results depend on the order of operations, so each step is computed the
+# way genetic.gap() computes it (LEA 3.22.0, one K): per-column mean() and sd() (not
+# colMeans()/scale()), centring by subtraction, scaling as a product with diag(1 / sd)
+# rather than a division, and the loci product as d %*% t(B). Scenario 1 checks the result.
 HOIST     <- N_SCEN > 1
 HOIST_TOL <- 1e-10   # max |hoisted - genetic.gap| / max |genetic.gap| on scenario 1
 if (HOIST) {
     if (length(K) != 1L || is.na(K)) stop('FATAL: geometric offset needs one integer K, got: ', args[12])
-    Y_fit <- as.matrix(lfmm_imp)                              # VERBATIM
-    Y_fit[Y_fit == 9] <- NA                                   # VERBATIM
-    Y_fit[Y_fit == -9] <- NA                                  # VERBATIM
-    if (anyNA(Y_fit)) stop('FATAL: imputed genotype matrix contains missing values (NA, 9 or -9).')
-    X_fit <- as.matrix(env)                                   # VERBATIM
-    if (anyNA(X_fit)) stop('FATAL: present site environment contains NA.')
-    if (SCALE == TRUE) {
-        m.x  <- apply(X_fit, 2, mean)                         # VERBATIM
-        sd.x <- apply(X_fit, 2, sd)                           # VERBATIM
-        if (sum(sd.x == 0) > 0) stop('FATAL: scale = TRUE but a predictor is constant across sites.')
-        X_fit <- t(t(X_fit) - m.x) %*% diag(1/sd.x)           # VERBATIM
+
+    # Genotypes: LEA's missing-value codes (9, -9) must not survive imputation.
+    geno_mat <- as.matrix(lfmm_imp)
+    geno_mat[geno_mat %in% c(9, -9)] <- NA
+    if (anyNA(geno_mat)) stop('FATAL: imputed genotype matrix contains missing values (NA, 9 or -9).')
+
+    train_env <- as.matrix(env)
+    if (anyNA(train_env)) stop('FATAL: present site environment contains NA.')
+
+    # Standardisation is fixed by the TRAINING sites and reused on every projected table.
+    to_fit_scale <- identity
+    if (isTRUE(SCALE)) {
+        env_centre <- vapply(seq_len(ncol(train_env)), function(j) mean(train_env[, j]), numeric(1))
+        env_spread <- vapply(seq_len(ncol(train_env)), function(j) sd(train_env[, j]),   numeric(1))
+        if (any(env_spread == 0)) stop('FATAL: scale = TRUE but a predictor is constant across sites.')
+        inv_spread <- diag(1 / env_spread, nrow = length(env_spread))
+        to_fit_scale <- function(M) sweep(M, 2L, env_centre, `-`) %*% inv_spread
+        train_env <- to_fit_scale(train_env)
     }
+
     message(paste0('INFO: Fitting LFMM2 once (K=', K, ') for all ', N_SCEN, ' scenarios'))
-    fit_once <- LEA::lfmm2(input = Y_fit, env = X_fit, K = K, effect.sizes = TRUE)   # VERBATIM
-    B_cand   <- as.matrix(fit_once@B[candidate, ])            # VERBATIM: B = as.matrix(B[candidate.loci, ])
-    rm(Y_fit)
+    lfmm_once  <- LEA::lfmm2(input = geno_mat, env = train_env, K = K, effect.sizes = TRUE)
+    cand_effects <- as.matrix(lfmm_once@B)[candidate, , drop = FALSE]   # loci x predictors
+    n_cand     <- nrow(cand_effects)
+    rm(geno_mat)
+
     project_offset <- function(new.env, pred.env) {
-        X.new  <- as.matrix(new.env)                          # VERBATIM
-        X.pred <- as.matrix(pred.env)                         # VERBATIM
-        if (anyNA(X.new) || anyNA(X.pred)) stop('FATAL: new/predicted environment contains NA.')
-        if (SCALE == TRUE) {
-            X.new  <- t(t(X.new)  - m.x) %*% diag(1/sd.x)     # VERBATIM
-            X.pred <- t(t(X.pred) - m.x) %*% diag(1/sd.x)     # VERBATIM
-        }
-        rowSums(((X.new - X.pred) %*% t(B_cand))^2)/nrow(B_cand)   # VERBATIM: gg
+        from <- as.matrix(new.env)
+        to   <- as.matrix(pred.env)
+        if (anyNA(from) || anyNA(to)) stop('FATAL: new/predicted environment contains NA.')
+        env_shift   <- to_fit_scale(from) - to_fit_scale(to)          # rows x predictors
+        locus_shift <- env_shift %*% t(cand_effects)                   # rows x candidate loci
+        rowSums(locus_shift^2) / n_cand
     }
 }
 
@@ -305,7 +320,7 @@ for (i in seq_len(N_SCEN)) {
             if (length(hoisted) != length(gap$offset) || !is.finite(rel) || rel > HOIST_TOL)
                 stop('FATAL: the hoisted LFMM2 projection does not reproduce LEA::genetic.gap() ',
                      '(relative difference ', signif(rel, 3), ' > ', HOIST_TOL, '). LEA\'s ',
-                     'genetic.gap() has probably changed -- re-copy its post-fit lines into §7a.')
+                     'genetic.gap() has probably changed -- bring §7a in line with it.')
         }
     } else {
         offset_all <- project_offset(new.env, pred.env)
@@ -379,16 +394,12 @@ gap <- gap_first
 # not pass arg 19 (a pre-diagnostics invocation).
 if (!is.na(OUT_DIAGNOSTICS)) {
     # ── 10b. Conditioning diagnostic for the offset and its contribution plot ─────
-    # WHY THIS EXISTS.  LEA computes the offset as a quadratic form in the predictor
-    # space (genetic_gap.R):
-    #
-    #     gg  = rowSums(((X.new - X.pred) %*% t(B))^2) / nrow(B)
-    #     eig = eigen(cov(B))
-    #
-    # and B, the LFMM2 effect-size matrix, is fitted with a RIDGE-REGULARISED inverse
-    # of the environment cross-product (lfmm2.R, lambda defaults to 1e-5):
-    #
-    #     B = (t(Ys - W) %*% Xs) %*% solve(t(Xs) %*% Xs + diag(lambda))
+    # WHY THIS EXISTS.  The geometric offset is a quadratic form in the predictor
+    # space: for a row with environment shift d (predictors), offset = d' (B'B / L) d,
+    # where B is the L x p matrix of candidate-locus effect sizes; genetic.gap() also
+    # returns the eigen-pair of the covariance of B's rows. LFMM2 estimates B through
+    # a RIDGE-REGULARISED inverse of the environment cross-product, (X'X + lambda I)^-1
+    # with lambda = 1e-5 by default.
     #
     # So an environment direction whose singular value^2 is far below lambda is
     # amplified by up to ~1/lambda = 1e5 in B, and therefore in the offset. With more
