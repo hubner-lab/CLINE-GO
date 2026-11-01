@@ -82,12 +82,12 @@ resolve_adjust <- function(config, method, module = "GEA") {
 
 #' Create a reactive project data bundle for use across modules
 #' @noRd
-make_project_data <- function(project, pipeline_path = get_pipeline_path()) {
-    config <- read_project_config(project, pipeline_path)
+make_project_data <- function(project, project_root = get_project_root()) {
+    config <- read_project_config(project, project_root)
     k_best <- resolve_k_best(project, config)
     list(
         name    = project,
-        path    = project_base(project, pipeline_path),
+        path    = project_base(project, project_root),
         config  = config,
         k_best  = k_best,
         status  = check_module_status(project)
@@ -100,9 +100,9 @@ make_project_data <- function(project, pipeline_path = get_pipeline_path()) {
 #' a project bundle cached under an older key is stale (a config saved, a run
 #' finished in another session or on the command line), fb53fe.
 #' @noRd
-project_files_stamp <- function(project, pipeline_path = get_pipeline_path()) {
+project_files_stamp <- function(project, project_root = get_project_root()) {
     if (is.null(project) || length(project) != 1 || !nzchar(project)) return("")
-    paths <- c(config_file_path(project, pipeline_path), pipeline_summary_path(project))
+    paths <- c(config_file_path(project, project_root), pipeline_summary_path(project))
     paste(format(file.mtime(paths), "%Y%m%d%H%M%OS6"), collapse = "|")
 }
 

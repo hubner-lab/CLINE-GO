@@ -144,7 +144,7 @@ mod_structure_server <- function(id, project_data) {
 
             # LD decay skipped-groups alert
             output$ld_decay_skipped_alert <- shiny::renderUI({
-                log_path <- file.path(get_pipeline_path(), paste0(pd$name, "_logs"),
+                log_path <- file.path(get_project_root(), paste0(pd$name, "_logs"),
                                       "structure", "ld_decay_prepare.log")
                 if (!file.exists(log_path)) return(NULL)
                 lines    <- readLines(log_path, warn = FALSE)

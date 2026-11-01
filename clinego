@@ -1,0 +1,475 @@
+#!/usr/bin/env bash
+# clinego: the CLINE-GO launcher.
+#
+# One file, two places. On the host it builds the image and wraps every pipeline and app
+# call in `docker run`, mounting the current folder (the project folder) at /data. Inside
+# the image (CLINEGO_IN_IMAGE=1, set by the Dockerfile) it runs Snakemake or the Shiny app
+# against /data, with the pipeline code baked at /pipeline.
+#
+# The host branch is written for bash 3.2 (macOS's /bin/bash): no associative arrays, no
+# mapfile, no readlink -f, and an array that may be empty is expanded as ${a[@]+"${a[@]}"}.
+set -euo pipefail
+
+MODES="processing prestructure structure climate traits pregea gea gwas gea_x_gwas maladaptation"
+IMAGE_NAME="cline-go"
+PLATFORM="linux/amd64"
+APP_PORT_IN_IMAGE=3838
+UNLOCK_MODE="processing"   # Snakemake parses the Snakefile to unlock; any mode parses
+# The bundled test dataset: test_data/'s files, config_testdata.yaml among them. The
+# override exists for the launcher's tests.
+EXAMPLE_DIR="${CLINEGO_EXAMPLE_DIR:-/opt/clinego/example}"
+EXAMPLE_DATA="test_data"
+EXAMPLE_CONFIG="config_testdata.yaml"
+
+die() {
+    printf 'clinego: %s\n' "$*" >&2
+    exit 2
+}
+
+# Portable `readlink -f` for a file path (macOS before 12.3 has no -f).
+resolve_file() {
+    local p=$1 target
+    while [ -L "$p" ]; do
+        target=$(readlink "$p")
+        case $target in
+            /*) p=$target ;;
+            *) p=$(dirname "$p")/$target ;;
+        esac
+    done
+    printf '%s/%s\n' "$(cd "$(dirname "$p")" && pwd -P)" "$(basename "$p")"
+}
+
+REPO=$(dirname "$(resolve_file "${BASH_SOURCE[0]}")")
+
+in_image() { [ "${CLINEGO_IN_IMAGE:-}" = 1 ]; }
+
+# ------------------------------------------------------------------ version
+
+# `git describe` of the code, empty when it is not a git checkout (or git is missing).
+git_describe() {
+    git -C "$REPO" describe --tags --match 'v[0-9]*' --always --dirty 2>/dev/null || true
+}
+
+code_version() {
+    local described line
+    described=$(git_describe)
+    if [ -n "$described" ]; then
+        printf '%s\n' "${described#v}"
+        return
+    fi
+    if [ -f "$REPO/VERSION" ]; then
+        line=$(head -n 1 "$REPO/VERSION" | tr -d '[:space:]')
+        [ -n "$line" ] || die "$REPO/VERSION is empty"
+        printf '%s\n' "$line"
+        return
+    fi
+    die "cannot tell the code version: $REPO is not a git checkout and has no VERSION file"
+}
+
+# ------------------------------------------------------------------ helpers
+
+need_docker() {
+    command -v docker >/dev/null 2>&1 ||
+        die "docker not found on PATH: install Docker (https://docs.docker.com/get-docker/) and retry"
+}
+
+# Prints a command shell-quoted (--show), or runs it in this process's place.
+show_or_exec() {
+    : "${1:?show_or_exec needs a command}"
+    local out
+    if [ "$OPT_SHOW" = 1 ]; then
+        out=$(printf '%q ' "$@")
+        printf '%s\n' "${out% }"
+        exit 0
+    fi
+    exec "$@"
+}
+
+user_flag() { printf '%s:%s\n' "$(id -u)" "$(id -g)"; }
+
+# Sets IMAGE and IMAGE_ID: --image, then CLINEGO_IMAGE, then cline-go:<code version>.
+resolve_image() {
+    local default=0
+    IMAGE=$OPT_IMAGE
+    [ -n "$IMAGE" ] || IMAGE=${CLINEGO_IMAGE:-}
+    if [ -z "$IMAGE" ]; then
+        IMAGE="$IMAGE_NAME:$(code_version)"
+        default=1
+    fi
+    IMAGE_ID=$(docker image inspect --format '{{.Id}}' "$IMAGE" 2>/dev/null) || IMAGE_ID=""
+    if [ -z "$IMAGE_ID" ]; then
+        [ "$default" = 1 ] && die "No image $IMAGE for this code. Run: clinego build"
+        die "No image $IMAGE. Build it with: clinego build --tag $IMAGE"
+    fi
+}
+
+# The project folder is mounted with -v, whose syntax a ':' in the path breaks.
+check_pwd_mountable() {
+    case $PWD in
+        *:*) die "the current folder's path contains ':', which docker -v cannot mount: $PWD" ;;
+    esac
+}
+
+check_mode() {
+    local m
+    for m in $MODES; do
+        [ "$1" = "$m" ] && return 0
+    done
+    die "unknown mode '$1': use one of $MODES"
+}
+
+# The config must be a file under the current folder, named by a relative path, so the
+# same path works inside the container (whose working directory is the mounted folder).
+check_config() {
+    local f=$1
+    [ -n "$f" ] || die "--config <file> is required"
+    case $f in
+        /*) die "--config must be a relative path to a file in this folder, not $f" ;;
+    esac
+    case "/$f/" in
+        */../*) die "--config must name a file in this folder, not $f" ;;
+    esac
+    [ -f "$f" ] || die "config file not found: $f"
+}
+
+# A container name allows only [a-zA-Z0-9][a-zA-Z0-9_.-]*.
+config_stem() {
+    local stem
+    stem=$(basename "$1")
+    stem=${stem%.yaml}
+    stem=${stem%.yml}
+    case $stem in
+        '' | *[!A-Za-z0-9_.-]*)
+            die "config file name '$1' cannot name a container: use letters, digits, _ . - only" ;;
+    esac
+    printf '%s\n' "$stem"
+}
+
+# ------------------------------------------------------------------ options
+
+OPT_CONFIG="" OPT_CORES="" OPT_MEMORY="" OPT_IMAGE="" OPT_PORT="" OPT_TAG=""
+OPT_SHOW=0 OPT_NOCACHE=0
+POSITIONAL=()
+EXTRA=()
+
+set_opt() {
+    case $1 in
+        --config) OPT_CONFIG=$2 ;;
+        --cores)
+            case $2 in '' | 0* | *[!0-9]*) die "--cores takes a positive whole number, not '$2'" ;; esac
+            OPT_CORES=$2 ;;
+        --memory)
+            case $2 in
+                [1-9]*) ;;
+                *) die "--memory takes a size such as 16g or 512m, not '$2'" ;;
+            esac
+            case ${2%[bkmgBKMG]} in
+                *[!0-9]*) die "--memory takes a size such as 16g or 512m, not '$2'" ;;
+            esac
+            OPT_MEMORY=$2 ;;
+        --image)
+            [ -n "$2" ] || die "--image takes an image name"
+            OPT_IMAGE=$2 ;;
+        --port)
+            case $2 in '' | 0* | *[!0-9]*) die "--port takes a port number, not '$2'" ;; esac
+            [ "$2" -le 65535 ] || die "--port takes a port number, not '$2'"
+            OPT_PORT=$2 ;;
+        --tag)
+            case $2 in '' | *[[:space:]]*) die "--tag takes an image name such as cline-go:1.0" ;; esac
+            OPT_TAG=$2 ;;
+    esac
+}
+
+# parse_opts "<allowed option names>" "<extra: yes|no>" args...
+# Fills OPT_*, POSITIONAL, and EXTRA (everything after --).
+parse_opts() {
+    local allowed=" $1 " extra=$2 name
+    shift 2
+    while [ $# -gt 0 ]; do
+        case $1 in
+            --)
+                shift
+                [ "$extra" = yes ] || { [ $# -eq 0 ] || die "this command takes no arguments after --"; }
+                EXTRA=("$@")
+                return 0 ;;
+            --*=*) name=${1%%=*} ;;
+            --*) name=$1 ;;
+            -*) die "unknown option $1 (see: clinego help)" ;;
+            *) POSITIONAL+=("$1"); shift; continue ;;
+        esac
+        case "$allowed" in
+            *" ${name#--} "*) ;;
+            *) die "unknown option $name for this command (see: clinego help)" ;;
+        esac
+        case $name in
+            --show) [ "$1" = --show ] || die "--show takes no value"; OPT_SHOW=1; shift ;;
+            --no-cache) [ "$1" = --no-cache ] || die "--no-cache takes no value"; OPT_NOCACHE=1; shift ;;
+            *)
+                if [ "$1" != "$name" ]; then
+                    set_opt "$name" "${1#*=}"
+                    shift
+                else
+                    [ $# -ge 2 ] || die "$name needs a value"
+                    set_opt "$name" "$2"
+                    shift 2
+                fi ;;
+        esac
+    done
+}
+
+no_positional() {
+    [ ${#POSITIONAL[@]} -eq 0 ] || die "unexpected argument '${POSITIONAL[0]}' (see: clinego help)"
+}
+
+# ------------------------------------------------------------------ commands
+
+cmd_help() {
+    cat <<'EOF'
+clinego: run the CLINE-GO pipeline and its app from a project folder.
+
+Usage: clinego <command> [options]
+
+Commands:
+  help                         Show this list (also: clinego with no arguments).
+  version                      Print the code version, and whether its image is built.
+  build [--tag NAME:TAG] [--no-cache]
+                               Build the image from this clone (default tag cline-go:<version>).
+  example                      Copy the bundled test dataset here: test_data/ and config_testdata.yaml.
+  init <name>                  Write config_<name>.yaml here, from the default config.
+  run <mode> --config FILE [--cores N] [--memory SIZE] [--image IMG] [--show] [-- SNAKEMAKE ARGS]
+                               Run one pipeline mode on the project in this folder.
+  unlock --config FILE [--image IMG] [--show]
+                               Remove the Snakemake lock a killed run left behind.
+  app [--port 3838] [--cores N] [--memory SIZE] [--image IMG] [--show]
+                               Start the Shiny app on this folder's projects (http://localhost:PORT).
+
+Modes: processing prestructure structure climate traits pregea gea gwas gea_x_gwas maladaptation
+
+Options:
+  --config FILE   A config file in this folder, as a relative path.
+  --cores N       Cores for Snakemake (run: default 4) and the container's --cpus (only when given).
+  --memory SIZE   Memory limit for the container, e.g. 64g (default: none).
+  --image IMG     Image to run: --image, then $CLINEGO_IMAGE, then cline-go:<version of this clone>.
+  --show          Print the docker command instead of running it.
+
+Run one mode at a time per project: modes share the project's results folder and its lock.
+EOF
+}
+
+cmd_version() {
+    no_positional
+    local v id
+    if in_image; then
+        local info="$REPO/BUILD_INFO.json"
+        if [ -f "$info" ] && command -v python3 >/dev/null 2>&1; then
+            python3 - "$info" <<'EOF'
+import json, sys
+d = json.load(open(sys.argv[1]))
+def s(x):
+    return "unknown" if x is None else str(x).lower() if isinstance(x, bool) else str(x)
+print("clinego " + s(d.get("version")))
+print("commit  " + s(d.get("commit")) + " (dirty: " + s(d.get("dirty")) + ")")
+print("built   " + s(d.get("built")))
+EOF
+            return 0
+        fi
+        printf 'clinego %s (no BUILD_INFO.json: the code at %s is not baked)\n' "$(code_version)" "$REPO"
+        return 0
+    fi
+    v=$(code_version)
+    printf 'clinego %s (code at %s)\n' "$v" "$REPO"
+    if ! command -v docker >/dev/null 2>&1; then
+        printf 'image   %s:%s: unknown (docker not found)\n' "$IMAGE_NAME" "$v"
+    elif id=$(docker image inspect --format '{{.Id}}' "$IMAGE_NAME:$v" 2>/dev/null) && [ -n "$id" ]; then
+        printf 'image   %s:%s: built (%s)\n' "$IMAGE_NAME" "$v" "$id"
+    else
+        printf 'image   %s:%s: not built (run: clinego build)\n' "$IMAGE_NAME" "$v"
+    fi
+}
+
+cmd_build() {
+    no_positional
+    in_image && die "clinego build runs on the host, not in the image"
+    need_docker
+    local described version commit="" dirty="" tag
+    described=$(git_describe)
+    version=$(code_version)
+    if [ -n "$described" ]; then
+        commit=$(git -C "$REPO" rev-parse HEAD 2>/dev/null || true)
+        case $described in
+            *-dirty) dirty=true ;;
+            *) dirty=false ;;
+        esac
+    fi
+    tag=${OPT_TAG:-$IMAGE_NAME:$version}
+    local cmd=(docker build --platform "$PLATFORM" -t "$tag"
+        --build-arg "CLINEGO_VERSION=$version"
+        --build-arg "CLINEGO_COMMIT=$commit"
+        --build-arg "CLINEGO_DIRTY=$dirty")
+    [ "$OPT_NOCACHE" = 1 ] && cmd+=(--no-cache)
+    cmd+=("$REPO")
+    show_or_exec "${cmd[@]}"
+}
+
+# run and unlock share one call; unlock adds --unlock and parses with a fixed mode.
+run_like() {
+    local mode=$1 unlock=$2 cores stem name
+    check_mode "$mode"
+    check_config "$OPT_CONFIG"
+    if in_image; then
+        [ -z "$OPT_IMAGE" ] || die "--image is a host option"
+        [ -z "$OPT_MEMORY" ] || die "--memory is a host option"
+        cores=${OPT_CORES:-4}
+        if [ "$OPT_SHOW" != 1 ]; then
+            command -v snakemake >/dev/null 2>&1 || die "snakemake not found on PATH"
+        fi
+        local cmd=(snakemake -s "$REPO/Snakefile" -c "$cores" --configfile "$OPT_CONFIG"
+            --config "mode=$mode" "project_root=$PWD" --scheduler greedy)
+        # A run interrupted by Ctrl-C leaves Snakemake's incomplete markers on the jobs it
+        # cut short; --rerun-incomplete redoes those jobs instead of refusing the next run.
+        # The app's Run button passes the same flag (fct_pipeline.R, pipeline_cmd()).
+        if [ "$unlock" = 1 ]; then cmd+=(--unlock); else cmd+=(--rerun-incomplete); fi
+        show_or_exec "${cmd[@]}" ${EXTRA[@]+"${EXTRA[@]}"}
+    fi
+    need_docker
+    check_pwd_mountable
+    stem=$(config_stem "$OPT_CONFIG")
+    if [ "$unlock" = 1 ]; then name="clinego-$stem-unlock"; else name="clinego-$stem-$mode"; fi
+    cores=${OPT_CORES:-4}
+    resolve_image
+    local cmd=(docker run --rm --init --platform "$PLATFORM" --name "$name"
+        --user "$(user_flag)" -v "$PWD":/data -w /data -e "CLINEGO_IMAGE_ID=$IMAGE_ID")
+    [ -n "$OPT_MEMORY" ] && cmd+=(--memory "$OPT_MEMORY")
+    # --cpus only when --cores was given: docker refuses a --cpus above the daemon's CPU
+    # count, and a small Docker Desktop / colima VM has 2.
+    [ -n "$OPT_CORES" ] && cmd+=(--cpus "$OPT_CORES")
+    cmd+=("$IMAGE" clinego)
+    if [ "$unlock" = 1 ]; then
+        cmd+=(unlock --config "$OPT_CONFIG")
+    else
+        cmd+=(run "$mode" --config "$OPT_CONFIG" --cores "$cores")
+    fi
+    [ ${#EXTRA[@]} -gt 0 ] && cmd+=(-- "${EXTRA[@]}")
+    show_or_exec "${cmd[@]}"
+}
+
+cmd_run() {
+    [ ${#POSITIONAL[@]} -ge 1 ] || die "clinego run needs a mode: one of $MODES"
+    [ ${#POSITIONAL[@]} -eq 1 ] || die "unexpected argument '${POSITIONAL[1]}' (snakemake arguments go after --)"
+    run_like "${POSITIONAL[0]}" 0
+}
+
+cmd_unlock() {
+    no_positional
+    run_like "$UNLOCK_MODE" 1
+}
+
+cmd_app() {
+    no_positional
+    if in_image; then
+        [ -z "$OPT_IMAGE$OPT_MEMORY$OPT_CORES$OPT_PORT" ] ||
+            die "--port, --cores, --memory and --image are host options"
+        local cmd=(Rscript -e "clinego.app::run_app(host = \"0.0.0.0\", port = $APP_PORT_IN_IMAGE)")
+        show_or_exec "${cmd[@]}"
+    fi
+    need_docker
+    check_pwd_mountable
+    local port=${OPT_PORT:-3838}
+    resolve_image
+    local cmd=(docker run --rm --init --platform "$PLATFORM" --name "clinego-app-$port"
+        --user "$(user_flag)" -p "$port:$APP_PORT_IN_IMAGE" -v "$PWD":/data -w /data
+        -e CLINEGO_PROJECT_ROOT=/data)
+    [ -n "$OPT_MEMORY" ] && cmd+=(--memory "$OPT_MEMORY")
+    [ -n "$OPT_CORES" ] && cmd+=(--cpus "$OPT_CORES")
+    cmd+=("$IMAGE" clinego app)
+    show_or_exec "${cmd[@]}"
+}
+
+# Host form of example and init: the same command inside the image, on this folder.
+in_image_here() {
+    need_docker
+    check_pwd_mountable
+    resolve_image
+    local name=$1
+    shift
+    show_or_exec docker run --rm --init --platform "$PLATFORM" --name "$name" \
+        --user "$(user_flag)" -v "$PWD":/data -w /data "$IMAGE" clinego "$@"
+}
+
+cmd_example() {
+    no_positional
+    local p f
+    for p in "$EXAMPLE_DATA" "$EXAMPLE_CONFIG"; do
+        [ ! -e "$p" ] || die "$p already exists here: clinego example never overwrites"
+    done
+    in_image || in_image_here clinego-example example
+    [ -f "$EXAMPLE_DIR/$EXAMPLE_CONFIG" ] || die "no bundled example in $EXAMPLE_DIR"
+    if [ "$OPT_SHOW" = 1 ]; then
+        printf 'copy %s/ to %s/ and %s\n' "$EXAMPLE_DIR" "$EXAMPLE_DATA" "$EXAMPLE_CONFIG"
+        exit 0
+    fi
+    mkdir "$EXAMPLE_DATA"
+    for f in "$EXAMPLE_DIR"/*; do
+        [ "$(basename "$f")" = "$EXAMPLE_CONFIG" ] && continue
+        cp -R "$f" "$EXAMPLE_DATA/"
+    done
+    cp "$EXAMPLE_DIR/$EXAMPLE_CONFIG" "$EXAMPLE_CONFIG"
+    printf 'Wrote %s/ and %s. Next: clinego run processing --config %s\n' \
+        "$EXAMPLE_DATA" "$EXAMPLE_CONFIG" "$EXAMPLE_CONFIG"
+}
+
+cmd_init() {
+    [ ${#POSITIONAL[@]} -ge 1 ] || die "clinego init needs a project name"
+    [ ${#POSITIONAL[@]} -eq 1 ] || die "unexpected argument '${POSITIONAL[1]}' (see: clinego help)"
+    local name=${POSITIONAL[0]} target template n
+    case $name in
+        [A-Za-z0-9]*) ;;
+        *) die "project name '$name' must start with a letter or digit" ;;
+    esac
+    case $name in
+        *[!A-Za-z0-9_.-]*) die "project name '$name' may hold letters, digits, _ . - only" ;;
+    esac
+    target="config_$name.yaml"
+    [ ! -e "$target" ] || die "$target already exists here: clinego init never overwrites"
+    in_image || in_image_here "clinego-init-$name" init "$name"
+    template="$REPO/scripts/clinego.app/inst/config_default.yaml"
+    [ -f "$template" ] || die "default config not found: $template"
+    n=$(grep -c '^project_name:' "$template" || true)
+    [ "$n" = 1 ] || die "default config $template has $n project_name lines, expected 1"
+    if [ "$OPT_SHOW" = 1 ]; then
+        printf 'write %s from %s with project_name: %s\n' "$target" "$template" "$name"
+        exit 0
+    fi
+    (set -C; sed "s/^project_name:.*/project_name: $name/" "$template" >"$target")
+    printf 'Wrote %s. Fill in Input (dir, vcf, metadata, gff), then: clinego run processing --config %s\n' \
+        "$target" "$target"
+}
+
+# ------------------------------------------------------------------ main
+
+main() {
+    local sub=${1:-help}
+    [ $# -eq 0 ] || shift
+    case $sub in
+        help | -h | --help)
+            cmd_help ;;
+        version | --version)
+            parse_opts "" no "$@"; cmd_version ;;
+        build)
+            parse_opts "tag no-cache show" no "$@"; cmd_build ;;
+        example)
+            parse_opts "image show" no "$@"; cmd_example ;;
+        init)
+            parse_opts "image show" no "$@"; cmd_init ;;
+        run)
+            parse_opts "config cores memory image show" yes "$@"; cmd_run ;;
+        unlock)
+            parse_opts "config image show" no "$@"; cmd_unlock ;;
+        app)
+            parse_opts "port cores memory image show" no "$@"; cmd_app ;;
+        *)
+            die "unknown command '$sub' (see: clinego help)" ;;
+    esac
+}
+
+main "$@"

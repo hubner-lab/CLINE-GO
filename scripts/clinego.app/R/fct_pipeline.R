@@ -3,9 +3,14 @@
 #' Functions for launching Snakemake as a background process from within the
 #' Shiny app, tracking progress by parsing .run.log, and handling cleanup.
 #'
-#' Both the Shiny app and Snakemake run inside the same Docker container at
-#' /pipeline. Snakemake is installed via pipx at /root/.local/bin/snakemake
-#' (or on PATH as snakemake).
+#' Both the Shiny app and Snakemake run inside the same Docker container. Two roots:
+#' the code root (get_pipeline_path(): Snakefile, scripts/, workflow/) and the project
+#' root (get_project_root(): config_<p>.yaml, <p>_results/, <p>_logs/, inputs). They
+#' are one folder in the developer form (the repo mounted at /pipeline) and two in the
+#' image, where the code is baked in read-only and the project is mounted at /data.
+#' Every Snakemake call passes --config project_root=<project root> and runs with the
+#' project root as its working directory. Snakemake is installed via pipx at
+#' /root/.local/bin/snakemake (or on PATH as snakemake).
 #'
 #' Progress is tracked by parsing the Snakemake 9 log format written to
 #' {project}_logs/.run.log. Key patterns:
@@ -19,21 +24,32 @@
 #' @param mode pipeline mode string (e.g. "association")
 #' @param project project name
 #' @param cpu number of CPU cores
-#' @param pipeline_path pipeline root path
+#' @param code_root code root (the Snakefile's folder)
+#' @param project_root project root (the config, results and logs folder)
 #' @return character vector suitable for processx::process$new(command, args)
 #' @noRd
 pipeline_cmd <- function(mode, project, cpu,
-                          pipeline_path = get_pipeline_path()) {
-    configfile <- config_file_path(project, pipeline_path)
+                          code_root = get_pipeline_path(),
+                          project_root = get_project_root()) {
+    configfile <- config_file_path(project, project_root)
 
     c(
         "-c", as.character(cpu),
-        "-s", file.path(pipeline_path, "Snakefile"),
-        "--config", paste0("mode=", mode),
+        "-s", file.path(code_root, "Snakefile"),
+        "--config", paste0("mode=", mode), pipeline_root_arg(project_root),
         "--configfile", configfile,
         "--scheduler", "greedy",
         "--rerun-incomplete"
     )
+}
+
+#' The `project_root=<dir>` word of a Snakemake --config, as an absolute path
+#'
+#' common.smk refuses a relative project_root, so a relative option or env value is
+#' made absolute here (against the app's working directory) rather than failing there.
+#' @noRd
+pipeline_root_arg <- function(project_root) {
+    paste0("project_root=", normalizePath(project_root, winslash = "/", mustWork = FALSE))
 }
 
 #' Launch Snakemake as a background process
@@ -41,21 +57,23 @@ pipeline_cmd <- function(mode, project, cpu,
 #' @param mode pipeline mode string
 #' @param project project name
 #' @param cpu number of CPU cores
-#' @param pipeline_path pipeline root path
+#' @param code_root code root (the Snakefile's folder)
+#' @param project_root project root (config, results, logs; the working directory)
 #' @return processx::process object
 #' @noRd
 pipeline_run <- function(mode, project, cpu,
-                          pipeline_path = get_pipeline_path()) {
-    log_dir <- file.path(pipeline_path, paste0(project, "_logs"))
+                          code_root = get_pipeline_path(),
+                          project_root = get_project_root()) {
+    log_dir <- file.path(project_root, paste0(project, "_logs"))
     dir.create(log_dir, recursive = TRUE, showWarnings = FALSE)
     log_file <- file.path(log_dir, ".run.log")
 
-    args <- pipeline_cmd(mode, project, cpu, pipeline_path)
+    args <- pipeline_cmd(mode, project, cpu, code_root, project_root)
 
     # Never clear a lock here: it may belong to a run this session cannot see -- a
     # command-line run, another browser tab, or this app's own run from before a page
     # reload (ac6ab8). The runner asks the user before pipeline_unlock() removes one.
-    if (pipeline_is_locked(project, pipeline_path))
+    if (pipeline_is_locked(project, project_root))
         stop("the results folder is locked by another Snakemake run")
 
     # Find snakemake on PATH (pipx installs to ~/.local/bin, also /root/.local/bin)
@@ -74,7 +92,7 @@ pipeline_run <- function(mode, project, cpu,
         args    = args,
         stdout  = log_file,
         stderr  = "2>&1",
-        wd      = pipeline_path,
+        wd      = project_root,
         cleanup = FALSE   # keep process alive after Shiny session ends
     )
 }
@@ -96,25 +114,35 @@ pipeline_is_running <- function(proc) {
 #'
 #' @param project project name
 #' @param mode pipeline mode string (e.g. "gea") — required for Snakefile config parsing
-#' @param pipeline_path pipeline root path
+#' @param code_root code root (the Snakefile's folder)
+#' @param project_root project root (config, results, logs; the working directory)
 #' @noRd
-pipeline_unlock <- function(project, mode, pipeline_path = get_pipeline_path()) {
+pipeline_unlock <- function(project, mode, code_root = get_pipeline_path(),
+                            project_root = get_project_root()) {
     tryCatch({
         smk <- Sys.which("snakemake")
         if (!nzchar(smk)) smk <- "/root/.local/bin/snakemake"
         if (nzchar(smk) && file.exists(smk)) {
-            system2(smk,
-                    args    = c("--unlock", "-s",
-                                file.path(pipeline_path, "Snakefile"),
-                                "--config", paste0("mode=", mode),
-                                "--configfile",
-                                config_file_path(project, pipeline_path)),
-                    stdout  = FALSE,
-                    stderr  = FALSE,
-                    timeout = 10)
+            # In the project root like every other Snakemake call, never in the
+            # code root (read-only in the image).
+            processx::run(smk,
+                          args    = pipeline_unlock_args(project, mode, code_root,
+                                                         project_root),
+                          wd      = project_root,
+                          error_on_status = FALSE,
+                          timeout = 10)
         }
     }, error = function(e) NULL)
     invisible(NULL)
+}
+
+#' The argument vector of pipeline_unlock()'s snakemake --unlock call
+#' @noRd
+pipeline_unlock_args <- function(project, mode, code_root = get_pipeline_path(),
+                                 project_root = get_project_root()) {
+    c("--unlock", "-s", file.path(code_root, "Snakefile"),
+      "--config", paste0("mode=", mode), pipeline_root_arg(project_root),
+      "--configfile", config_file_path(project, project_root))
 }
 
 #' Kill a running pipeline and unlock the Snakemake workdir
@@ -122,25 +150,27 @@ pipeline_unlock <- function(project, mode, pipeline_path = get_pipeline_path()) 
 #' @param proc processx::process object
 #' @param project project name
 #' @param mode pipeline mode string (passed through to pipeline_unlock)
-#' @param pipeline_path pipeline root path
+#' @param code_root code root (the Snakefile's folder)
+#' @param project_root project root (config, results, logs)
 #' @noRd
-pipeline_kill <- function(proc, project, mode, pipeline_path = get_pipeline_path()) {
+pipeline_kill <- function(proc, project, mode, code_root = get_pipeline_path(),
+                          project_root = get_project_root()) {
     if (pipeline_is_running(proc)) {
         proc$kill()
         proc$wait(timeout = 3000)
     }
-    pipeline_unlock(project, mode, pipeline_path)
+    pipeline_unlock(project, mode, code_root, project_root)
     invisible(NULL)
 }
 
 #' Check whether a Snakemake lock exists for the project workdir
 #'
 #' @param project project name
-#' @param pipeline_path pipeline root path
+#' @param project_root project root
 #' @return logical
 #' @noRd
-pipeline_is_locked <- function(project, pipeline_path = get_pipeline_path()) {
-    results_dir <- file.path(pipeline_path, paste0(project, "_results"))
+pipeline_is_locked <- function(project, project_root = get_project_root()) {
+    results_dir <- file.path(project_root, paste0(project, "_results"))
     lock_dir    <- file.path(results_dir, ".snakemake", "locks")
     if (!dir.exists(lock_dir)) return(FALSE)
     length(list.files(lock_dir, all.files = TRUE, no.. = TRUE)) > 0
@@ -160,10 +190,10 @@ pipeline_is_locked <- function(project, pipeline_path = get_pipeline_path()) {
 #'                   status: "running" | "done" | "failed"
 #'
 #' @param project project name
-#' @param pipeline_path pipeline root path
+#' @param project_root project root
 #' @noRd
-pipeline_read_progress <- function(project, pipeline_path = get_pipeline_path()) {
-    log_path <- pipeline_run_log_path(project, pipeline_path)
+pipeline_read_progress <- function(project, project_root = get_project_root()) {
+    log_path <- pipeline_run_log_path(project, project_root)
     lines <- if (file.exists(log_path))
         tryCatch(readLines(log_path, warn = FALSE), error = function(e) character(0))
     else character(0)
@@ -304,10 +334,10 @@ pipeline_read_log_tail <- function(log_path, n = 200L) {
 #' Path to the main .run.log for a project
 #'
 #' @param project project name
-#' @param pipeline_path pipeline root path
+#' @param project_root project root
 #' @noRd
-pipeline_run_log_path <- function(project, pipeline_path = get_pipeline_path()) {
-    file.path(pipeline_path, paste0(project, "_logs"), ".run.log")
+pipeline_run_log_path <- function(project, project_root = get_project_root()) {
+    file.path(project_root, paste0(project, "_logs"), ".run.log")
 }
 
 #' Extract WARNING lines from the main run log
@@ -317,11 +347,11 @@ pipeline_run_log_path <- function(project, pipeline_path = get_pipeline_path()) 
 #' Used by mod_pipeline_runner to show toast notifications and the warning summary.
 #'
 #' @param project project name
-#' @param pipeline_path pipeline root path
+#' @param project_root project root
 #' @return data.frame with columns: message, line
 #' @noRd
-pipeline_read_warnings <- function(project, pipeline_path = get_pipeline_path()) {
-    log_path <- pipeline_run_log_path(project, pipeline_path)
+pipeline_read_warnings <- function(project, project_root = get_project_root()) {
+    log_path <- pipeline_run_log_path(project, project_root)
     if (!file.exists(log_path)) return(data.frame(message = character(0), line = integer(0)))
 
     lines <- tryCatch(readLines(log_path, warn = FALSE), error = function(e) character(0))

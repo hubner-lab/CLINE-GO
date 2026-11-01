@@ -377,7 +377,7 @@ test_that("the app derives gene_id the way the pipeline does, on every shape", {
     # CALL SHAPE — corrected 2026-09-12, a TEST-code fix. This block previously
     # called load_gff_genes(path, "gene"), but the real signature is
     # load_gff_genes(project, config) (fct_data_loading.R:502): it resolves the GFF
-    # as file.path(get_pipeline_path(), Input$dir, Input$gff) and reads GFF$feature
+    # as file.path(get_project_root(), Input$dir, Input$gff) and reads GFF$feature
     # from the config. With the old call, deleting the skip() above would have
     # produced an arity/argument error rather than the empty table the defect
     # actually causes — i.e. the skip was hiding a broken test, and "un-skip and

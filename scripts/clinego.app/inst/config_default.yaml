@@ -8,7 +8,7 @@
 # INPUT: Files and project settings
 #-----------------------------------------------------------------------------
 Input:
-  dir: ""                          # Directory containing input files (relative to /pipeline/)
+  dir: ""                          # Directory containing input files (relative to the project folder)
   vcf: ""                          # VCF file (.vcf or .vcf.gz)
   metadata: ""                     # Sample metadata TSV (columns: site, sample, latitude, longitude)
   gff: ""                          # GFF3 file for gene annotation (optional, leave empty to skip)
@@ -147,7 +147,8 @@ GEA:
   # snp_sets:                      # SNP sets for mode=maladaptation, declared instead of saved from the
   #                                # GEA tab; built by mode=gea as _intermediate/snp_sets/gea.<name>/.
   #                                # Saving a set in the app shows the block that reproduces it.
-  #                                # Full grammar: docs/configuration.md, "Declared SNP sets".
+  #                                # Full grammar: the configuration reference on the site
+  #                                # (documentation/manual/configuration.md, https://cline-go.readthedocs.io/).
   #   - name: default              # each method's own GEA.configs rule, every column, Union
   #   - name: strict
   #     threshold_type: bonf       # bonf | qval | top | custom, applied to every cell
@@ -162,8 +163,7 @@ GEA:
 #-----------------------------------------------------------------------------
 # PREGEA: GEA hyperparameter exploration (mode=pregea, LD-pruned dataset only)
 # Focused module: "how many K / how many PCs". Predictor characterization
-# lives under Climate above. Fixed constants (not configurable — see
-# README "Fixed constants"): seed=42, LFMM/EMMAX/RDA always run together,
+# lives under Climate above. Fixed constants (not configurable): seed=42, LFMM/EMMAX/RDA always run together,
 # kinship=BN always (GAPIT uses the same matrix), genomic_control=FALSE
 # always in PreGEA (GEA.configs[LFMM].params.genomic_control is the only
 # place this toggles), FDR=0.1, RDA.min_predictors=2, lambda_tol=0.15,
@@ -257,7 +257,7 @@ Maladaptation:
                                         # else a non-redundant subset of it (RDA offset aliases > n_sites-1 predictors)
 
 #-----------------------------------------------------------------------------
-# OVERLAP: Combined GEA + GWAS analysis (mode=overlapping)
+# GEAxGWAS: Combined GEA + GWAS analysis (mode=gea_x_gwas)
 #-----------------------------------------------------------------------------
 GEAxGWAS:
   pairwise:

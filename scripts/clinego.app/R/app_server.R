@@ -90,13 +90,13 @@ app_server <- function(input, output, session) {
     # Create project module
     mod_create_project_server(
         "create_project",
-        pipeline_path_rv     = shiny::reactive(get_pipeline_path()),
+        project_root_rv      = shiny::reactive(get_project_root()),
         # Duplicate-name check must see EVERY project, including simulated ones and
         # internal clone lanes the selector hides -- otherwise a new project could be
         # created onto an existing results tree.
-        existing_projects_rv = shiny::reactive(find_projects(get_pipeline_path(), all = TRUE)),
+        existing_projects_rv = shiny::reactive(find_projects(get_project_root(), all = TRUE)),
         on_created = function(new_project) {
-            pip      <- get_pipeline_path()
+            pip      <- get_project_root()
             # Same one-list rule as the initial render, or a project created with
             # Simulation.enabled would vanish from the selector right after it
             # was made.

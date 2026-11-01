@@ -12,11 +12,11 @@
 
 #' Convert an absolute path returned by shinyFiles to a path relative to base
 #'
-#' common.smk prepends '/pipeline/' to input.dir, so config values must be
-#' relative to the pipeline root (e.g., "data/" not "/pipeline/data/").
+#' common.smk prepends the project root to input.dir, so config values must be
+#' relative to the project folder (e.g., "data/" not "/data/data/").
 #'
 #' @param abs_path character absolute path
-#' @param base_path character pipeline root (e.g. "/pipeline")
+#' @param base_path character project root (e.g. "/data")
 #' @return relative path with no leading slash
 #' @noRd
 .make_relative <- function(abs_path, base_path) {
@@ -77,7 +77,7 @@ mod_create_project_ui <- function(id) {
         ),
         htmltools::tags$small(
             class = "text-muted d-block mb-3",
-            "Directory inside /pipeline/ containing your input files."
+            "Directory inside the project folder containing your input files."
         ),
 
         # ── VCF file ───────────────────────────────────────────────────────────
@@ -208,18 +208,18 @@ mod_create_project_ui <- function(id) {
 #' Server for the Create Project modal
 #'
 #' @param id module namespace id
-#' @param pipeline_path_rv reactive returning the pipeline root path string
+#' @param project_root_rv reactive returning the project root (get_project_root())
 #' @param existing_projects_rv reactive returning character vector of existing project names
 #' @param on_created function(project_name) called after successful project creation
 #' @noRd
-mod_create_project_server <- function(id, pipeline_path_rv,
+mod_create_project_server <- function(id, project_root_rv,
                                       existing_projects_rv, on_created) {
     shiny::moduleServer(id, function(input, output, session) {
         ns <- session$ns
 
         # ── shinyFiles roots ───────────────────────────────────────────────────
         roots <- shiny::reactive({
-            c(pipeline = pipeline_path_rv())
+            c(project = project_root_rv())
         })
 
         # defaultPath for file pickers: input_dir when set, else empty
@@ -227,7 +227,7 @@ mod_create_project_server <- function(id, pipeline_path_rv,
             sub("/$", "", trimws(input$input_dir %||% ""))
         })
 
-        # Register dir picker (always from pipeline root)
+        # Register dir picker (always from the project root)
         shiny::observe({
             shinyFiles::shinyDirChoose(input, "input_dir_btn",
                                        roots = roots(), session = session)
@@ -251,7 +251,7 @@ mod_create_project_server <- function(id, pipeline_path_rv,
             req(!is.integer(input$input_dir_btn))
             d <- shinyFiles::parseDirPath(roots(), input$input_dir_btn)
             if (length(d) > 0 && nzchar(d)) {
-                rel <- .make_relative(d, pipeline_path_rv())
+                rel <- .make_relative(d, project_root_rv())
                 # Ensure trailing slash for directories
                 if (!grepl("/$", rel)) rel <- paste0(rel, "/")
                 shiny::updateTextInput(session, "input_dir", value = rel)
@@ -294,7 +294,7 @@ mod_create_project_server <- function(id, pipeline_path_rv,
                 errors <- c(errors, "Project name must start with a letter and contain only letters, numbers, and underscores.")
             } else if (tolower(name) %in% tolower(existing_projects_rv())) {
                 errors <- c(errors, paste0("A project named '", name, "' already exists."))
-            } else if (file.exists(file.path(pipeline_path_rv(), paste0("config_", name, ".yaml")))) {
+            } else if (file.exists(file.path(project_root_rv(), paste0("config_", name, ".yaml")))) {
                 # A config written by hand (or by an earlier Create) for a project that
                 # has no results yet: creating would rewrite it (1c7aa3).
                 errors <- c(errors, paste0("config_", name, ".yaml already exists (a project ",
@@ -335,7 +335,7 @@ mod_create_project_server <- function(id, pipeline_path_rv,
         shiny::observeEvent(input$create_btn, {
             req(length(validation_errors()) == 0)
 
-            pip  <- pipeline_path_rv()
+            pip  <- project_root_rv()
             name <- trimws(input$project_name)
             dir_val      <- trimws(input$input_dir)
             vcf_val      <- trimws(input$input_vcf)

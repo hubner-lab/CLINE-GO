@@ -119,6 +119,70 @@ class GitStateTest(unittest.TestCase):
         self.assertEqual(state, {"commit": None, "dirty": None, "note": "git not found"})
 
 
+def _build_info(directory, **info):
+    with open(os.path.join(directory, run_record.BUILD_INFO), "w") as handle:
+        json.dump(info, handle)
+
+
+class CodeStateTest(unittest.TestCase):
+    """Baked code (v1.0): the image's /pipeline is no checkout, but `clinego build` left
+    BUILD_INFO.json beside the Snakefile naming the commit it was built from."""
+
+    def test_baked_code_takes_commit_dirty_and_version_from_build_info(self):
+        d = _tmpdir(self)
+        _build_info(d, version="1.0", commit="a" * 40, dirty=False, built="2026-11-01T00:00:00Z")
+        state = run_record.code_state(d)
+        self.assertEqual(state["commit"], "a" * 40)
+        self.assertIs(state["dirty"], False)
+        self.assertEqual(state["version"], "1.0")
+        self.assertEqual(state["built"], "2026-11-01T00:00:00Z")
+        self.assertIn(run_record.BUILD_INFO, state["note"])
+        self.assertIn("baked", state["note"])
+
+    def test_a_build_without_git_keeps_null_commit_and_dirty(self):
+        d = _tmpdir(self)
+        _build_info(d, version="1.0", commit=None, dirty=None, built="2026-11-01T00:00:00Z")
+        state = run_record.code_state(d)
+        self.assertIsNone(state["commit"])
+        self.assertIsNone(state["dirty"])
+        self.assertEqual(state["version"], "1.0")
+
+    def test_a_checkout_wins_over_a_build_info_file(self):
+        repo = _repo(self)
+        _git(repo, "rev-parse", "HEAD")
+        _build_info(repo, version="9.9", commit="b" * 40, dirty=False)
+        state = run_record.code_state(repo)
+        self.assertEqual(state["commit"], _git(repo, "rev-parse", "HEAD").decode().strip())
+        self.assertNotIn("version", state)
+        # BUILD_INFO.json itself is untracked there, so the checkout reads dirty.
+        self.assertIs(state["dirty"], True)
+
+    def test_neither_checkout_nor_build_info_is_git_state_unchanged(self):
+        d = _tmpdir(self)
+        self.assertEqual(run_record.code_state(d), run_record.git_state(d))
+
+    def test_an_unreadable_build_info_is_noted_not_raised(self):
+        d = _tmpdir(self)
+        with open(os.path.join(d, run_record.BUILD_INFO), "w") as handle:
+            handle.write("{not json")
+        state = run_record.code_state(d)
+        self.assertIsNone(state["commit"])
+        self.assertIn(run_record.BUILD_INFO, state["note"])
+
+    def test_the_record_and_history_carry_the_baked_commit(self):
+        d = _tmpdir(self)
+        _build_info(d, version="1.0", commit="c" * 40, dirty=True, built="2026-11-01T00:00:00Z")
+        record = run_record.build_record(
+            mode="processing", status="success", started="s", finished="f", argv=["snakemake"],
+            launch_dir=d, configfiles=[], config={}, repo=d, image_id="sha256:x",
+            snakemake_version="9", cpu=1)
+        self.assertEqual(record["git"]["commit"], "c" * 40)
+        self.assertEqual(record["git"]["version"], "1.0")
+        entry = run_record.history_entry(record)
+        self.assertEqual(entry["commit"], "c" * 40)
+        self.assertIs(entry["dirty"], True)
+
+
 class ImageStateTest(unittest.TestCase):
     def test_an_image_id_passed_in_is_recorded_as_visible(self):
         state = run_record.image_state("sha256:abc", markers=())

@@ -96,6 +96,51 @@ test_that("the test helper's redirect is in force for the rest of the suite", {
     expect_true(dir.exists(CLINEGO_TEST_ROOT))
 })
 
+# --------------------------------------------------- get_project_root()
+# The project root (configs, results, logs, inputs) is separate from the code root
+# since v1.0: `clinego app` mounts the project at /data and passes
+# CLINEGO_PROJECT_ROOT=/data, while the code stays at /pipeline. Order: option >
+# env > get_pipeline_path(). The env var must beat the golem config's
+# pipeline_path, which is why the key is never set in golem-config.yml.
+
+test_that("get_project_root: the option beats the env var", {
+    withr::local_options(clinego.project_root = "/opt_root")
+    withr::local_envvar(CLINEGO_PROJECT_ROOT = "/env_root")
+    expect_identical(get_project_root(), "/opt_root")
+})
+
+test_that("get_project_root: the env var beats the code root and its golem config", {
+    withr::local_options(clinego.project_root = NULL, clinego.pipeline_path = NULL)
+    withr::local_envvar(CLINEGO_PROJECT_ROOT = "/env_root")
+    # get_pipeline_path() answers from the shipped golem config here (tier 2).
+    expect_false(identical(get_pipeline_path(), "/env_root"))
+    expect_identical(get_project_root(), "/env_root")
+})
+
+test_that("get_project_root: unset, it falls back to get_pipeline_path()", {
+    withr::local_options(clinego.project_root = NULL, clinego.pipeline_path = "/code")
+    withr::local_envvar(CLINEGO_PROJECT_ROOT = NA)
+    expect_identical(get_project_root(), "/code")
+})
+
+test_that("get_project_root: an empty option or env value falls through", {
+    withr::local_options(clinego.project_root = "", clinego.pipeline_path = "/code")
+    withr::local_envvar(CLINEGO_PROJECT_ROOT = "")
+    expect_identical(get_project_root(), "/code")
+})
+
+test_that("golem-config.yml never sets a project root", {
+    cfg <- yaml::read_yaml(app_sys("golem-config.yml"))
+    keys <- unlist(lapply(cfg, names))
+    expect_false(any(grepl("project_root", keys)))
+})
+
+test_that("the test helper leaves the project root on the suite's redirect", {
+    expect_null(getOption("clinego.project_root"))
+    expect_identical(Sys.getenv("CLINEGO_PROJECT_ROOT"), "")
+    expect_identical(get_project_root(), CLINEGO_TEST_ROOT)
+})
+
 # --------------------------------------------------- www/ asset resource prefix
 
 # app_ui() references two scripts as src = "www/...", which resolve only through

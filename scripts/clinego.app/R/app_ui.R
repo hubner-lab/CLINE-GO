@@ -1,13 +1,9 @@
 #' Build the application UI
 #' @noRd
 app_ui <- function(request) {
-    pipeline_path <- get_pipeline_path()
-    projects <- find_selectable_projects(pipeline_path)
+    projects <- find_selectable_projects(get_project_root())
 
-    # Serve pipeline output files as static resources
-    shiny::addResourcePath("pipeline", pipeline_path)
-
-    # ...and the package's own assets. The header below loads two scripts as
+    # The package's own assets. The header below loads two scripts as
     # src = "www/...", which resolves only if a "www" resource prefix exists.
     # dev.R registers one (pointing at the bind mount); the PACKAGE path never
     # did, so clinego.app::run_app() served 404s for config-dirty.js and
@@ -21,7 +17,7 @@ app_ui <- function(request) {
     if (!"www" %in% names(shiny::resourcePaths())) {
         www_dir <- app_sys("app", "www")
         if (!nzchar(www_dir))
-            www_dir <- file.path(pipeline_path, "scripts", "clinego.app",
+            www_dir <- file.path(get_pipeline_path(), "scripts", "clinego.app",
                                  "inst", "app", "www")
         if (dir.exists(www_dir)) {
             shiny::addResourcePath("www", www_dir)

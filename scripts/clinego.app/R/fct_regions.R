@@ -196,7 +196,7 @@ launch_enrichment_subprocess <- function(genes_dt, region_id, trait, project_dat
     )
 
     proc <- tryCatch(
-        processx::process$new("bash", c("-c", cmd), wd = pipeline_path),
+        processx::process$new("bash", c("-c", cmd), wd = tempdir()),
         error = function(e) NULL
     )
     if (is.null(proc))
@@ -332,7 +332,7 @@ launch_regionplot_subprocess <- function(region_row, region_snps, project_data, 
     cmd <- paste0("Rscript ", rplot_args, " >> ", shQuote(log_file), " 2>&1")
 
     proc <- tryCatch(
-        processx::process$new("bash", c("-c", cmd), wd = pipeline_path),
+        processx::process$new("bash", c("-c", cmd), wd = tempdir()),
         error = function(e) NULL
     )
     if (is.null(proc))
@@ -383,7 +383,7 @@ launch_regionplot_subprocess <- function(region_row, region_snps, project_data, 
     inp_dir <- config_get(cfg, "Input", "dir",  default = "data")
     gff_rel <- config_get(cfg, "Input", "gff",  default = "")
     if (is.null(gff_rel) || gff_rel == "") return("")
-    file.path(get_pipeline_path(), inp_dir, gff_rel)
+    file.path(get_project_root(), inp_dir, gff_rel)
 }
 
 #' Resolve topr-converted GFF path (from intermediate directory)
@@ -422,7 +422,7 @@ launch_regionplot_subprocess <- function(region_row, region_snps, project_data, 
         processx::run(
             command = "python3",
             args    = c(script, norm_gff, feature, gene_name, biotype, out_path),
-            wd      = pipeline_path,
+            wd      = tempdir(),
             timeout = 30
         ),
         error = function(e) list(status = 1L)
@@ -604,7 +604,7 @@ launch_hap_scan_subprocess <- function(region_row, project_data, tag, params) {
     cmd <- paste0("Rscript ", scan_args, " >> ", shQuote(log_file), " 2>&1")
 
     proc <- tryCatch(
-        processx::process$new("bash", c("-c", cmd), wd = pipeline_path),
+        processx::process$new("bash", c("-c", cmd), wd = tempdir()),
         error = function(e) NULL
     )
     if (is.null(proc))
@@ -775,7 +775,7 @@ launch_hap_viz_subprocess <- function(region_row, project_data, tag, params) {
     cmd <- paste0("Rscript ", viz_args, " >> ", shQuote(log_file), " 2>&1")
 
     proc <- tryCatch(
-        processx::process$new("bash", c("-c", cmd), wd = pipeline_path),
+        processx::process$new("bash", c("-c", cmd), wd = tempdir()),
         error = function(e) NULL
     )
     if (is.null(proc))
@@ -909,7 +909,7 @@ launch_pairwise_subprocess <- function(gea_sig_list, gwas_sig_list,
     cmd <- paste0("Rscript ", script_args, " >> ", shQuote(log_file), " 2>&1")
 
     proc <- tryCatch(
-        processx::process$new("bash", c("-c", cmd), wd = pipeline_path),
+        processx::process$new("bash", c("-c", cmd), wd = tempdir()),
         error = function(e) NULL
     )
     if (is.null(proc))

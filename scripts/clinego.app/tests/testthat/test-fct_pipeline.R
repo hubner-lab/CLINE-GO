@@ -244,12 +244,49 @@ test_that("pipeline_parse_progress reads a Snakemake 9 log as the reader does", 
 # ---------------------------------------------------------------- pipeline_cmd
 
 test_that("pipeline_cmd builds the documented argument vector", {
-    args <- pipeline_cmd("gea", "PROJ", 4, pipeline_path = "/pipeline")
+    args <- pipeline_cmd("gea", "PROJ", 4, code_root = "/pipeline",
+                         project_root = "/pipeline")
     expect_identical(args[1:2], c("-c", "4"))
     expect_identical(args[3:4], c("-s", "/pipeline/Snakefile"))
-    expect_identical(args[5:6], c("--config", "mode=gea"))
-    expect_identical(args[9:10], c("--scheduler", "greedy"))
-    expect_identical(args[11], "--rerun-incomplete")
+    expect_identical(args[5:7], c("--config", "mode=gea", "project_root=/pipeline"))
+    expect_identical(args[8], "--configfile")
+    expect_identical(args[10:11], c("--scheduler", "greedy"))
+    expect_identical(args[12], "--rerun-incomplete")
+    expect_length(args, 12L)
+})
+
+test_that("pipeline_cmd takes the Snakefile from the code root, the rest from the project root", {
+    code <- file.path(tempdir(), basename(tempfile("code_")))
+    proj <- file.path(tempdir(), basename(tempfile("proj_")))
+    dir.create(code); dir.create(proj)
+    file.create(file.path(proj, "config_PROJ.yaml"))
+
+    args <- pipeline_cmd("processing", "PROJ", 2, code_root = code, project_root = proj)
+    expect_identical(args[3:4], c("-s", file.path(code, "Snakefile")))
+    expect_identical(args[5:7], c("--config", "mode=processing",
+                                  paste0("project_root=", normalizePath(proj))))
+    expect_identical(args[8:9], c("--configfile", file.path(proj, "config_PROJ.yaml")))
+    expect_false(any(grepl(code, args[-4], fixed = TRUE)))
+})
+
+test_that("pipeline_cmd defaults: code root from get_pipeline_path(), project root from get_project_root()", {
+    withr::local_options(clinego.pipeline_path = "/code_root",
+                         clinego.project_root = "/proj_root")
+    args <- pipeline_cmd("gea", "PROJ", 1)
+    expect_identical(args[4], "/code_root/Snakefile")
+    expect_identical(args[7], "project_root=/proj_root")
+    expect_identical(args[9], "/proj_root/config.yaml")
+})
+
+test_that("pipeline_cmd makes a relative project root absolute (common.smk refuses one)", {
+    args <- pipeline_cmd("gea", "PROJ", 1, code_root = "/c", project_root = ".")
+    expect_identical(args[7], paste0("project_root=", normalizePath(".")))
+})
+
+test_that("pipeline_unlock_args carries the same two roots", {
+    args <- pipeline_unlock_args("PROJ", "gea", code_root = "/c", project_root = "/p")
+    expect_identical(args, c("--unlock", "-s", "/c/Snakefile", "--config", "mode=gea",
+                             "project_root=/p", "--configfile", "/p/config.yaml"))
 })
 
 test_that("pipeline_cmd prefers a per-project config when one exists on disk", {
@@ -258,12 +295,12 @@ test_that("pipeline_cmd prefers a per-project config when one exists on disk", {
     root <- file.path(tempdir(), basename(tempfile("cfg_")))
     dir.create(root, recursive = TRUE, showWarnings = FALSE)
 
-    args <- pipeline_cmd("gea", "PROJ", 2, pipeline_path = root)
-    expect_identical(args[8], file.path(root, "config.yaml"))
+    args <- pipeline_cmd("gea", "PROJ", 2, project_root = root)
+    expect_identical(args[9], file.path(root, "config.yaml"))
 
     file.create(file.path(root, "config_PROJ.yaml"))
-    args2 <- pipeline_cmd("gea", "PROJ", 2, pipeline_path = root)
-    expect_identical(args2[8], file.path(root, "config_PROJ.yaml"))
+    args2 <- pipeline_cmd("gea", "PROJ", 2, project_root = root)
+    expect_identical(args2[9], file.path(root, "config_PROJ.yaml"))
 })
 
 # ---------------------------------------------------------------- log tail

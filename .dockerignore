@@ -1,12 +1,24 @@
-# Build-context hygiene fix (2026-07-31): docker build has no way to know these
-# project output/data directories aren't needed inside the image, and without this
-# file it tars all of them into the build context — hundreds of GB, enough to fill
-# /var (Docker's storage root) even though /mnt/data itself has plenty of space.
-*_results/
-*_logs/
-data/
-.snakemake/
-.git/
-TEMP/
-TEMP_*/
-*.qs
+# An ALLOWLIST: the build context holds only what the Dockerfile COPYs.
+#
+# Everything is excluded, then each COPY source is let back in. A checkout carries
+# results trees, data, benchmarks and caches beside the code (about 557 GB on the lab
+# server); a builder without this file, or with a denylist that misses one new folder,
+# tars all of it into the context. A COPY whose source is not listed here fails the
+# build, so a new COPY needs its line here too.
+*
+!Snakefile
+!clinego
+!LICENSE
+!THIRD_PARTY_NOTICES
+!VERSION
+!workflow/
+!scripts/
+!test_data/
+
+# Caches and local state inside the allowed folders never belong in the image.
+**/__pycache__
+**/*.pyc
+**/.Rhistory
+**/.RData
+**/.Rproj.user
+**/.DS_Store

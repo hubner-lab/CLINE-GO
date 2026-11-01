@@ -139,10 +139,10 @@ test_that("Save keeps GEA.snp_sets / GWAS.snp_sets", {
         "  - name: h",
         "    pairs: [height::EMMAX, height::BLINK]"), file.path(d, "config_SS.yaml"))
 
-    cfg <- read_project_config("SS", pipeline_path = d)
+    cfg <- read_project_config("SS", project_root = d)
     entries <- list(list(key = "GEA.snp_clumping_distance", type = "numeric"))
     cfg <- collect_tab_config(list(GEA_snp_clumping_distance = 200000), NULL, entries, cfg)
-    write_project_config(cfg, "SS", pipeline_path = d)
+    write_project_config(cfg, "SS", project_root = d)
     back <- yaml::read_yaml(file.path(d, "config_SS.yaml"))
 
     expect_identical(back$GEA$snp_clumping_distance, 200000L)

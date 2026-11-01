@@ -114,6 +114,10 @@ run_compare_offsets <- function(project, key_a, key_b,
     )
 
     message("INFO: Running compare_offsets.R ...")
+    # Run outside the code root, which is read-only in the image (every argument
+    # is an absolute path, so the working directory only catches stray files).
+    old_wd <- setwd(tempdir())
+    on.exit(setwd(old_wd), add = TRUE)
     ret <- system(cmd, ignore.stdout = FALSE)
     ret == 0L
 }

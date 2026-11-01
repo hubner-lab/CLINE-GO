@@ -32,6 +32,14 @@ CLINEGO_TEST_ROOT <- file.path(tempdir(), "clinego-test-root")
 dir.create(CLINEGO_TEST_ROOT, recursive = TRUE, showWarnings = FALSE)
 options(clinego.pipeline_path = CLINEGO_TEST_ROOT)
 
+# The project root (get_project_root(), R/app_config.R) reads option
+# clinego.project_root, then env CLINEGO_PROJECT_ROOT, before falling back to
+# get_pipeline_path(). Clear both so the suite's redirect above covers project paths
+# too: `clinego app` sets CLINEGO_PROJECT_ROOT, and an inherited value would send
+# every project write to that folder.
+options(clinego.project_root = NULL)
+Sys.unsetenv("CLINEGO_PROJECT_ROOT")
+
 # Reset the package's in-memory cache.
 #
 # .cache_env (fct_data_loading.R:1068) is a 200MB cachem::cache_mem reached via

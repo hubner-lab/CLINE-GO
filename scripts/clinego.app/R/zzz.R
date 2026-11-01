@@ -19,11 +19,11 @@
 # functions land in the namespace where package code can find them.
 #
 # ── The two run paths ─────────────────────────────────────────────────────────
-# PACKAGE PATH (clinego.app::run_app) — needs the package installed in the
-#   image. This file is what makes it work. It is the intended end state: once
-#   the pipeline's scripts/ is COPYed into the image rather than bind-mounted,
-#   the paths below resolve at build time too and the app becomes fully
-#   self-contained. See the note at the app-install block in the Dockerfile.
+# PACKAGE PATH (clinego.app::run_app, what `clinego app` runs) — needs the
+#   package installed in the image. This file is what makes it work. Since v1.0
+#   the image bakes the pipeline's scripts/ into /pipeline and installs the app
+#   after it (the end of the Dockerfile), so the paths below exist in the image
+#   itself; a checkout mounted over /pipeline replaces them with its own.
 #
 # FILE PATH (scripts/clinego.app/dev.R) — sources R/*.R off the bind mount and
 #   never calls library(clinego.app), so .onLoad() NEVER FIRES HERE. dev.R

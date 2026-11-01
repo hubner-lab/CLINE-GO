@@ -1,12 +1,12 @@
 #' Read a project config YAML file
 #' @param project project name
-#' @param pipeline_path pipeline root path
+#' @param project_root project root (get_project_root())
 #' @return named list of config values, or empty list if not found
 #' @noRd
-read_project_config <- function(project, pipeline_path = get_pipeline_path()) {
-    config_file <- file.path(pipeline_path, paste0("config_", project, ".yaml"))
+read_project_config <- function(project, project_root = get_project_root()) {
+    config_file <- file.path(project_root, paste0("config_", project, ".yaml"))
     if (!file.exists(config_file)) {
-        config_file <- file.path(pipeline_path, "config.yaml")
+        config_file <- file.path(project_root, "config.yaml")
     }
     if (!file.exists(config_file)) return(list())
     tryCatch(yaml::read_yaml(config_file), error = function(e) list())

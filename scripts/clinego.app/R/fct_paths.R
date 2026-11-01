@@ -13,8 +13,8 @@ MOD_INTER     <- "_intermediate"
 
 #' Base results directory for a project
 #' @noRd
-project_base <- function(project, pipeline_path = get_pipeline_path()) {
-    file.path(pipeline_path, paste0(project, "_results"))
+project_base <- function(project, project_root = get_project_root()) {
+    file.path(project_root, paste0(project, "_results"))
 }
 
 #' Path within a module's output directory
@@ -698,12 +698,12 @@ pheno_piemap_path <- function(project, trait, points = FALSE) {
 
 #' Resolve full path to the project's GFF annotation file
 #' @noRd
-gff_path <- function(project, pipeline_path = get_pipeline_path()) {
-    config  <- read_project_config(project, pipeline_path)
+gff_path <- function(project, project_root = get_project_root()) {
+    config  <- read_project_config(project, project_root)
     inp_dir <- config_get(config, "Input", "dir", default = "data")
     gff_rel <- config_get(config, "Input", "gff", default = "")
     if (is.null(gff_rel) || gff_rel == "") return("")
-    file.path(pipeline_path, inp_dir, gff_rel)
+    file.path(project_root, inp_dir, gff_rel)
 }
 
 # ─── Regional Manhattan (topr) ────────────────────────────────────────────────

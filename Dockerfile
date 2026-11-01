@@ -155,31 +155,12 @@ RUN Rscript -e " \
     remotes::install_version('shinyFiles',  version = '0.9.3'); \
 "
 
-# Install golem Shiny app as R package
-#
-# ── PLANNED: move this block, and a COPY of the rest of the project, to the END
-# ── of this file, as the last step before the verification RUN.
-#
-# Today this image contains NO pipeline code: this is the only COPY, and all 65
-# /pipeline/scripts/*.R paths the Snakefile invokes resolve solely through
-# `-v $PWD:/pipeline`. The app package is the one exception, and that split is
-# what let clinego.app's shared-library loading rot unnoticed (see zzz.R).
-#
-# The end state is a self-contained image: COPY scripts/ workflow/ Snakefile
-# into /pipeline, then install the app. Two reasons to do it at the END and not
-# here:
-#   1. Sitting at this line, a change to ANY app file invalidates ~22 downstream
-#      layers (topr, GAPIT, gradientForest, vegan, Bioconductor) -- a ~20 minute
-#      rebuild. As the last step it is ~15 seconds.
-#   2. With scripts/ copied in before the app install, zzz.R's file.exists()
-#      guards become true at BUILD time, so the shared libs are baked into the
-#      installed namespace and the package path stops depending on a mount.
-#
-# Until then the bind mount stays the source of truth for pipeline code, and
-# `-v $PWD:/pipeline` remains required at run time for both run paths.
-COPY scripts/clinego.app /tmp/clinego.app
-RUN Rscript -e "remotes::install_local('/tmp/clinego.app', dependencies = FALSE)" \
-  && rm -rf /tmp/clinego.app
+# The Shiny app package (clinego.app) is NOT installed here any more: it installs
+# at the END of this file, from the pipeline code COPYed into /pipeline (v1.0).
+# Sitting here, a change to any app file invalidated ~22 downstream layers (topr,
+# GAPIT, gradientForest, vegan, Bioconductor), a ~20 minute rebuild; at the end it
+# costs one short layer. Installing after scripts/ is in place also means zzz.R's
+# shared pipeline libraries (/pipeline/scripts/R/...) exist when the package loads.
 
 # topr - CRITICAL: version >= 2.0.0 required for custom (non-human) genome builds
 RUN Rscript -e "remotes::install_version('topr', version = '2.0.2')"
@@ -280,14 +261,15 @@ RUN Rscript -e "remotes::install_version('vegan', version = '2.6-8', upgrade = '
 # replicating that whole stack to execute five files, and would test a different
 # environment than the one that ships.
 #
-# Both are Suggests, and install_local() above runs with dependencies = FALSE, so
+# Both are Suggests, and the app's install_local() (end of file) runs with
+# dependencies = FALSE, so
 # neither arrives on its own: testthat was absent outright and withr was present
 # only as somebody else's transitive dependency, asserted by nothing. Without them
 # `testthat::test_dir(...)` silently does nothing, which is how the suite went
 # unrun long enough for upstream to add cases nobody could execute.
 #
 # Placed here, immediately before the verification RUN, so adding a test dep
-# rebuilds two cheap layers rather than the ~22 that follow the app install.
+# rebuilds only the cheap layers after it.
 RUN Rscript -e "remotes::install_version('testthat', version = '3.2.3', upgrade = 'never')" \
  && Rscript -e "remotes::install_version('withr', version = '3.0.2', upgrade = 'never')"
 
@@ -307,18 +289,11 @@ RUN Rscript -e "remotes::install_version('testthat', version = '3.2.3', upgrade 
 # Regenerate it the same way when adding a script; a package used by a script
 # and absent here is exactly the hole this check exists to close.
 #
-# clinego.app is in the list even though it is not a dependency but the thing
-# this Dockerfile builds. It belongs here because the failure it catches already
-# happened: the COPY + install_local pair above produced a cached 0 B layer, so
-# the image shipped for weeks with no app package while this very RUN reported
-# every package present. `run_app()` was dead; only the bind-mounted dev.R path
-# worked, which is why nobody noticed. Asserting the package the build installs
-# is the cheapest way to keep a poisoned cache entry from passing as a build.
 RUN Rscript -e " \
     required <- c( \
         'AnnotationDbi', 'DT', 'GAPIT', 'GO.db', 'LEA', 'SpatialPack', \
         'VennDiagram', 'WGCNA', 'adegenet', 'adespatial', 'base64enc', \
-        'bsicons', 'bslib', 'cachem', 'clinego.app', 'clusterProfiler', 'config', \
+        'bsicons', 'bslib', 'cachem', 'clusterProfiler', 'config', \
         'cowplot', 'crosshap', 'data.table', 'digest', 'dplyr', \
         'enrichplot', 'forcats', 'geodata', 'geosphere', 'ggcorrplot', \
         'ggdist', 'ggnewscale', 'ggplot2', 'ggpubr', 'ggrepel', \
@@ -368,6 +343,71 @@ RUN Rscript -e " \
 # writable at the top of this file for exactly that HOME. An ENV HOME here would
 # also repoint HOME for root and the inherited /init (shiny-server).
 #
-# Last in the file on purpose: ENV applies to later RUN layers and there are
-# none after this, so nothing above is invalidated.
+# Placed after every package layer on purpose: ENV applies to later RUN layers,
+# so nothing above is invalidated.
 ENV USER=pipeline
+
+#=============================================================================
+# THE PIPELINE CODE, BAKED IN (v1.0)
+#=============================================================================
+# Everything below changes with the code, so it sits after every tool layer: a
+# code change rebuilds only these few short layers. Explicit COPYs, never
+# `COPY .`, and .dockerignore is an allowlist of exactly these sources.
+#
+# /pipeline holds the code only, read-only for the `--user` uid every documented
+# run passes. A user's data, configs and results live in their project folder,
+# mounted at /data and named by `--config project_root=<dir>` (common.smk), which
+# `clinego run` passes. BUILD_INFO.json (last layer) marks the code as baked:
+# without project_root, common.smk then refuses to run instead of writing into
+# /pipeline. A developer who mounts a checkout over /pipeline hides BUILD_INFO,
+# so `-v $PWD:/pipeline` keeps today's form unchanged.
+#
+# The bundled example dataset goes to /opt/clinego/example/, outside /pipeline:
+# its files (config_testdata.yaml included) sit directly in that folder, and
+# `clinego example` copies them to ./test_data/ and ./config_testdata.yaml.
+COPY Snakefile clinego LICENSE THIRD_PARTY_NOTICES VERSION /pipeline/
+COPY workflow/ /pipeline/workflow/
+COPY scripts/ /pipeline/scripts/
+COPY test_data/ /opt/clinego/example/
+
+# The app installs from the baked code. library() right after it is the check
+# that the install happened (a cached 0 B install layer once shipped an image
+# with no app while every package check passed), and that .onLoad() found the
+# shared pipeline libraries zzz.R sources from /pipeline/scripts/R/. chmod makes
+# the tree readable for any uid whatever the builder's umask was.
+RUN chmod -R a+rX /pipeline /opt/clinego \
+ && Rscript -e "remotes::install_local('/pipeline/scripts/clinego.app', dependencies = FALSE, upgrade = 'never')" \
+ && Rscript -e "library(clinego.app); stopifnot(exists('cluster_snps_to_regions', envir = asNamespace('clinego.app'), inherits = FALSE)); cat('clinego.app', format(packageVersion('clinego.app')), 'loads with its shared libraries.\n')" \
+ && ln -s /pipeline/clinego /usr/local/bin/clinego
+
+# The launcher tells host from image by this variable.
+ENV CLINEGO_IN_IMAGE=1
+
+# No ENTRYPOINT: `docker run <image> snakemake ...` and `Rscript ...` keep working.
+CMD ["clinego", "help"]
+
+# Build identity, from `clinego build`'s build args. Last, so a new version
+# invalidates only these layers. An empty CLINEGO_COMMIT or CLINEGO_DIRTY (not a
+# git checkout) is written as null; an empty CLINEGO_VERSION falls back to the
+# VERSION file. workflow/run_record.py reads this file when /pipeline is no git
+# checkout, so every run record names the code it ran.
+ARG CLINEGO_VERSION=
+ARG CLINEGO_COMMIT=
+ARG CLINEGO_DIRTY=
+RUN python3 -c "import datetime, json, os; e = os.environ.get; \
+info = {'version': e('CLINEGO_VERSION') or open('/pipeline/VERSION').read().strip(), \
+        'commit': e('CLINEGO_COMMIT') or None, \
+        'dirty': {'true': True, 'false': False}.get(e('CLINEGO_DIRTY') or ''), \
+        'built': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}; \
+json.dump(info, open('/pipeline/BUILD_INFO.json', 'w'), indent=2); print(info)" \
+ && chmod 644 /pipeline/BUILD_INFO.json
+# description, authors and vendor override the values inherited from rocker/shiny,
+# which would otherwise describe this image as "Shiny Server on versioned Rocker image".
+LABEL org.opencontainers.image.title="CLINE-GO" \
+      org.opencontainers.image.description="CLINE-GO: population-genomics pipeline (Snakemake) and Shiny app for GEA, GWAS and genetic offset" \
+      org.opencontainers.image.authors="The CLINE-GO authors" \
+      org.opencontainers.image.vendor="The CLINE-GO authors" \
+      org.opencontainers.image.source="https://github.com/hubner-lab/CLINE-GO" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.version="${CLINEGO_VERSION}" \
+      org.opencontainers.image.revision="${CLINEGO_COMMIT}"

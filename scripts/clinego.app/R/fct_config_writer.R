@@ -11,9 +11,9 @@
 #'
 #' Returns config_{project}.yaml if it exists, otherwise config.yaml.
 #' @noRd
-config_file_path <- function(project, pipeline_path = get_pipeline_path()) {
-    primary <- file.path(pipeline_path, paste0("config_", project, ".yaml"))
-    if (file.exists(primary)) primary else file.path(pipeline_path, "config.yaml")
+config_file_path <- function(project, project_root = get_project_root()) {
+    primary <- file.path(project_root, paste0("config_", project, ".yaml"))
+    if (file.exists(primary)) primary else file.path(project_root, "config.yaml")
 }
 
 #' Collect all sidebar input values for a given set of schema entries
@@ -47,12 +47,12 @@ collect_tab_config <- function(input, ns, schema_entries, base_config) {
 #'
 #' @param config named list (full project config)
 #' @param project project name
-#' @param pipeline_path pipeline root path
+#' @param project_root project root (get_project_root())
 #' @return invisible path to the written file, or NULL on error
 #' @noRd
 write_project_config <- function(config, project,
-                                  pipeline_path = get_pipeline_path()) {
-    dest <- config_file_path(project, pipeline_path)
+                                  project_root = get_project_root()) {
+    dest <- config_file_path(project, project_root)
 
     # Materialize the regime and the value the pipeline actually reads. Every write
     # goes through here (Save button and the pipeline runner both hand over

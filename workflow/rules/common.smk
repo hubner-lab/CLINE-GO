@@ -162,11 +162,39 @@ def _cfg_bool(group, key, default=False):
     val = _cfg(group, key, default)
     return False if val is None else _parse_bool(val, f"{group}.{key}")
 
+# PROJECT ROOT: the folder that holds the project's inputs, config_<p>.yaml,
+# <p>_results/ and <p>_logs/. Optional `--config project_root=<absolute dir>`; absent,
+# it is /pipeline/, where the code and the projects sat together before v1.0, and
+# INDIR/OUTDIR/LOGDIR are byte-identical to that form for any Input.dir, so no
+# existing tree reruns. An image with the code baked in carries BUILD_INFO_PATH;
+# there /pipeline is the read-only code, so a run without project_root is refused
+# (a repo mounted over /pipeline hides that file: the developer form is unaffected).
+BUILD_INFO_PATH = '/pipeline/BUILD_INFO.json'
+
+def resolve_project_root(cfg, build_info_path=BUILD_INFO_PATH):
+    """The project root as a string ending in '/', from config key project_root."""
+    root = cfg.get('project_root')
+    if root is None or str(root) == '':
+        if os.path.exists(build_info_path):
+            raise ValueError(
+                "project_root is not set and the code runs from the image: give "
+                "--config project_root=<dir>, or use clinego run.")
+        return '/pipeline/'
+    root = str(root)
+    if not os.path.isabs(root):
+        raise ValueError(f"project_root ({root!r}) must be an absolute directory, "
+                         "e.g. --config project_root=$PWD.")
+    if not os.path.isdir(root):
+        raise ValueError(f"project_root ({root!r}) is not an existing directory.")
+    return root.rstrip('/') + '/'
+
+PROJECT_ROOT = resolve_project_root(config)
+
 # INPUT parameters
-INDIR = '/pipeline/' + config['Input']['dir']
+INDIR = PROJECT_ROOT + config['Input']['dir']
 PROJECT = config['project_name']
-OUTDIR = f'/pipeline/{PROJECT}_results/'
-LOGDIR = f'/pipeline/{PROJECT}_logs/'
+OUTDIR = f'{PROJECT_ROOT}{PROJECT}_results/'
+LOGDIR = f'{PROJECT_ROOT}{PROJECT}_logs/'
 
 CPU = config.get('cpu', max(1, os.cpu_count() - 2)); check_numeric(CPU, 'cpu')
 if _as_int(CPU, 'cpu') < 1: raise ValueError(f"cpu must be >= 1, got: {CPU}")

@@ -54,7 +54,7 @@ config_schema <- function() {
         # ── HOME TAB (project input files only) ───────────────────────────────
         s("Input.dir",      "Input directory",    "home", "Input Files",
           "text",    TRUE,
-          help = "Directory containing input files (relative to /pipeline/)",
+          help = "Directory containing input files (relative to the project folder)",
           placeholder = "data/"),
         s("Input.vcf",      "VCF file",           "home", "Input Files",
           "text",    TRUE,

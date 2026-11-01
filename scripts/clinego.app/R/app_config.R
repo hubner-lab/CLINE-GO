@@ -28,7 +28,23 @@ get_golem_config <- function(value, config = Sys.getenv("R_CONFIG_ACTIVE", "defa
     )
 }
 
-#' Get the pipeline root path (where {PROJECT}_results/ directories live)
+#' Get the project root: the folder that holds config_<p>.yaml, <p>_results/,
+#' <p>_logs/ and the project's inputs
+#'
+#' Priority: option clinego.project_root > env CLINEGO_PROJECT_ROOT > the code root
+#' (get_pipeline_path()), where code and projects sat together before v1.0. Never set
+#' in golem-config.yml: there it would beat the env var `clinego app` passes. Code
+#' paths (Snakefile, scripts/, workflow/, inst/) keep get_pipeline_path().
+#' @noRd
+get_project_root <- function() {
+    opt <- getOption("clinego.project_root")
+    if (!is.null(opt) && nzchar(opt)) return(opt)
+    env <- Sys.getenv("CLINEGO_PROJECT_ROOT", unset = "")
+    if (nzchar(env)) return(env)
+    get_pipeline_path()
+}
+
+#' Get the code root (where the Snakefile, scripts/ and workflow/ live)
 #' @noRd
 get_pipeline_path <- function() {
     # Priority: runtime option > golem config > env var > /pipeline

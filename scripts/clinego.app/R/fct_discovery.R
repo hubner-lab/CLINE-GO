@@ -19,8 +19,8 @@
 #' config.yaml; that fallback would let one project's Simulation block leak onto
 #' every project that lacks its own config.
 #' @noRd
-discover_projects <- function(pipeline_path = get_pipeline_path()) {
-    dirs  <- list.dirs(pipeline_path, full.names = FALSE, recursive = FALSE)
+discover_projects <- function(project_root = get_project_root()) {
+    dirs  <- list.dirs(project_root, full.names = FALSE, recursive = FALSE)
     dirs  <- dirs[grepl("_results$", dirs)]
     names <- sort(gsub("_results$", "", dirs))
     empty <- data.frame(name = character(0), is_simulated = logical(0),
@@ -28,8 +28,8 @@ discover_projects <- function(pipeline_path = get_pipeline_path()) {
                         stringsAsFactors = FALSE)
     if (!length(names)) return(empty)
 
-    cfg_files <- file.path(pipeline_path, paste0("config_", names, ".yaml"))
-    res_dirs  <- file.path(pipeline_path, paste0(names, "_results"))
+    cfg_files <- file.path(project_root, paste0("config_", names, ".yaml"))
+    res_dirs  <- file.path(project_root, paste0(names, "_results"))
     # Fingerprint over the project set, its configs AND its marker files, so the cache
     # turns over when a project appears, disappears, has its Simulation block edited, or
     # gets marked internal/simulated -- without re-parsing ~100 YAML files every render.
@@ -42,7 +42,7 @@ discover_projects <- function(pipeline_path = get_pipeline_path()) {
     load_cached("discover_projects", function() {
         rows <- lapply(seq_along(names), function(i) {
             sim <- FALSE; src <- ""
-            res_dir <- file.path(pipeline_path, paste0(names[i], "_results"))
+            res_dir <- file.path(project_root, paste0(names[i], "_results"))
             if (file.exists(cfg_files[i])) {
                 cfg <- tryCatch(yaml::read_yaml(cfg_files[i]), error = function(e) list())
                 blk <- cfg[["Simulation"]]
@@ -76,9 +76,9 @@ discover_projects <- function(pipeline_path = get_pipeline_path()) {
 #' name regardless -- used for duplicate-name checks when creating a project, which
 #' must see names the selector hides.
 #' @noRd
-find_projects <- function(pipeline_path = get_pipeline_path(),
+find_projects <- function(project_root = get_project_root(),
                           benchmark_mode = FALSE, all = FALSE) {
-    p <- discover_projects(pipeline_path)
+    p <- discover_projects(project_root)
     if (!nrow(p)) return(character(0))
     if (all) return(sort(p$name))
     p <- p[!p$is_internal, , drop = FALSE]
@@ -100,8 +100,8 @@ find_projects <- function(pipeline_path = get_pipeline_path(),
 #' things that should never be user-visible, which is a different question from
 #' whether the data is simulated.
 #' @noRd
-find_selectable_projects <- function(pipeline_path = get_pipeline_path()) {
-    p <- discover_projects(pipeline_path)
+find_selectable_projects <- function(project_root = get_project_root()) {
+    p <- discover_projects(project_root)
     if (!nrow(p)) return(character(0))
     sort(p$name[!p$is_internal])
 }

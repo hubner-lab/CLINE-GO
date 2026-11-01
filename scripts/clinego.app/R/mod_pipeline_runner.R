@@ -165,7 +165,7 @@ mod_pipeline_runner_server <- function(id, config_state, pipeline_running, runni
             # sessions: it may belong to a command-line run, another browser tab, or
             # this app's run from before a page reload. Never cleared without asking
             # (ac6ab8); the user removes it only when they know no run is active.
-            if (pipeline_is_locked(config_state$project, get_pipeline_path())) {
+            if (pipeline_is_locked(config_state$project, get_project_root())) {
                 shiny::showModal(shiny::modalDialog(
                     title = htmltools::tagList(
                         bsicons::bs_icon("lock-fill", class = "text-warning"),
@@ -194,8 +194,9 @@ mod_pipeline_runner_server <- function(id, config_state, pipeline_running, runni
         shiny::observeEvent(input$unlock_and_run, {
             shiny::removeModal()
             shiny::req(!pipeline_running(), !is.null(config_state$project))
-            pipeline_unlock(config_state$project, mode, get_pipeline_path())
-            if (pipeline_is_locked(config_state$project, get_pipeline_path())) {
+            pipeline_unlock(config_state$project, mode, get_pipeline_path(),
+                            get_project_root())
+            if (pipeline_is_locked(config_state$project, get_project_root())) {
                 shiny::showNotification(
                     "Could not remove the lock: Snakemake --unlock failed.",
                     type = "error", duration = 8)
@@ -208,7 +209,8 @@ mod_pipeline_runner_server <- function(id, config_state, pipeline_running, runni
         launch_run <- function() {
             project  <- config_state$project
             cpu      <- config_get_by_path(config_state$working, "cpu") %||% max(1L, parallel::detectCores() - 2L)
-            pip_path <- get_pipeline_path()
+            code_root    <- get_pipeline_path()
+            project_root <- get_project_root()
 
             # ── Maladaptation: hard guard + "all" injection ─────────────────
             if (identical(tab_name, "maladaptation")) {
@@ -226,7 +228,7 @@ mod_pipeline_runner_server <- function(id, config_state, pipeline_running, runni
             }
 
             # Write working config to YAML before launching
-            ok <- write_project_config(config_state$working, project, pip_path)
+            ok <- write_project_config(config_state$working, project, project_root)
             if (is.null(ok)) {
                 shiny::showNotification(
                     "Failed to write config file. Check file permissions.",
@@ -239,7 +241,7 @@ mod_pipeline_runner_server <- function(id, config_state, pipeline_running, runni
             project_files_trigger(project_files_trigger() + 1L)
 
             p <- tryCatch(
-                pipeline_run(mode, project, as.integer(cpu), pip_path),
+                pipeline_run(mode, project, as.integer(cpu), code_root, project_root),
                 error = function(e) {
                     shiny::showNotification(
                         paste("Could not start pipeline:", conditionMessage(e)),
@@ -278,7 +280,8 @@ mod_pipeline_runner_server <- function(id, config_state, pipeline_running, runni
         shiny::observeEvent(input$stop_btn, {
             p <- proc()
             if (!is.null(p)) {
-                pipeline_kill(p, config_state$project, mode)
+                pipeline_kill(p, config_state$project, mode, get_pipeline_path(),
+                              get_project_root())
             }
             proc(NULL)
             pipeline_running(FALSE)

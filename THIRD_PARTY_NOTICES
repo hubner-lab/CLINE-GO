@@ -1,0 +1,45 @@
+THIRD-PARTY NOTICES
+
+CLINE-GO is released under the MIT License (see LICENSE). The repository and the
+image built from it also contain the third-party material below, which keeps its own
+terms. Packages installed into the image by the Dockerfile (R, Bioconductor, Python,
+plink, vcftools, Snakemake and the rocker/shiny base) are not redistributed in this
+repository; each keeps its own license.
+
+-------------------------------------------------------------------------------
+1. EMMAX (Efficient Mixed-Model Association eXpedited)
+   Files: scripts/emmax-intel64, scripts/emmax-kin-intel64
+-------------------------------------------------------------------------------
+
+Prebuilt static x86-64 binaries of EMMAX beta (07 March 2010), as distributed by the
+author. Not built from source in this repository.
+
+Copyright 2006-2010 Hyun Min Kang et al.
+
+Terms: EMMAX ships no license file. The author has stated that "There is no license
+attached with EMMAX" and that "you can consider it to be equivalent to widely used
+public license (e.g. MIT license)". Debian packages EMMAX under the MIT License on
+that basis. Source of these terms, read 2026-11-01:
+  https://sources.debian.org/data/main/e/emmax/0~beta.20100307-6/debian/copyright
+Upstream: http://genetics.cs.ucla.edu/emmax/ and https://csg.sph.umich.edu/kang/emmax/
+(the original download page could not be reached on 2026-11-01).
+
+The binaries are statically linked; their symbol and string tables carry Intel Math
+Kernel Library (MKL) routines, which remain under Intel's terms.
+
+Citation: Kang HM, Sul JH, Service SK, et al. (2010) Variance component model to
+account for sample structure in genome-wide association studies. Nature Genetics
+42:348-354.
+
+-------------------------------------------------------------------------------
+2. rdadapt (RDA outlier test)
+   File: scripts/R/lib/rdadapt.R
+-------------------------------------------------------------------------------
+
+The function rdadapt() is adapted from Script_RDA.R in
+  https://github.com/Capblancq/RDA-genome-scan
+which carries no license file (checked 2026-11-01). The method is described in:
+
+  Capblancq T, Luu K, Blum MGB, Bazin E (2018) Evaluation of redundancy analysis to
+  identify signatures of local adaptation. Molecular Ecology Resources
+  18(6):1223-1233. https://doi.org/10.1111/1755-0998.12906

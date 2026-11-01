@@ -605,7 +605,7 @@ load_gff_genes <- function(project, config) {
 
     if (is.null(gff_rel) || gff_rel == "") return(data.table::data.table())
 
-    gff_abs <- file.path(get_pipeline_path(), inp_dir, gff_rel)
+    gff_abs <- file.path(get_project_root(), inp_dir, gff_rel)
     if (!file.exists(gff_abs)) return(data.table::data.table())
 
     fp <- tryCatch(as.character(file.info(gff_abs)$mtime),

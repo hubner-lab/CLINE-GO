@@ -14,7 +14,9 @@ no-op invocation keeps the record of the run that built the outputs.
 A record holds: mode; status (running, then success or error); started and finished, UTC;
 the command line; each --configfile with the sha256 of its bytes; the config Snakemake ran
 with (the --configfile values merged with --config); the git commit of the checkout holding
-the Snakefile, whether it was dirty, the changed paths and a sha256 of ``git diff HEAD``; the
+the Snakefile, whether it was dirty, the changed paths and a sha256 of ``git diff HEAD`` (or,
+when the code is baked into an image and so no checkout, the commit, dirty flag and version
+that ``clinego build`` wrote to BUILD_INFO.json beside the Snakefile); the
 image ID when it is visible; Snakemake and Python versions; the resolved cpu; the mode's
 GEA/GWAS method parameters; the path of Snakemake's own log.
 
@@ -41,6 +43,7 @@ IMAGE_ENV = "CLINEGO_IMAGE_ID"
 RECORD_DIR = "run_records"
 HISTORY = "history.jsonl"
 MAX_CHANGED_PATHS = 200
+BUILD_INFO = "BUILD_INFO.json"
 _CONTAINER_MARKERS = ("/.dockerenv", "/run/.containerenv")
 
 
@@ -105,6 +108,32 @@ def git_state(repo):
     return state
 
 
+def code_state(repo):
+    """git_state(repo), or, when `repo` is no git checkout but holds BUILD_INFO.json (the
+    code baked into an image by `clinego build`), the commit, dirty flag and version that file
+    names, with `note` saying where they came from. A checkout always wins: a developer's
+    repo mounted over the image's /pipeline hides the image's BUILD_INFO.json anyway."""
+    state = git_state(repo)
+    path = os.path.join(str(repo), BUILD_INFO)
+    if state.get("commit") is not None or not os.path.isfile(path):
+        return state
+    try:
+        with open(path) as handle:
+            info = json.load(handle)
+    except (OSError, ValueError) as exc:
+        state["note"] = f"{state.get('note')}; {BUILD_INFO}: {type(exc).__name__}"
+        return state
+    if not isinstance(info, dict):
+        state["note"] = f"{state.get('note')}; {BUILD_INFO}: not a JSON object"
+        return state
+    dirty = info.get("dirty")
+    return {"commit": info.get("commit"),
+            "dirty": dirty if isinstance(dirty, bool) else None,
+            "version": info.get("version"),
+            "built": info.get("built"),
+            "note": f"from {path}: the code is baked into the image, not a git checkout"}
+
+
 def image_state(image_id, markers=_CONTAINER_MARKERS):
     """The image the run used, when it is visible (`image_id`, the value of
     CLINEGO_IMAGE_ID), and whether the run is inside a container."""
@@ -143,7 +172,7 @@ def build_record(*, mode, status, started, finished, argv, launch_dir, configfil
         "command": shlex.join([os.path.basename(argv[0]), *argv[1:]]) if argv else None,
         "launch_dir": str(launch_dir) if launch_dir else None,
         "configfiles": [_configfile_entry(p) for p in configfiles],
-        "git": git_state(repo),
+        "git": code_state(repo),
         "image": image_state(image_id),
         "software": {"snakemake": snakemake_version, "python": platform.python_version()},
         "cpu": cpu,
