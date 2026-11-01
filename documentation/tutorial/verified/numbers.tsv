@@ -1,0 +1,20 @@
+key	value	chapter	source
+tut_ch1_trees_vcf	336	1	authors' VCF header (balsam_core336inds_42pops.vcf.gz)
+tut_ch1_snps_vcf	107,309	1	Processing/tables/filtering_summary.tsv, Raw VCF
+tut_ch1_sites_used	38	1	populus_metadata.tsv (325 trees; 4 sites await a coordinate source)
+tut_ch2_clones_removed	33	2	Processing/tables/relatedness_removed.tsv (IBS > 0.975)
+tut_ch2_trees_kept	278	2	Processing/tables/filtering_summary.tsv, After relatedness filter
+tut_ch2_snps_kept	11,819	2	Processing/tables/filtering_summary.tsv, After MAF + SNP missingness filter
+tut_ch3_k_best	2	3	PreStructure/tables/cross_entropy_K2-8.tsv (minimum mean cross-entropy)
+tut_ch3_pc1_pct	2.1	3	PreStructure/tables/tracy_widom.tsv, axis 1 variance_fraction
+tut_ch4_climate_unique_pct	10.6	4	climate/tables/varpart/variance_partition.tsv, Unique to one factor / Climate
+tut_ch4_shared_all_pct	20.1	4	climate/tables/varpart/variance_partition.tsv, All three
+tut_ch4_worldclim_mb	658	4	data/populus/wc2.1_2.5m_bio.zip (WorldClim 2.1, 2.5 arc-minutes, bytes / 1e6)
+tut_ch5_snps_union	26	5	GEA/tables/selected_snps.tsv (any of LFMM, EMMAX, RDA; Bonferroni)
+tut_ch5_snps_agreement	1	5	Maladaptation/tables/snp_sets_summary.tsv, gea.agreement (>= 2 methods within 184,933 bp)
+tut_ch5_clumping_bp	184,933	5	Structure/tables/ld_decay_half_distances.tsv, All / genome_wide decay_critical_bp
+tut_ch5_rda_axes	5	5	GEA/tables/methods/RDA/RDA_diagnostics_K2.tsv, rda_axes (by-axis anova, 99 permutations)
+tut_ch6_offset_max_site	CHL	6	Maladaptation/tables/gradient_forest/gea.union_spatial/year2061-2080_ssp585/genetic_offset_site.tsv
+tut_ch6_offset_max	0.026	6	same table, CHL
+tut_ch6_offset_min	0.0083	6	same table, USDA21
+tut_ch6_future_outside_pct	96.8	6	gradient_forest_diagnostics.tsv, pct_future_cells_outside_range (2061-2080, SSP5-8.5, MPI-ESM1-2-HR)

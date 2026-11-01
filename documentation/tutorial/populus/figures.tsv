@@ -1,0 +1,11 @@
+name	path	mode	note
+ch1_sites_map	Structure/plots/piemap/piemap_bio_1_points.png	structure	sampling sites over present-day bio_1 (the points companion of the ancestry piemap)
+ch2_filtering_attrition	Processing/plots/filtering_attrition.png	processing	SNPs left after each filter
+ch3_pca_structure	PreStructure/plots/K2/pca_structure_K2.png	prestructure	PCA, each tree a pie of its sNMF K=2 ancestry
+ch3_ancestry_piemap	Structure/plots/piemap/piemap_bio_1.png	structure	site ancestry (K=2) over present-day bio_1
+ch4_correlation_heatmap	climate/plots/correlation_heatmap.png	climate	correlations among Climate.predictors
+ch4_varpart_venn	climate/plots/varpart/varpart_venn.png	climate	variance partition: climate, structure, geography
+ch5_manhattan_combined	GEA/plots/manhattan/combined/manhattan_combined_K2.png	gea	all methods' p-values, one Manhattan
+ch6_cumulative_importance	Maladaptation/plots/gradient_forest/gea.union_spatial/cumulative_importance.png	maladaptation	gradient_forest cumulative importance (SNP set gea.union, spatial)
+ch6_offset_map	Maladaptation/plots/gradient_forest/gea.union_spatial/year2061-2080_ssp585/genetic_offset_piemap_notrait.png	maladaptation	gradient_forest genetic offset map (SNP set gea.union, spatial)
+ch7_offset_vs_growth	documentation/tutorial/populus/garden_check.R	(Phase 4)	written by the chapter-7 check, not by a pipeline mode

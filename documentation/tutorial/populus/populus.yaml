@@ -1,0 +1,129 @@
+#=============================================================================
+# CLINE-GO tutorial: Populus balsamifera (Fitzpatrick et al. 2021, Mol Ecol Resour,
+# doi:10.1111/1755-0998.13374). Inputs: run
+#   bash documentation/tutorial/populus/get_populus_data.sh data/populus
+# from the repo root first. Sources of every input: documentation/tutorial/populus/SOURCES.md.
+# Written from scripts/clinego.app/inst/config_default.yaml (2026-10-31).
+#=============================================================================
+
+Input:
+  dir: data/populus/               # also the WorldClim cache: rasters download here
+  vcf: balsam_core336inds_42pops_sorted.vcf.gz   # chromosomes in numeric order (get_populus_data.sh)
+  metadata: populus_metadata.tsv
+  gff: Populus_trichocarpa.Pop_tri_v3.52.chr.gff3
+
+project_name: PopulusTutorial
+cpu: 4
+
+Regime:
+  mode: standard
+
+Filter:
+  maf: 0.05
+  snp_miss: 0.1
+  sample_miss: 0.5
+  min_depth: null
+  max_depth: null
+  het_outlier_sd: null
+  relatedness: 0.975               # the VCF holds clones, most of them shared across sites
+                                   # (IBS 0.986-0.995); 0.975 sits in the gap above the
+                                   # highest non-clone pair (0.969). See SOURCES.md.
+  relatedness_action: remove
+
+LD:
+  window: 100
+  step: 20
+  r2: 0.2
+
+sNMF:
+  k_start: 2
+  k_end: 8
+  k_best: 2                        # the minimum of PreStructure/tables/cross_entropy_K2-8.tsv
+  repeats: 10
+  imputed_maf: null
+
+Map:
+  climate_extent: "auto"
+  gap: 0.5
+  resolution: 2.5                  # arc-minutes; see SOURCES.md for why
+  zoom_extent: "NULL"
+
+Climate:
+  enabled: true
+  # PROVISIONAL: the schema default. Fitzpatrick et al. 2021's predictor list is not yet
+  # sourced (SOURCES.md, "Open"); replace it with their variables mapped to bio_N.
+  predictors: "bio_1,bio_2,bio_3,bio_4,bio_8,bio_9,bio_10,bio_12,bio_14,bio_15"
+  Varpart:
+    response: pcs
+    response_var_cutoff: 0.8
+    response_max_pcs: 20
+    response_min_pcs: 2
+    structure_table: qmatrix
+    permutations: 999
+
+Population:
+  calc_stats: false
+  window_size: 3000000
+  custom_trait_file: "NULL"
+
+Piemap:
+  alpha: 0.6
+  show_labels: false
+  label_size: 8
+  pie_scale: 1.0
+  use_points: false
+
+LDdecay:
+  group_by: "site"
+  min_samples: 10
+  max_distance: 500
+  scope: "both"
+  max_pairs: 20000000
+  background_markers_per_chr: 50
+  r2_threshold: 0.2
+  min_signal_ratio: 2
+  seed: 1
+
+GEA:
+  configs:                         # three methods: agreement between them is CLINE-GO's main device
+    - method: "LFMM"
+      adjust: "bonf"
+      threshold: '0.05'
+    - method: "EMMAX"
+      adjust: "bonf"
+      threshold: '0.05'
+    - method: "RDA"
+      adjust: "bonf"
+      threshold: '0.01'            # Capblancq & Forester 2021: Bonferroni 0.01
+      params:
+        permutations: 99           # anova.cca permutations (default 999): the by-axis test
+                                   # that picks K runs ~5 s per permutation here, so 999 would
+                                   # take well over an hour; per-SNP p-values do not use them
+  snp_clumping_distance: auto_genome_wide
+  clumping_ld_rule: "critical"
+  promoter_length: 10000
+  snp_sets:
+    - name: union                  # each method's own rule, any method
+    - name: agreement              # at least two of the three methods within the clumping distance
+      strategy: Cross-method
+
+GFF:
+  feature: "mRNA"
+  gene_name: "description"
+  biotype: "biotype"
+  go_field: "NULL"                 # Ensembl's GFF carries no GO terms
+
+Future:
+  ssp: '585'
+  year: '2061-2080'
+  models: 'MPI-ESM1-2-HR'
+
+Maladaptation:
+  methods:
+    gradient_forest:
+      ntree: '1000'
+      cor_threshold: '0.5'
+      spatial_correction: 'with'
+      random_model: true
+      extrap: true
+  snp_sets: 'all'

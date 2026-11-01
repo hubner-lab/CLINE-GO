@@ -245,18 +245,18 @@ echo "    Metadata written to $META_OUT"
 # =============================================================================
 echo ">>> Step 4: Downloading Populus trichocarpa GFF3 from Ensembl Plants..."
 
-ENSEMBL_RELEASE="62"
-GFF_URL="https://ftp.ebi.ac.uk/ensemblgenomes/pub/plants/release-${ENSEMBL_RELEASE}/gff3/populus_trichocarpa/Populus_trichocarpa.Pop_tri_v4.${ENSEMBL_RELEASE}.chr.gff3.gz"
-GFF_GZ="$CACHE_DIR/Populus_trichocarpa.gff3.gz"
+# Pop_tri_v3, not v4: the VCF's positions are on v3 and run past v4's chromosome ends (a
+# chromosome-1 SNP at 50,484,875; chromosome 1 is 49,788,581 bp in v4, 50,495,391 in v3).
+# Ensembl Plants release 52 carries Pop_tri_v3: 39,514 genes, chromosomes 1-19 as in the VCF.
+# No fallback release: a failed download must stop, never fall back to another assembly.
+# The cache file is named after the assembly, so an old cached v4 download is never reused.
+ENSEMBL_RELEASE="52"
+GFF_URL="https://ftp.ebi.ac.uk/ensemblgenomes/pub/plants/release-${ENSEMBL_RELEASE}/gff3/populus_trichocarpa/Populus_trichocarpa.Pop_tri_v3.${ENSEMBL_RELEASE}.chr.gff3.gz"
+GFF_GZ="$CACHE_DIR/Populus_trichocarpa.Pop_tri_v3.gff3.gz"
 
 if [[ ! -f "$GFF_GZ" ]]; then
     echo "    Downloading from Ensembl Plants release $ENSEMBL_RELEASE..."
-    wget -c -q --show-progress -O "$GFF_GZ" "$GFF_URL" || {
-        echo "WARNING: Download failed. Trying alternative release..."
-        ENSEMBL_RELEASE="59"
-        GFF_URL="https://ftp.ebi.ac.uk/ensemblgenomes/pub/plants/release-${ENSEMBL_RELEASE}/gff3/populus_trichocarpa/Populus_trichocarpa.Pop_tri_v4.${ENSEMBL_RELEASE}.chr.gff3.gz"
-        wget -c -q --show-progress -O "$GFF_GZ" "$GFF_URL"
-    }
+    wget -c -q --show-progress -O "$GFF_GZ" "$GFF_URL"
 else
     echo "    GFF already cached, skipping download."
 fi

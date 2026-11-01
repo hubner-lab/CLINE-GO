@@ -1,0 +1,15 @@
+key	value
+run	populus-run4 (/mnt/data/eugene/clinego_tutorial/wave1/populus-run4): the reader-form run, empty folder and WorldClim cache; its tables are byte-identical to run 3 (filtering, cross-entropy, selected SNPs, regions, RDA diagnostics, varpart, SNP sets, site offsets)
+date	2026-10-31
+lane_head	54481264fc9f9855b920ecfa4801a4a1dbe35a58
+run_copy_uncommitted_edits	yes: the lane files under documentation/tutorial/ and benchmarks/prepare_populus.sh, uncommitted, copied by rsync; no pipeline code edited
+image	cline-go:latest sha256:005aa13b65f0877e310509c79b17bb52565032b21d19168e81bcfc81c21baa58 (created 2026-10-29)
+config	documentation/tutorial/populus/populus.yaml (RDA permutations 99, k_best 2, relatedness 0.975 remove, sorted VCF)
+map_resolution_arcmin	2.5
+worldclim_present_download_bytes	658405521 (wc2.1_2.5m_bio.zip; 697373068 unpacked)
+vcf_input	balsam_core336inds_42pops_sorted.vcf.gz (authors' VCF, chromosomes sorted; authors' file sha256 053c4862...109f6)
+gff_input	Populus_trichocarpa.Pop_tri_v3.52.chr.gff3 (gz sha256 3152ef21...46b5)
+docker_flags	every mode in the documented form: docker run --user $(id -u):$(id -g) --rm --name clinego-docs-populus-<mode> --cpus=16 --memory=20g -e USER=pipeline -v <TEMP>:/tmp -v $PWD:/pipeline cline-go:latest snakemake -c4 -s Snakefile --config mode=<mode> --configfile documentation/tutorial/populus/populus.yaml --scheduler greedy; no BLAS flags
+predictors	PROVISIONAL schema default bio_1,2,3,4,8,9,10,12,14,15 (the paper's list not yet sourced)
+worldclim_future_download_bytes	457920067 (data/populus/climate/: CMIP6 2.5', MPI-ESM1-2-HR, SSP5-8.5, 2061-2080)
+rda_permutations	99 (user choice; default 999)

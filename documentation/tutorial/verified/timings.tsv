@@ -1,0 +1,8 @@
+mode	wall_s	status	note
+get_populus_data	67	ok	VCF 57 MB from GitHub, GFF 10.7 MB from Ensembl (the GFF is the slow part), sort + unpack
+processing	45	ok	
+prestructure	358	ok	sNMF K 2-8, 10 runs each
+structure	276	ok	includes the WorldClim 2.1 present-day download at 2.5' (658 MB)
+climate	23	ok	
+gea	1894	ok	LFMM + EMMAX on 10 predictors, RDA with 99 permutations (most of the time is RDA's by-axis and by-margin anova)
+maladaptation	123	ok	includes the CMIP6 future download at 2.5' (458 MB, one model)

@@ -1,0 +1,6 @@
+rank	region_id	chr	start	end	snp_count	methods	traits	min_pvalue	lead_snp	n_genes	nearest_gene	nearest_gene_distance_bp	nearest_gene_description
+1	3_18304767-18685632	3	18304767	18685632	3	LFMM	bio_1,bio_12,bio_15,bio_3,bio_4,bio_9	3.98e-17	3:18489700	52	POPTR_003G176500v3	0	hypothetical protein
+2	7_498390-868259	7	498390	868259	2	RDA	climate_multivariate	1.33e-09	7:683323	40	POPTR_007G008800v3	0	hypothetical protein
+3	12_8060819-8430685	12	8060819	8430685	1	LFMM	bio_1	1.8e-09	12:8245752	7	POPTR_012G064800v3	22221	hypothetical protein
+4	2_1137356-1507222	2	1137356	1507222	1	EMMAX,RDA	bio_10,climate_multivariate	2.92e-09	2:1322289	49	POPTR_002G021800v3	0	hypothetical protein
+5	12_13290769-13858910	12	13290769	13858910	2	LFMM	bio_1	1.48e-08	12:13475702	74	POPTR_012G114100v3	0	ATP-dependent DNA helicase SRS2-like protein At4g25120 [Source:Projected from Arabidopsis thaliana (AT4G25120) UniProtKB/Swiss-Prot;Acc:D1KF50]
