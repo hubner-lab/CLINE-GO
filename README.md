@@ -1,10 +1,5 @@
 <p align="center">
-  <img src="assets/cline-go-logo.png" width="420" alt="CLINE-GO">
-</p>
-
-<p align="center">
-  <b>C</b>onservation-oriented <b>L</b>andscape-genomic <b>IN</b>ference of
-  <b>E</b>nvironment-association and <b>G</b>enomic <b>O</b>ffset
+  <img src="assets/cline-go-banner.png" alt="CLINE-GO: Conservation-oriented Landscape-genomic INference of Environment-association and Genomic Offset">
 </p>
 
 ---
