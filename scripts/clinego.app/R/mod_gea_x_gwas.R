@@ -675,7 +675,7 @@ mod_gea_x_gwas_server <- function(id, project_data, run_trigger = NULL) {
 
         # Live counts for the KPI strip (mod_geaxgwas_dashboard_outputs(), 1c6896)
         n_hits <- function(dt) if (is.null(dt) || nrow(dt) == 0) 0L else data.table::uniqueN(dt$SNPID)
-        list(kpis = shiny::reactive(list(
+        list(busy = explorer$busy, kpis = shiny::reactive(list(
             gea_hits     = n_hits(gea_interactive_sigsnps()),
             gea_regions  = nrow(gea_regions()),
             gwas_hits    = n_hits(gwas_interactive_sigsnps()),

@@ -72,7 +72,16 @@ app_server <- function(input, output, session) {
     output$module_bar <- shiny::renderUI({
         module_bar_ui(active = active_module(),
                       regime = config_regime(config_state$saved),
-                      running = running_module())
+                      running = c(running_module(), explorer_running()))
+    })
+
+    # The association tabs whose region explorer is running a task (GO enrichment,
+    # regional Manhattan, haplotype scan/viz). The module servers are created
+    # below; this is only read once the session flushes, by which time they exist.
+    explorer_running <- shiny::reactive({
+        busy <- c(gea = isTRUE(gea_out$busy()), gwas = isTRUE(gwas_out$busy()),
+                  gea_x_gwas = isTRUE(gxg_out$busy()))
+        names(busy)[busy]
     })
 
     # One observer per module, created once at startup — the bar re-renders on

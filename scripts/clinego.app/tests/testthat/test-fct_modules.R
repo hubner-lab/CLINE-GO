@@ -145,3 +145,11 @@ test_that("the running module's bar entry is marked, no other (I8)", {
     expect_match(running, 'id="mb_gea"')
     expect_false(grepl("mb-running", as.character(module_bar_ui(active = "home"))))
 })
+
+test_that("several running modules are all marked: a pipeline run plus explorer tasks", {
+    html <- as.character(module_bar_ui(active = "home", running = c("climate", "gea", "gwas")))
+    cells <- regmatches(html, gregexpr('<a[^>]*id="mb_[a-z_]+"[^>]*>', html))[[1]]
+    running <- cells[grepl("mb-running", cells)]
+    expect_length(running, 3L)
+    expect_setequal(sub('.*id="mb_([a-z_]+)".*', "\\1", running), c("climate", "gea", "gwas"))
+})

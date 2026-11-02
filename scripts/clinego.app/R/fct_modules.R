@@ -90,7 +90,7 @@ module_groups <- function(regime = "standard") {
 #' One clickable module cell
 #' @noRd
 module_bar_item <- function(id, label, active, solo = FALSE, running = NULL) {
-    is_running <- identical(id, running)
+    is_running <- id %in% running
     shiny::actionLink(
         inputId = module_input_id(id),
         label   = label,
@@ -108,7 +108,8 @@ module_bar_item <- function(id, label, active, solo = FALSE, running = NULL) {
 #'
 #' @param active  id of the module currently shown
 #' @param regime  "standard" or "gwas_only"
-#' @param running id of the module whose pipeline mode is running, or NULL
+#' @param running ids of the modules with work running (a pipeline mode, or a
+#'   region-explorer task such as GO enrichment), or NULL
 #' @noRd
 module_bar_ui <- function(active = "home", regime = "standard", running = NULL) {
     groups <- module_groups(regime)

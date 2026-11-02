@@ -543,7 +543,7 @@ mod_gwas_server <- function(id, project_data, run_trigger = NULL, config_state =
         )
 
         # Live counts for the KPI strip (mod_gwas_dashboard_outputs(), 1c6896)
-        list(kpis = assoc_live_kpis(
+        list(busy = explorer$busy, kpis = assoc_live_kpis(
             sigsnps = interactive_sigsnps, regions = explorer$computed_regions,
             traits_hit = traits, traits_all = all_trait_names_rv,
             methods = methods, wza = regime_wza))

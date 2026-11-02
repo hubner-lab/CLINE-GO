@@ -1397,10 +1397,22 @@ mod_region_explorer_server <- function(id, project_data, module = MOD_GEA,
             user_meta_type(cfg_meta)
         })
 
+        # TRUE while a task the user started runs (GO enrichment, regional
+        # Manhattan, haplotype scan or viz): the app marks this tab's entry in the
+        # module bar, as it does for a pipeline run. The automatic VCF SNP count
+        # is left out. A handle is removed by the polling observer when its
+        # process ends, so this needs no polling of its own.
+        busy <- shiny::reactive({
+            handles <- Filter(Negate(is.null),
+                              shiny::reactiveValuesToList(subprocess_handles))
+            any(vapply(handles, function(h) !identical(h$type, "vcf_count"), logical(1)))
+        })
+
         # ── Return value for parent module ─────────────────────────────────────
         list(
             computed_regions   = computed_regions,
-            selected_region_id = selected_region_id
+            selected_region_id = selected_region_id,
+            busy               = busy
         )
     })
 }
