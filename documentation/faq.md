@@ -13,13 +13,6 @@ clinego run processing --config config_myproject.yaml --show
 Anything after `--` goes to Snakemake unchanged, for example `-- -n` for a dry run that lists
 the jobs a mode would run.
 
-## EMMAX stops at once on my Mac
-
-The image is x86-64 only. On Apple silicon Docker emulates it, and the EMMAX binaries are not
-reliable under emulation (they used to hang forever), so the pipeline refuses to start them
-there and says why. LFMM, RDA and the GAPIT models are not affected. Remove EMMAX from
-`GEA.configs` (or `GWAS.configs`) on a Mac, or run that mode on a Linux machine.
-
 ## The container runs out of memory
 
 A container killed for memory exits with status 137. Three settings help:

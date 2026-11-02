@@ -127,8 +127,8 @@ number of principal components for EMMAX and for RDA's structure correction (0 t
   - `PreGEA/tables/pregea_recommendations.tsv`: the recommended value per method, which the
     app's GEA settings offer to apply
   - `PreGEA/plots/` and `PreGEA/tables/`: the ladders behind each recommendation
-- Its EMMAX ladder does not run on Apple silicon, and the mode as a whole has not yet been
-  verified end to end; read its recommendations as a guide, not a rule.
+- The mode has not yet been verified end to end; read its recommendations as a guide, not a
+  rule.
 
 ```{code-block} text
 |run_own_pregea|

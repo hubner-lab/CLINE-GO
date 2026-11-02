@@ -169,14 +169,12 @@ Write the chosen number into the config as `sNMF.k_best`.
 - `pregea` (optional, between `climate` and `gea`) explores LFMM's *K* and the number of
   principal components before the full run.
 
-[The modes](manual/modes.md) says what each mode needs and writes. Two traps:
+[The modes](manual/modes.md) says what each mode needs and writes. One trap:
 
 - `maladaptation` with a spatial Gradient Forest (the template's `spatial_correction: with`)
   needs more sampling sites than `Climate.predictors` plus one: with ten predictors, at least
   twelve sites. With fewer sites, list fewer `Climate.predictors` (and run `climate` again), or
   set `Maladaptation.methods.gradient_forest.spatial_correction: without`.
-- EMMAX does not run on a Mac with Apple silicon (see the
-  [FAQ](faq.md#emmax-stops-at-once-on-my-mac)).
 
 ## Look at the results
 

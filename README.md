@@ -56,9 +56,8 @@ without them is supported (keep the `latitude` and `longitude` columns, empty).
 
 ## Get started
 
-CLINE-GO needs Docker on x86-64 Linux (on a Mac with Apple silicon it runs emulated, slowly,
-and without EMMAX). Clone the repository, build the image once, and put the `clinego` launcher
-on your `PATH`:
+CLINE-GO needs Docker on x86-64 Linux. Clone the repository, build the image once, and put the
+`clinego` launcher on your `PATH`:
 
 ```bash
 git clone https://github.com/hubner-lab/CLINE-GO.git

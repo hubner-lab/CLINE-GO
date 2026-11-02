@@ -8,13 +8,7 @@ Run time on the lab: *to be measured in the tutorial run.*
 
 :::{margin} Tips
 - **Change:** `GEA.configs` sets each method's p-value adjustment and threshold.
-- **Trap:** EMMAX does not run on an Apple-silicon Mac (see the warning below).
 - **In Shiny:** the GEA tab; click a SNP in the Manhattan plot to open its region.
-:::
-
-:::{warning}
-On a Mac with Apple silicon, EMMAX refuses to start and this mode stops. Remove EMMAX from
-`GEA.configs` there, or run this chapter on a Linux machine. See the [FAQ](../faq.md#emmax-stops-at-once-on-my-mac).
 :::
 
 ## Run it
