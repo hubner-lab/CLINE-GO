@@ -4,19 +4,22 @@ Runs the first two modes on the small simulated dataset that ships in the image
 ({{qc_samples_raw}} samples, {{qc_snps_raw}} SNPs), to show that your installation works. It needs
 no climate download. Run time on the lab: about {{qc_minutes_total}} minutes.
 
+Do the [install](install.md) first: at its end, `clinego version` says the image is built.
+
 :::{margin} Tips
 - **Change:** nothing; the test config is meant to run as it is.
-- **Trap:** run every command from the same folder, after the [install](install.md); `clinego`
-  reads and writes only the current folder.
+- **Trap:** run every command below from the same folder; `clinego` reads and writes only the
+  current folder.
 - **In Shiny:** the last command below starts the app; pick the `testdata` project.
 :::
 
 ## Make a folder for it
 
-Any empty folder works:
+Any empty folder outside `CLINE-GO` works, so that the results stay out of the code. The install
+leaves you inside `CLINE-GO`, so make one in your home folder:
 
 ```{code-block} text
-mkdir clinego-quick && cd clinego-quick
+mkdir ~/clinego-quick && cd ~/clinego-quick
 ```
 
 ## Run it

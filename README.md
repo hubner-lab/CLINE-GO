@@ -57,21 +57,24 @@ without them is supported (keep the `latitude` and `longitude` columns, empty).
 ## Get started
 
 CLINE-GO needs Docker on x86-64 Linux (on a Mac with Apple silicon it runs emulated, slowly,
-and without EMMAX). Clone the release, build the image once, and put the `clinego` launcher on
-your `PATH`:
+and without EMMAX). Clone the repository, build the image once, and put the `clinego` launcher
+on your `PATH`:
 
 ```bash
-git clone --branch v1.0 https://github.com/hubner-lab/CLINE-GO.git
+git clone https://github.com/hubner-lab/CLINE-GO.git
 cd CLINE-GO
 ./clinego build
-ln -s "$PWD/clinego" ~/.local/bin/clinego
+export PATH="$PWD:$PATH"                          # clinego on PATH in this terminal
+echo "export PATH=\"$PWD:\$PATH\"" >> ~/.bashrc   # and in every new one (zsh: ~/.zshrc)
+clinego version
 ```
 
-The first build compiles R and Bioconductor packages and takes a long time. Then check the
-installation on the bundled test dataset, in an empty folder:
+The first build compiles R and Bioconductor packages and takes a long time; `clinego version`
+then says the image is built. Check the installation on the bundled test dataset, in an empty
+folder outside `CLINE-GO`:
 
 ```bash
-mkdir clinego-quick && cd clinego-quick
+mkdir ~/clinego-quick && cd ~/clinego-quick
 clinego example
 clinego run processing --config config_testdata.yaml
 clinego run prestructure --config config_testdata.yaml

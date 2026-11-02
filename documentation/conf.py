@@ -35,7 +35,7 @@ built yet, with one title and one look everywhere. ``:::{slot} <title>`` is a da
 for a figure, number or run time still to come; ``grep -rn '{slot}'`` lists what is left.
 
 Only the example, run and app blocks carry clinego-run. Install-page commands (git clone,
-./clinego build, the PATH link) and the shell steps around them (mkdir, cd) carry no class on
+./clinego build, the PATH lines) and the shell steps around them (mkdir, cd) carry no class on
 purpose: a check script that runs the marked commands must clone and build in its own way (never
 retag the image) and choose its own folder. FAQ snippets (--show, unlock, docker stop) are never
 marked either. The class also marks only commands that run as written: the quick check's
@@ -89,6 +89,10 @@ PACKAGED = True
 TUTORIAL = False
 
 RELEASE_TAG = "v1.0"
+# The branch or tag the clone command checks out. None clones main: the RELEASE_TAG tag does not
+# exist on GitHub yet, and `git clone --branch v1.0` fails without it. Set it to RELEASE_TAG once
+# the tag is pushed.
+CLONE_BRANCH = None
 CLONE_URL = "https://github.com/hubner-lab/CLINE-GO.git"
 
 # Config name in a substitution -> (packaged path, developer path). The packaged path is relative
@@ -152,13 +156,19 @@ def config_file(config: str) -> str:
 
 
 def launcher_cmds() -> dict:
-    """The launcher's own commands (PACKAGED only): build, example, init, clone, PATH link."""
+    """The launcher's own commands (PACKAGED only): build, example, init, clone, PATH lines."""
     if not PACKAGED:
         return {}
+    clone = f"git clone {CLONE_URL}"
+    if CLONE_BRANCH:
+        clone = f"git clone --branch {CLONE_BRANCH} {CLONE_URL}"
     return {
-        "clone": f"git clone --branch {RELEASE_TAG} {CLONE_URL}",
+        "clone": clone,
         "build": "./clinego build",
-        "link": 'ln -s "$PWD/clinego" ~/.local/bin/clinego',
+        # The repository folder on PATH: `path` for this terminal; `path_keep`, run in that folder,
+        # writes the same line with the folder's absolute path to ~/.bashrc for every new terminal.
+        "path": 'export PATH="$PWD:$PATH"',
+        "path_keep": r'echo "export PATH=\"$PWD:\$PATH\"" >> ~/.bashrc',
         "version": "clinego version",
         "example": "clinego example",
         "init_own": "clinego init myproject",
