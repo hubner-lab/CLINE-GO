@@ -2173,6 +2173,11 @@ def mala_offset_piemap_points(method, run_label, spatial_tag, scenario):
     """Points ('clear map') companion — trait-independent, one per method/run_label/spatial_tag/scenario."""
     return f"{mala_offset_plot_dir(method, run_label, spatial_tag, scenario)}genetic_offset_piemap_points.png"
 
+def mala_offset_piemap_ranks(method, run_label, spatial_tag, scenario):
+    """Ranks companion — each site drawn as its offset rank (1 = highest site-mean offset, from
+    genetic_offset_site.tsv) instead of a pie; one per method/run_label/spatial_tag/scenario."""
+    return f"{mala_offset_plot_dir(method, run_label, spatial_tag, scenario)}genetic_offset_piemap_ranks.png"
+
 # Future-climate paths, addressed by scenario.
 # DEFAULT_SCENARIO reproduces the pre-scenario filenames exactly, so a
 # single-future project keeps writing where it always did.
@@ -3429,6 +3434,7 @@ def get_targets(mode):
                             targets += [
                                 mala_offset_piemap(method, set_name, spatial_tag, 'notrait', scenario),
                                 mala_offset_piemap_points(method, set_name, spatial_tag, scenario),
+                                mala_offset_piemap_ranks(method, set_name, spatial_tag, scenario),
                             ]
                             # Pop-stats scaled piemaps (all methods, optional)
                             if CALC_POP_STATS:

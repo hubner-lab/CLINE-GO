@@ -197,6 +197,15 @@ heavy_piemap_inputs <- function(d) {
       fx_inter_dir(d, "plots"), fx_inter_dir(d, "inter"))
 }
 
+# The offset site table for those seven samples (one row per sample, as the offset scripts write
+# it): site A averages 0.9, sites B and C tie at 0.4.
+heavy_piemap_site_offsets <- function(d) {
+    write_tsv(data.table::data.table(site = c("A", "A", "A", "B", "B", "C", "C"),
+                                     sample = sprintf("S%02d", 1:7),
+                                     genetic_offset = c(0.8, 0.9, 1.0, 0.4, 0.4, 0.4, 0.4)),
+              file.path(d, "genetic_offset_site.tsv"))
+}
+
 HEAVY_WRAPPERS <- list(
     list(
         # Release 6 (f3fcce, cdb1a1): round pies, one per site, on a raster (heavy: terra).
@@ -208,6 +217,18 @@ HEAVY_WRAPPERS <- list(
                                    "TRUE", "4", f[4], f[5], "piemap_bio_1", "NULL", "1",
                                    "Clusters", "FALSE"),
         outputs = function(d) file.path(d, "plots", c("piemap_bio_1.png", "piemap_bio_1.svg"))
+    ),
+    list(
+        # The ranks companion of the offset map: argument 18 is the offset site table.
+        label   = "plot_piemap.R (ranks map from a site table)",
+        script  = "plot_piemap.R",
+        tools   = character(0),
+        build   = function(d) c(heavy_piemap_inputs(d), heavy_piemap_site_offsets(d)),
+        args    = function(d, f) c(f[1], "1", "Genetic Offset", f[2], f[3], "NULL", "NULL", "0.6",
+                                   "TRUE", "4", f[4], f[5], "genetic_offset_piemap_ranks", "NULL",
+                                   "1", "Clusters", "F", f[6]),
+        outputs = function(d) file.path(d, "plots", c("genetic_offset_piemap_ranks.png",
+                                                      "genetic_offset_piemap_ranks.svg"))
     ),
     list(
         # Release 4b (f59f46): the cross-entropy numbers the plot never wrote.

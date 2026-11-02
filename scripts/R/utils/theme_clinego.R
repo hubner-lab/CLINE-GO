@@ -35,6 +35,12 @@ CLINEGO_NEUTRAL   <- CLINEGO_RETAINED  # plain/no-flag data points — same gree
                                    # retained by request (no more grey dots)
 CLINEGO_SIGNIFICANCE <- CLINEGO_REMOVED  # significance-threshold lines — one red, a dash pattern each
 
+# Map raster gradient, low (blue) -> high (red): color-hex.com palette 111971 "Beige Blue Red",
+# the manuscript's offset and climate map palette (ANALYSIS/Trifolium86MainK5/maladaptationER/
+# build_paper_pack.R:25, ANALYSIS/Trifolium86MainK5ERpc5/fig3/plot_piemap_ms.R:177), drawn
+# min-max with scale_fill_gradientn(). Every piemap raster (plot_piemap.R) takes it.
+CLINEGO_MAP_GRADIENT <- c("#095786", "#0090ab", "#e6cea0", "#db4646", "#ae0000")
+
 # Okabe-Ito colorblind-safe categorical palette: the one copy (A4 I1). The Manhattans
 # (manhattan_utils.R's get_trait_colors()) and the Shiny app (zzz.R's shared libs) read it
 # through clinego_trait_colors().

@@ -555,3 +555,34 @@ rule plot_gf_offset_piemap_points:
             {params.plot_dir} {params.inter_dir} \
             genetic_offset_piemap_points {params.regionmap_extent} {params.pie_scale} Clusters T > {log} 2>&1
         """
+
+rule plot_gf_offset_piemap_ranks:
+    """Ranks companion for the genetic offset piemap: each site drawn as its offset rank
+    (1 = highest site-mean offset, ties share the lower rank), read from the site table the
+    app shows beside the map. One per method/run_label/spatial_tag/scenario."""
+    input:
+        offset_raster = lambda wc: mala_offset_raster(wc.method, wc.run_label, wc.spatial_tag, wc.scenario),
+        site_values   = lambda wc: mala_offset_site_values(wc.method, wc.run_label, wc.spatial_tag, wc.scenario),
+        samples       = W['metadata_climate_valid'],
+        clusters      = clusters_table(K_BEST)
+    output: mala_offset_piemap_ranks('{method}', '{run_label}', '{spatial_tag}', '{scenario}')
+    params:
+        pie_alpha       = PIEMAP_ALPHA,
+        pop_label       = PIEMAP_SHOW_LABELS,
+        pop_label_size  = PIEMAP_LABEL_SIZE,
+        pie_scale       = PIEMAP_PIE_SCALE,
+        plot_dir        = lambda wc: mala_offset_plot_dir(wc.method, wc.run_label, wc.spatial_tag, wc.scenario),
+        inter_dir       = INTER,
+        regionmap_extent = REGIONMAP_EXTENT
+    log: f"{LOGDIR}maladaptation/plot_offset_piemap_ranks_{{method}}_{{run_label}}_{{spatial_tag}}_{{scenario}}.log"
+    shell:
+        """
+        Rscript /pipeline/scripts/plot_piemap.R \
+            {input.offset_raster} 1 "Genetic Offset" \
+            {input.samples} {input.clusters} \
+            NULL NULL \
+            {params.pie_alpha} {params.pop_label} {params.pop_label_size} \
+            {params.plot_dir} {params.inter_dir} \
+            genetic_offset_piemap_ranks {params.regionmap_extent} {params.pie_scale} Clusters F \
+            {input.site_values} > {log} 2>&1
+        """

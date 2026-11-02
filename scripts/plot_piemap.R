@@ -13,6 +13,7 @@ library(svglite)
 library(viridis)
 
 source("/pipeline/scripts/R/lib/piemap_geometry.R")
+source("/pipeline/scripts/R/utils/theme_clinego.R")   # CLINEGO_MAP_GRADIENT
 
 args = commandArgs(trailingOnly=TRUE)
 #################################
@@ -33,6 +34,9 @@ REGIONMAP_EXTENT = if (length(args) >= 14) args[14] else "NULL"  # Optional: "xm
 PIE_SCALE = if (length(args) >= 15) as.numeric(args[15]) else 1.0  # Pie size scale factor (1.0 = 100%)
 PIE_FILL_LABEL = if (length(args) >= 16) args[16] else "Clusters"  # Legend label for pie slices
 USE_POINTS = if (length(args) >= 17) toupper(substr(args[17], 1, 1)) == 'T' else FALSE  # Use points instead of pie charts
+# Optional: a genetic_offset_site.tsv (site, sample, genetic_offset). When given, each site is
+# drawn as its offset rank (1 = highest site-mean offset) instead of a pie: the ranks map.
+SITE_RANK_TABLE = if (length(args) >= 18) args[18] else "NULL"
 #################################
 
 set.seed(42)
@@ -97,6 +101,19 @@ scale_trait_to_radius <- function(trait_values, min_radius, max_radius) {
   return(scaled)
 }
 
+#' Rank sites by their mean genetic offset: 1 = highest, tied sites share the lower rank
+#' (the manuscript's rule, t_site_ranks.md). The site table has one row per sample; a
+#' site's offset is the mean over its samples, as its pie sits at their centroid.
+#' @param site_offsets data.frame with site and genetic_offset columns
+#' @return data.frame(site, offset, rank), highest offset first
+site_offset_ranks <- function(site_offsets) {
+  per_site <- stats::aggregate(genetic_offset ~ site, data = as.data.frame(site_offsets),
+                               FUN = mean)
+  names(per_site) <- c('site', 'offset')
+  per_site$rank <- as.integer(rank(-per_site$offset, ties.method = 'min'))
+  per_site[order(per_site$rank, per_site$site), ]
+}
+
 #' Create a PieMap plot
 #' @param samples Sample metadata with site, sample, latitude, longitude
 #' @param clusters Cluster assignments per sample
@@ -120,7 +137,8 @@ create_piemap <- function(samples,
                           pop_label_size = 5,
                           legend_map_title = 'Value',
                           pie_fill_label = 'Clusters',
-                          use_points = FALSE) {
+                          use_points = FALSE,
+                          site_ranks = NULL) {
 
   # Calculate pie size range if not provided
   if (is.null(pie_size_range)) {
@@ -166,13 +184,35 @@ create_piemap <- function(samples,
                    round(pie_size_range$max_radius, 4), ']'))
   }
 
-  # Build plot with viridis plasma palette (colorblind-friendly)
+  # Raster in the manuscript's map gradient (CLINEGO_MAP_GRADIENT, theme_clinego.R), min-max
   gPlot <- ggplot() +
     layer_spatial(raster_layer, aes(fill = after_stat(band1))) +
-    scale_fill_viridis_c(option = "plasma", na.value = NA) +
+    scale_fill_gradientn(colours = CLINEGO_MAP_GRADIENT, na.value = NA) +
     labs(fill = legend_map_title)
 
-  if (use_points) {
+  if (!is.null(site_ranks)) {
+    # Ranks mode: each site as its offset rank, a boxed label (legible over every part of
+    # the gradient) tied to a small dot at the site centroid. 11-400 sites, not SNPs.
+    rank_data <- clusters_by_pop %>%
+      dplyr::select(site, longitude, latitude) %>%
+      dplyr::inner_join(site_ranks[, c('site', 'rank')], by = 'site')
+    point_size <- max(0.5, 1.2 * PIE_SCALE)
+    gPlot <- gPlot +
+      geom_point(data = rank_data, aes(x = longitude, y = latitude),
+                 shape = 21, fill = 'grey15', color = 'white',
+                 size = point_size, stroke = 0.15) +
+      geom_label_repel(data = rank_data,
+                       aes(x = longitude, y = latitude, label = rank),
+                       size = pop_label_size, fill = 'white', color = 'grey10',
+                       label.size = 0.25, label.padding = 0.15,
+                       box.padding = 0.3, point.padding = 0.1,
+                       min.segment.length = 0, segment.color = 'grey20',
+                       max.overlaps = Inf, seed = 42) +
+      theme_bw() +
+      labs(x = NULL, y = NULL)
+    pop_labels <- FALSE   # the rank replaces the site name
+    message('INFO: Using ranks mode (', nrow(rank_data), ' sites labelled)')
+  } else if (use_points) {
     # Point mode ("clear map"): tiny, barely-visible dots marking sample
     # locations only, so the raster and geography read clearly under dense
     # sampling where pies would overlap. NOTE: this is ~30-400 sample sites,
@@ -324,6 +364,17 @@ if (SIZE_TRAIT != "NULL" && file.exists(SIZE_TRAIT)) {
 # Parse population label setting
 pop_labels <- toupper(substr(POP_LABEL, 1, 1)) == 'T'
 
+# Ranks map: site ranks from the offset site table (the table the app shows beside the map)
+site_ranks <- NULL
+if (SITE_RANK_TABLE != "NULL" && SITE_RANK_TABLE != "") {
+  site_offsets <- fread(SITE_RANK_TABLE, colClasses = c(site = "character", sample = "character"))
+  if (!all(c("site", "genetic_offset") %in% names(site_offsets)))
+    stop("ERROR: SITE_RANK_TABLE needs site and genetic_offset columns: ", SITE_RANK_TABLE)
+  site_ranks <- site_offset_ranks(site_offsets[!is.na(genetic_offset)])
+  message('INFO: Site ranks (1 = highest offset): ',
+          paste0(site_ranks$site, '=', site_ranks$rank, collapse = ', '))
+}
+
 # Detect near-zero spatial variance of the climate variable at sampling sites
 site_coords <- unique(samples[, .(site, longitude, latitude)])
 site_extracted <- terra::extract(rlayer, cbind(site_coords$longitude, site_coords$latitude))
@@ -374,7 +425,8 @@ gPlot <- create_piemap(
   pop_label_size = POP_LABEL_SIZE,
   legend_map_title = RASTER_LEGEND,
   pie_fill_label = PIE_FILL_LABEL,
-  use_points = USE_POINTS
+  use_points = USE_POINTS,
+  site_ranks = site_ranks
 )
 
 # Save outputs (full extent)
@@ -449,7 +501,8 @@ if (REGIONMAP_EXTENT != "NULL" && REGIONMAP_EXTENT != "") {
             pop_label_size = POP_LABEL_SIZE,
             legend_map_title = paste0(RASTER_LEGEND, " (Zoomed)"),
             pie_fill_label = PIE_FILL_LABEL,
-            use_points = USE_POINTS
+            use_points = USE_POINTS,
+            site_ranks = site_ranks   # global ranks; only the zoomed sites are drawn
         )
 
         # Create coordinate subdirectory for zoomed plots

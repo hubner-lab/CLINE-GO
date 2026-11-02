@@ -77,6 +77,18 @@ class TestTargetsAreProducible(_Loaded):
             H.targets(self.ns, "not_a_mode")
 
 
+class TestOffsetMapCompanions(_Loaded):
+    """The app's Pies | Points | Ranks control expects all three offset maps per run."""
+
+    def test_every_points_map_has_a_ranks_map(self):
+        mala = self.targets["maladaptation"]
+        points = [t for t in mala if t.endswith("genetic_offset_piemap_points.png")]
+        self.assertGreater(len(points), 0)
+        for p in points:
+            with self.subTest(points=p):
+                self.assertIn(p.replace("_points.png", "_ranks.png"), mala)
+
+
 class TestTargetSetShape(_Loaded):
     def test_no_duplicate_targets(self):
         for mode in H.MODES:

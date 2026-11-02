@@ -27,6 +27,33 @@ test_that("plot_piemap.R draws one round pie per site, at the site's centroid (f
     expect_match(res$output, "Pie longitude radius x1.1", fixed = TRUE)
 })
 
+test_that("plot_piemap.R's ranks map labels each site with its offset rank at its centroid", {
+    skip_if_not(dir.exists(SCRIPTS), "scripts/ not mounted")
+    d <- withr::local_tempdir()
+    f <- heavy_piemap_inputs(d)
+    ranks <- heavy_piemap_site_offsets(d)
+    res <- run_wrapper("plot_piemap.R",
+                       c(f[1], "1", "Genetic Offset", f[2], f[3], "NULL", "NULL", "0.6", "TRUE", "4",
+                         f[4], f[5], "genetic_offset_piemap_ranks", "NULL", "1", "Clusters", "F",
+                         ranks), wd = d)
+    expect_identical(res$status, 0L, info = res$output)
+
+    g <- qs::qread(file.path(f[5], "genetic_offset_piemap_ranks.qs"))
+    geoms <- vapply(g$layers, function(l) class(l$geom)[1], character(1))
+    expect_false("GeomPolygon" %in% geoms)                  # no pies
+    expect_false("GeomTextRepel" %in% geoms)                # no site-name labels
+    lab <- g$layers[[which(geoms == "GeomLabelRepel")]]$data
+    lab <- lab[order(lab$site), ]
+    # A's samples average 0.9, B and C tie at 0.4: 1 = highest, the tie shares the lower rank.
+    expect_identical(lab$site, c("A", "B", "C"))
+    expect_identical(lab$rank, c(1L, 2L, 2L))
+    expect_equal(lab$longitude[1], 34.7)                    # site A's centroid
+    expect_equal(lab$latitude[1], 31.1)
+    # The raster takes the manuscript's map gradient, blue (low) to red (high).
+    pal <- g$scales$get_scales("fill")$palette(c(0, 1))
+    expect_identical(toupper(pal), c("#095786", "#AE0000"))
+})
+
 test_that("plot_pca.R labels each axis with its variance and marks the Tracy-Widom axes (576d53, fff847)", {
     skip_if_not(dir.exists(SCRIPTS), "scripts/ not mounted")
     d <- withr::local_tempdir()
