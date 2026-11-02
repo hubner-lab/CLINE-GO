@@ -2,7 +2,7 @@
 
 Sphinx root: documentation/. Build locally with
     nix shell nixpkgs#python312 -c documentation/build_docs.sh <outdir> <venv dir>
-Read the Docs reads .readthedocs.yaml at the repository root (warnings fail the build there too).
+GitHub Pages: .github/workflows/docs.yml runs build_docs.sh on every push to main (warnings fail it there too).
 
 How pages use what this file defines
 ------------------------------------

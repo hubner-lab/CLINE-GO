@@ -79,7 +79,7 @@ clinego run prestructure --config config_testdata.yaml
 
 Results land in `testdata_results/`, and `clinego app` opens them in the Shiny viewer on
 <http://localhost:3838>. The documentation, with the steps for your own data, every mode and
-every setting, is at **<https://cline-go.readthedocs.io/>**.
+every setting, is at **<https://hubner-lab.github.io/CLINE-GO/>**.
 
 ## Status
 
