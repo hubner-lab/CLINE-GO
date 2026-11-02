@@ -65,14 +65,18 @@ app_ui <- function(request) {
                 htmltools::div(
                     class = "lab-bar-left",
                     brand_logo(),
-                    lab_input_width(shiny::selectInput(
+                    lab_input_width(shiny::selectizeInput(
                         "project_selector", label = NULL,
                         choices = c(
                             "+ New Project" = "__new__",
                             if (length(projects) > 0) setNames(projects, projects)
                             else character(0)
                         ),
-                        selected = if (length(projects) > 0) projects[1] else "__new__"
+                        selected = if (length(projects) > 0) projects[1] else "__new__",
+                        # The bar scrolls sideways (overflow-x: auto), which makes it
+                        # clip vertically as well, so a menu rendered inside it was
+                        # cut off at the bar's bottom edge. Render it on <body>.
+                        options = list(dropdownParent = "body")
                     ), 200)
                 ),
                 htmltools::div(class = "lab-bar-modules",

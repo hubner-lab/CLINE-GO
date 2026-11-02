@@ -436,6 +436,12 @@ body:has(.lab-chrome-bar) {
     }
 }
 
+// The project selector's menu is rendered on <body> (dropdownParent, app_ui.R):
+// the bar's overflow-x: auto clips it otherwise. Keep it above the sidebars' 1080;
+// `.form-control` because bslib's `.selectize-dropdown.form-control` sets 1000.
+body > .selectize-dropdown,
+body > .selectize-dropdown.form-control { z-index: 1090; }
+
 .lab-chrome-bar {
     display: flex;
     align-items: stretch;
