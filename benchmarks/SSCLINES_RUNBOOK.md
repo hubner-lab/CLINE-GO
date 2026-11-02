@@ -191,7 +191,7 @@ for s in ${SEEDS//,/ }; do
     if [[ -f "$f" ]]; then n=$(( $(wc -l < "$f") - 1 )); else n=0; fi
     (( n < 3 )) && echo -e "MVP${s}\t${p}\t${n}"
   done
-done | tee "panel_underfilled_${MVP_COHORT}.tsv"
+done | tee "benchmarks/panel_underfilled_${MVP_COHORT}.tsv"
 ```
 Any row listed here: drop that panel from `--sets` for that seed at step 8, and record it in
 the block's exclusion note. An empty panel is a RESULT (`n = 0`, `recall = 0`), not missing data.
@@ -262,7 +262,7 @@ done | awk '$2!=3584 {print "SHORT: "$0}'
 ```
 Empty output = complete. Seeds with dropped panels from step 6 will be short by
 `4 x 112 = 448` per dropped panel — expected, cross-check against
-`panel_underfilled_${MVP_COHORT}.tsv`.
+`benchmarks/panel_underfilled_${MVP_COHORT}.tsv`.
 
 ## Step 10 — score
 
@@ -273,7 +273,7 @@ $DK run --rm --name mvp-score-${MVP_COHORT} --user "$UIDGID" -e USER=adaptogene 
 ```
 
 **Gate.** `garden_performance.tsv` gained `120 x 112 x panels x 4` rows, zero NA. Check
-`scoring_skipped.tsv` — anything there that is not in `panel_underfilled_${MVP_COHORT}.tsv` is a
+`scoring_skipped.tsv` — anything there that is not in `benchmarks/panel_underfilled_${MVP_COHORT}.tsv` is a
 real problem.
 
 Sign convention is Lind & Lotterhos': a good model gives a **negative** tau. Flip once with
@@ -329,7 +329,7 @@ for f in garden_performance.tsv source_performance.tsv phase1_seed_medians_solo.
          panel_pr_recomputed.tsv panel_offset_exclusions.tsv panel_coverage.tsv; do
   cp -p "$OFFSET_DIR/$f" "$SNAP/$f"
 done
-cp -p "panel_underfilled_${MVP_COHORT}.tsv" "sets_per_seed_${MVP_COHORT}.tsv" "$SNAP/"
+cp -p "benchmarks/panel_underfilled_${MVP_COHORT}.tsv" "benchmarks/sets_per_seed_${MVP_COHORT}.tsv" "$SNAP/"
 ```
 
 Then the block report and the figure set. `mvp_block_report.R` emits the three step-12 products
