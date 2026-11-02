@@ -1267,6 +1267,45 @@ get_app_cache <- function() {
 #'   a digest of mtime+size so the cache is bypassed when the file is regenerated
 #'   by the pipeline without changing its path.
 #' @noRd
+#' Range of an offset map: min, max and the number of cells with a value
+#'
+#' Reads `genetic_offset_map.tsv`, the offset raster written as a headerless matrix
+#' (one row per raster row, blank = no value), so the range is the one the map
+#' legend shows. Cached per path and mtime. NULL when the file is missing or holds
+#' no value.
+#' @noRd
+load_offset_map_range <- function(path) {
+    if (!file_ok(path)) return(NULL)
+    fp <- tryCatch(as.character(file.info(path)$mtime), error = function(e) "unknown")
+    load_cached(paste0("offset_map_range_", path), function() {
+        m <- tryCatch(data.table::fread(path, header = FALSE, na.strings = c("", "NA")),
+                      error = function(e) NULL)
+        if (is.null(m) || ncol(m) == 0) return(NULL)
+        v <- suppressWarnings(as.numeric(unlist(m, use.names = FALSE)))
+        v <- v[is.finite(v)]
+        if (length(v) == 0) return(NULL)
+        list(min = min(v), max = max(v), n_cells = length(v))
+    }, fingerprint = fp)
+}
+
+#' Offsets at the sampled sites: one value per site, then their range and mean
+#'
+#' `genetic_offset_site.tsv` has one row per sample; a site's offset is the mean of
+#' its samples (the value its pie and its rank stand for), so n counts sites, not rows.
+#' NULL when the table has no usable offset.
+#' @noRd
+offset_site_summary <- function(dt) {
+    if (is.null(dt) || nrow(dt) == 0 || !all(c("site", "genetic_offset") %in% names(dt)))
+        return(NULL)
+    d <- data.table::data.table(site = as.character(dt$site),
+                                offset = suppressWarnings(as.numeric(dt$genetic_offset)))
+    d <- d[is.finite(offset)]
+    if (nrow(d) == 0) return(NULL)
+    per_site <- d[, .(offset = mean(offset)), by = site]
+    list(min = min(per_site$offset), max = max(per_site$offset),
+         mean = mean(per_site$offset), n_sites = nrow(per_site))
+}
+
 load_cached <- function(cache_key, loader_fn, fingerprint = NULL) {
     cache <- get_app_cache()
     full_key <- if (!is.null(fingerprint)) paste0(cache_key, "_", fingerprint) else cache_key

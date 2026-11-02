@@ -160,29 +160,6 @@ compare_stat_box <- function(value, label, p_val = NULL, icon = "bar-chart") {
     lab_value_box(label, htmltools::tagList(value, p_html), "primary", icon)
 }
 
-#' Honesty banner — rendered once at top of comparison view.
-#' @noRd
-compare_honesty_banner <- function() {
-    bslib::card(
-        class = "border-warning mb-3",
-        bslib::card_body(
-            class = "py-2",
-            htmltools::div(
-                class = "d-flex align-items-center gap-2",
-                bsicons::bs_icon("exclamation-triangle-fill", class = "text-warning"),
-                htmltools::tags$small(
-                    class = "text-muted",
-                    "No fitness ground truth exists for these offsets. This view characterises ",
-                    htmltools::tags$strong("extrapolation behaviour and cross-model concordance"),
-                    " — not which model is correct. Conclusions about which model is ",
-                    htmltools::tags$em("better"),
-                    " require independent validation data (reciprocal transplant or common-garden experiments)."
-                )
-            )
-        )
-    )
-}
-
 #' Helper to display an "empty" state (no comparison selected yet).
 #' @noRd
 compare_empty_state <- function(message_text = "Select Model A and Model B above to begin comparison.") {

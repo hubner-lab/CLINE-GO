@@ -321,21 +321,33 @@ mod_maladaptation_server <- function(id, project_data, snp_sets_trigger = NULL) 
         })
 
         # ── G3: Offset range summary ──────────────────────────────────────────
+        # The badge is the map's range (what the legend spans); the popover adds the
+        # sampled sites' range, one value per site. It used to show the site-table rows
+        # only, labelled as the range, with n = samples counted as sites.
         output$offset_summary <- shiny::renderUI({
-            dt <- site_data()
-            if (is.null(dt) || nrow(dt) == 0 || !"genetic_offset" %in% names(dt))
-                return(NULL)
-            offs <- dt$genetic_offset
-            offs <- offs[!is.na(offs)]
-            if (length(offs) == 0) return(NULL)
+            suf <- selected_suffix()
+            if (is.null(suf)) return(NULL)
+            map   <- load_offset_map_range(gf_map_table_path(project_data()$name, suf,
+                                                             method = selected_method()))
+            sites <- offset_site_summary(site_data())
+            if (is.null(map) && is.null(sites)) return(NULL)
+            rng <- function(lo, hi) paste0(sprintf("%.4f", lo), " \u2013 ", sprintf("%.4f", hi))
+            label <- if (!is.null(map)) sprintf("%.4f\u2013%.4f", map$min, map$max)
+                     else sprintf("sites %.4f\u2013%.4f", sites$min, sites$max)
             htmltools::div(
                 class = "d-flex justify-content-end mb-2",
                 filter_note(
-                    sprintf("%.4f\u2013%.4f", min(offs), max(offs)),
-                    htmltools::p(
-                        htmltools::tags$strong("Genetic offset range: "),
-                        sprintf("%.4f", min(offs)), " \u2013 ", sprintf("%.4f", max(offs)),
-                        " (mean: ", sprintf("%.4f", mean(offs)), ", n=", length(offs), " sites)"
+                    label,
+                    htmltools::tagList(
+                        if (!is.null(map)) htmltools::p(
+                            class = "mb-1",
+                            htmltools::tags$strong("Map: "), rng(map$min, map$max),
+                            " over ", format(map$n_cells, big.mark = ","), " cells (the legend's range)"),
+                        if (!is.null(sites)) htmltools::p(
+                            class = "mb-0",
+                            htmltools::tags$strong("Sampled sites: "), rng(sites$min, sites$max),
+                            " (mean ", sprintf("%.4f", sites$mean), ", n = ", sites$n_sites,
+                            if (sites$n_sites == 1) " site)" else " sites)")
                     ),
                     class = "bg-secondary"
                 )
@@ -372,7 +384,37 @@ mod_maladaptation_server <- function(id, project_data, snp_sets_trigger = NULL) 
 
         selected_variant <- shiny::reactive(input$piemap_variant %||% "base")
         selected_zoom    <- shiny::reactive(input$zoom %||% "none")
-        selected_points  <- shiny::reactive(isTRUE(input$points))
+
+        # ── Map view: Pies | Points | Ranks ────────────────────────────────────
+        # Points and Ranks are pipeline companions of the pie map (plot_piemap.R);
+        # each is offered only when its PNG exists (a tree from before the ranks
+        # rule has none). The pick is kept across re-renders of the control.
+        map_view_pick <- shiny::reactiveVal("pies")
+        shiny::observeEvent(input$map_view, map_view_pick(input$map_view), ignoreInit = TRUE)
+        map_view_choices <- shiny::reactive({
+            suf    <- shiny::req(selected_suffix())
+            method <- selected_method()
+            pd     <- project_data()
+            ch <- c("Pies" = "pies")
+            if (file_ok(gf_offset_piemap_path(pd$name, suf, "points", method = method)))
+                ch <- c(ch, "Points" = "points")
+            if (file_ok(gf_offset_piemap_path(pd$name, suf, "ranks", method = method)))
+                ch <- c(ch, "Ranks" = "ranks")
+            ch
+        })
+        output$map_view_ui <- shiny::renderUI({
+            ch <- map_view_choices()
+            if (length(ch) == 1) return(NULL)
+            sel <- shiny::isolate(map_view_pick())
+            if (!sel %in% ch) sel <- "pies"
+            htmltools::div(class = "lab-seg",
+                           shiny::radioButtons(ns("map_view"), label = NULL, choices = ch,
+                                               selected = sel, inline = TRUE))
+        })
+        selected_view <- shiny::reactive({
+            v <- map_view_pick()
+            if (v %in% map_view_choices()) v else "pies"
+        })
 
         # geometric_offset writes a conditioning diagnostic (see section 10b of
         # scripts/geometric_offset.R). Surface its headline number here rather
@@ -435,15 +477,15 @@ mod_maladaptation_server <- function(id, project_data, snp_sets_trigger = NULL) 
         })
 
         # ── Single selector-driven offset piemap ───────────────────────────────
-        # Points ("clear map") is trait/metric-independent and has no zoom
-        # companion — when on, it always shows the project-level points file,
-        # ignoring the zoom/variant selectors.
+        # Points ("clear map") and Ranks are trait/metric-independent: either one
+        # shows the run's full-view file, ignoring the zoom/variant selectors.
         piemap_path <- shiny::reactive({
             suf     <- shiny::req(selected_suffix())
             method  <- selected_method()
             pd      <- project_data()
-            if (selected_points()) {
-                return(gf_offset_piemap_path(pd$name, suf, "points", method = method))
+            view    <- selected_view()
+            if (view != "pies") {
+                return(gf_offset_piemap_path(pd$name, suf, view, method = method))
             }
             variant <- selected_variant()
             zoom    <- selected_zoom()
@@ -455,7 +497,8 @@ mod_maladaptation_server <- function(id, project_data, snp_sets_trigger = NULL) 
         })
 
         piemap_title <- shiny::reactive({
-            if (selected_points()) return("Genetic Offset (points)")
+            if (selected_view() == "points") return("Genetic Offset (points)")
+            if (selected_view() == "ranks")  return("Genetic Offset (site ranks)")
             variant <- selected_variant()
             zoom    <- selected_zoom()
             label   <- c(
@@ -470,16 +513,23 @@ mod_maladaptation_server <- function(id, project_data, snp_sets_trigger = NULL) 
             path        = piemap_path,
             title       = piemap_title,
             dl_name     = shiny::reactive(paste0("offset_piemap_",
-                                                  if (selected_points()) "points" else selected_variant(),
+                                                  if (selected_view() != "pies") selected_view() else selected_variant(),
                                                   "_", selected_suffix() %||% "gf")),
             placeholder = shiny::reactive("Run mode=maladaptation to generate offset results"),
-            note        = shiny::reactive(help_note("offset_piemap",
-                extra = if (identical(mala_engine(selected_method()), "rda_offset"))
+            note        = shiny::reactive({
+                method_note <- if (identical(mala_engine(selected_method()), "rda_offset"))
                     paste0("RDA offset: report as a RELATIVE SITE RANKING only, not an ",
                            "absolute magnitude — eigenvalue weighting + candidate-set size ",
                            "make the raw number non-comparable across runs/datasets. ",
                            "Unvalidated absent common-garden data (docs/rda_research.md B20–B21).")
-                else geometric_conditioning_note()))
+                else geometric_conditioning_note()
+                ranks_note <- if (selected_view() == "ranks")
+                    paste0("Site ranks: 1 = the site with the highest predicted offset (the mean ",
+                           "over its samples in the Site offsets table); tied sites share the lower rank.")
+                extra <- c(ranks_note, method_note)
+                help_note("offset_piemap",
+                          extra = if (length(extra) > 0) paste(extra, collapse = " ") else NULL)
+            })
         )
 
         # ── Site table ─────────────────────────────────────────────────────────
@@ -955,7 +1005,7 @@ mod_maladaptation_ui <- function(id) {
                     class = "lab-mapbar lab-malad-mapbar",
                     shiny::uiOutput(ns("piemap_variant_ui")),
                     shiny::uiOutput(ns("zoom_selector")),
-                    bslib::input_switch(ns("points"), "Points", value = FALSE),
+                    shiny::uiOutput(ns("map_view_ui")),
                     # The offset range/mean/n-sites badge sits with the map
                     # rather than in the model bar: it describes what this map
                     # is showing, and the map strip is where the eye already is
@@ -998,7 +1048,6 @@ mod_maladaptation_ui <- function(id) {
                 value = "compare",
                 title = htmltools::tagList(bsicons::bs_icon("shuffle"),
                                            " Cross-model comparison"),
-                compare_honesty_banner(),
                 bslib::layout_columns(
                     col_widths = c(6, 6),
                     htmltools::div(class = "control-bar lab-cmp-a",

@@ -387,3 +387,33 @@ test_that(".current_threshold_variant is a no-op when each method has one file",
     expect_identical(.current_threshold_variant(fs, "P", MOD_GEA, list()), fs)
     unlink(root, recursive = TRUE)
 })
+
+# ---------------------------------------------------------------- offset range (Maladaptation badge)
+
+test_that("offset_site_summary counts sites, not the per-sample rows of the site table", {
+    # genetic_offset_site.tsv: one row per sample. 57 rows over 11 sites was reported as
+    # "n=57 sites"; a site's value is the mean of its samples.
+    dt <- data.table::data.table(
+        site = c("A", "A", "A", "B", "B", "C"),
+        sample = sprintf("s%d", 1:6),
+        genetic_offset = c(0.8, 0.9, 1.0, 0.4, 0.6, NA))
+    got <- offset_site_summary(dt)
+    expect_identical(got$n_sites, 2L)             # C has no value
+    expect_equal(got$min, 0.5)
+    expect_equal(got$max, 0.9)
+    expect_equal(got$mean, 0.7)
+    expect_null(offset_site_summary(data.table::data.table(site = "A")))
+    expect_null(offset_site_summary(NULL))
+})
+
+test_that("load_offset_map_range reads the headerless map matrix, blank cells as no value", {
+    # The offset scripts write the raster as a matrix, col.names = FALSE, NA as empty;
+    # its range is what the map legend spans.
+    p <- withr::local_tempfile(fileext = ".tsv")
+    writeLines(c("\t\t0.71", "0.68\t0.90\t", "\t0.75\t0.80"), p)
+    got <- load_offset_map_range(p)
+    expect_equal(got$min, 0.68)
+    expect_equal(got$max, 0.90)
+    expect_identical(got$n_cells, 5L)
+    expect_null(load_offset_map_range(file.path(tempdir(), "no_such_map.tsv")))
+})

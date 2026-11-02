@@ -65,3 +65,11 @@ test_that("gf_diagnostics_path sits beside imputation_sensitivity.tsv under the 
     expect_equal(p, "/pipeline/SIMDATA_results/Maladaptation/tables/gradient_forest/top100_nospatial/gradient_forest_diagnostics.tsv")
     expect_equal(dirname(p), dirname(gf_sensitivity_path("SIMDATA", "top100_nospatial")))
 })
+
+test_that("gf_offset_piemap_path resolves the ranks companion beside the points one", {
+    withr::local_options(clinego.pipeline_path = "/pipeline")
+    pts <- gf_offset_piemap_path("SIMDATA", "gea.set_nospatial", "points", method = "rda_offset")
+    rks <- gf_offset_piemap_path("SIMDATA", "gea.set_nospatial", "ranks",  method = "rda_offset")
+    expect_identical(basename(rks), "genetic_offset_piemap_ranks.png")
+    expect_identical(dirname(rks), dirname(pts))
+})

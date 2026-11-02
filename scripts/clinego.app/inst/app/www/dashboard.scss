@@ -1061,3 +1061,31 @@ body > .selectize-dropdown.form-control { z-index: 1090; }
 // D3 (cc17b6): the recommendations table's text cells wrap, so its five columns
 // fit the card (458 / 474 px at a 1280px window, 591 / 607 px at 1600).
 .lab-recs-table td { white-space: normal; }
+
+// Segmented control (Maladaptation map view: Pies | Points | Ranks): an inline
+// radioButtons group drawn as one joined button strip. The radio dots are hidden but
+// stay focusable, so the keyboard and screen readers still see a radio group.
+.lab-seg {
+    .form-group, .shiny-input-container { margin-bottom: 0; width: auto; }
+    .shiny-options-group {
+        display: inline-flex;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        border-radius: var(--bs-border-radius);
+        overflow: hidden;
+    }
+    .radio-inline, .form-check-inline {
+        margin: 0; padding: 0;
+        + .radio-inline, + .form-check-inline { border-left: 1px solid rgba(255, 255, 255, 0.18); }
+    }
+    input[type="radio"] { position: absolute; opacity: 0; width: 1px; height: 1px; }
+    input[type="radio"] + span {
+        display: block;
+        padding: 0.15rem 0.7rem;
+        font-size: 0.85rem;
+        cursor: pointer;
+        color: var(--bs-secondary-color);
+    }
+    input[type="radio"]:hover + span { background-color: rgba(255, 255, 255, 0.06); color: var(--bs-body-color); }
+    input[type="radio"]:checked + span { background-color: var(--bs-primary); color: #fff; }
+    input[type="radio"]:focus-visible + span { outline: 2px solid var(--bs-primary); outline-offset: -2px; }
+}
