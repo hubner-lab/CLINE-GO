@@ -1022,6 +1022,8 @@ The unit tests are the only evidence for both the SNP-id and the strand behaviou
 ## Active Obsidian Project
 - Project: ADAPTOGENE
 - File: ~/Orthidian/projects/ADAPTOGENE/ADAPTOGENE.md
+- Track: arabidopsis
+- Track file: ~/Orthidian/projects/ADAPTOGENE/ADAPTOGENE-arabidopsis.md
 
 ## Permission Guidelines
 
