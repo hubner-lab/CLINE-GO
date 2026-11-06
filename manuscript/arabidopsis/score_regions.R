@@ -158,9 +158,12 @@ sequence_regions <- fread(cmd = sprintf("awk '/^##sequence-region/ {print $2, $4
                           colClasses = c(V1 = "character"))
 chrom_lengths <- setNames(as.numeric(sequence_regions$length), sequence_regions$chr)
 
+# The run's own distance, from the config that made it: a one-chromosome pilot must declare bp.
+gea_config <- yaml::read_yaml(here(paste0("config_", project, ".yaml")))$GEA
 clumping <- resolve_clumping_distance_strict(
-  "auto_genome_wide", file.path(results, "Structure", "tables", "ld_decay_half_distances.tsv"),
-  "critical", "All"
+  gea_config$snp_clumping_distance,
+  file.path(results, "Structure", "tables", "ld_decay_half_distances.tsv"),
+  gea_config$clumping_ld_rule, "All"
 )
 message("Clumping distance: ", clumping, " bp")
 
