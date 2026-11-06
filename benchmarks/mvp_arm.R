@@ -15,6 +15,8 @@
 #   MVP_ADDED       cohort tag to report   default ""  (no filter)
 #   MVP_N_EXPECT    asserted replicates    default 90
 #   MVP_N_PER_ARCH  asserted per stratum   default 30
+#   MVP_SEEDS_FILE  explicit seed list     default ""  (off; when set, it is the
+#                   whole slice and MVP_ARM/MVP_ADDED/MVP_N_TRAITS must be unset)
 #
 # MVP_ADDED IS NOT OPTIONAL FOR THE SS-CLINES ARM. mvp_seeds.tsv holds 120 rows
 # each for ssclines b1, b2 and b3 under arm == "primary_ssclines" (360 total), so
@@ -38,9 +40,15 @@ mvp_n_per_arch <- function() as.integer(Sys.getenv("MVP_N_PER_ARCH", "30"))
 # loci on 10/10 of them), so a legacy-vs-block comparison that leaves them in is
 # not the comparable number -- set MVP_N_TRAITS=2 to get it.
 mvp_n_traits   <- function() Sys.getenv("MVP_N_TRAITS", "")
+# Explicit seed list (one seed per line). Default "" = off, the arm filter above applies.
+# Exists because a landscape's replicates can span arms (SS-Mtn 2-trait: 520 in
+# primary_ssmtn + 80 legacy in primary). When set, the slice is EXACTLY the listed
+# seeds; MVP_ARM / MVP_ADDED / MVP_N_TRAITS must then be unset (refused otherwise).
+mvp_seeds_file <- function() Sys.getenv("MVP_SEEDS_FILE", "")
 
 # Human-readable label for messages, figure subtitles and output provenance.
 mvp_arm_label <- function() {
+    if (nzchar(mvp_seeds_file())) return(sprintf("seeds file %s", basename(mvp_seeds_file())))
     a <- mvp_arm(); g <- mvp_added(); nt <- mvp_n_traits()
     if (nzchar(g)) {
         tags <- trimws(strsplit(g, ",", fixed = TRUE)[[1]])
@@ -57,6 +65,27 @@ mvp_arm_label <- function() {
 # `seeds` is benchmarks/mvp_seeds.tsv already read as a data.table.
 mvp_prim <- function(seeds) {
     stopifnot(is.data.frame(seeds), "arm" %in% names(seeds))
+    sf <- mvp_seeds_file()
+    if (nzchar(sf)) {
+        clash <- c("MVP_ARM", "MVP_ADDED", "MVP_N_TRAITS")
+        clash <- clash[nzchar(Sys.getenv(clash))]
+        if (length(clash))
+            stop("MVP_SEEDS_FILE is set together with ", paste(clash, collapse = ", "),
+                 " -- the seed list is the whole slice; unset the others")
+        if (!file.exists(sf)) stop("MVP_SEEDS_FILE not found: ", sf)
+        want <- trimws(readLines(sf, warn = FALSE))
+        want <- want[nzchar(want)]
+        if (!length(want)) stop("MVP_SEEDS_FILE lists no seeds: ", sf)
+        if (anyDuplicated(want)) stop("MVP_SEEDS_FILE lists a seed twice: ", sf)
+        miss <- setdiff(want, as.character(seeds$seed))
+        if (length(miss))
+            stop("MVP_SEEDS_FILE seeds not in mvp_seeds.tsv: ", paste(head(miss, 10), collapse = ", "))
+        out <- seeds[as.character(seeds$seed) %in% want, ]
+        if (nrow(out) != length(want))
+            stop("MVP_SEEDS_FILE: ", length(want), " seeds listed, ", nrow(out), " manifest rows")
+        message(sprintf("manifest slice: %s -- %d replicates", mvp_arm_label(), nrow(out)))
+        return(out)
+    }
     out <- seeds[seeds$arm == mvp_arm(), ]
     g <- mvp_added()
     if (nzchar(g)) {
