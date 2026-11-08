@@ -12,9 +12,10 @@
 #   t_replicates                    as published + K, its floor of 2, LD window, declared 619 bp, max VIF
 #   t_offset_accuracy               per set and offset method: accuracy, difference from the causal loci,
 #                                   accuracy lost against the replicate's best set (median, 90th percentile)
-#   t_ranks, t_ranks_strata         % of replicates at each rank + ranks 1-2, 1-3, 4-6, 5-6, bootstrap CI;
-#                                   t_ranks: two-sided permutation p at the six places
-#   t_ranks_omnibus                 the chi-square of the set x rank table against the same permutations
+#   t_ranks, t_ranks_strata         % of replicates at each rank + ranks 1-2, 1-3, 4-6, 5-6, bootstrap CI
+#   t_ranks_omnibus                 the chi-square of the set x rank table against permutations of the set labels
+#                                   within each replicate (the only test of the ranks: the per-set tests of each
+#                                   place were dropped 2026-11-08, the user; the bootstrap CIs carry each place)
 #   t_rank_tests                    Kruskal-Wallis of each set's rank across design cells / scenarios
 #   t_ranks_conditions              landscape x selection (equal, unequal): rank profile, loss
 #   t_set_pairs                     3/3 - 2/3, 3/3 - RDA, 2/3 - RDA: ranks 4-6 and accuracy
@@ -31,9 +32,8 @@
 #   Est-Clines 20261107, all 20261108, each set before every stratum as published. t_ranks_conditions and
 #   t_set_pairs add an offset to the scope's seed. The bootstrap of `all` is plain over its 1,800 replicates,
 #   not stratified by landscape, the rule of the published tables (which do not stratify by design cell).
-# HOLM: p_holm = over the 30 tests of one scope x one ranking (six sets at five places), the published nesting
-#   (24 tests then, before ranks 4-6). Ranks 1-3 is the complement of ranks 4-6, the same two-sided test, so it
-#   gets no p of its own (user, 2026-11-07: keep the Holm part as simple as possible).
+# HOLM: t_ranks_omnibus p_holm = over the four rankings of one scope. The per-set p and their Holm family of 30
+#   are gone (2026-11-08); the permutation draws are unchanged, so the omnibus k and p reproduce the 2026-11-07 run.
 # ORDER: rows and figures use one order, fewest replicates in ranks 4-6 over the 1,800, median of the three
 #   offset methods; computed here and asserted against the laptop's. Permutation work keeps RULES order.
 #
@@ -174,9 +174,7 @@ boot_ci <- function(M, n, seed) {
 }
 
 # ================================================================= t_ranks, omnibus, per-set p
-TR <- list(); OMNI <- list(); PS <- list()
-PLACES <- c("r6", "r56", "r1", "r12", "r123", "r456")
-CH_I <- 100 * c(r6 = 1, r56 = 2, r1 = 1, r12 = 2, r123 = 3, r456 = 3) / N_PANEL
+TR <- list(); OMNI <- list()
 for (sc in SCOPES) {
     S <- in_scope(ST, sc)
     SEEDS <- sort(unique(S$seed), method = "radix")
@@ -186,7 +184,7 @@ for (sc in SCOPES) {
     tr <- cbind(BG$idx, boot_ci(BG$M, NREP, SEED_OF[[sc]]))
     tr[, `:=`(landscape = sc, n = NREP)]
     TR[[sc]] <- tr
-    # whole table + per-set tests on one set of permutations (closeout: Table S4's tests)
+    # whole-table test against permutations of the set labels within each replicate (closeout: Table S4's test)
     X <- RX[seed %in% SEEDS]
     VM <- lapply(setNames(ENGS, ENGS), function(e) {
         Y <- X[engine == e]
@@ -207,10 +205,6 @@ for (sc in SCOPES) {
                                         tr6$value * NREP / 100)) < 1e-9)
     }
     CHI_OBS <- vapply(OBS_T, chi_of, 0)
-    IND <- lapply(VM, function(M) cbind(r6 = M[, 6], r56 = M[, 5] + M[, 6], r1 = M[, 1], r12 = M[, 1] + M[, 2],
-                                        r123 = M[, 1] + M[, 2] + M[, 3], r456 = M[, 4] + M[, 5] + M[, 6]))
-    OBS_I <- lapply(IND, function(M) 100 * rowsum(M, GRP) / NREP)                 # set x statistic, %
-    KK_I <- lapply(OBS_I, function(M) M * 0)
     BLK <- rep(seq_len(NREP), each = N_PANEL)
     PERM_CHI <- matrix(NA_real_, S1_B, length(ENGS), dimnames = list(NULL, ENGS))
     set.seed(SEED_OF[[sc]])
@@ -220,8 +214,6 @@ for (sc in SCOPES) {
         idx <- as.vector((P - 1L) * NREP + seq_len(NREP))                          # set s of replicate i takes set P[i, s]'s row
         for (e in ENGS) {
             PERM_CHI[b, e] <- chi_of(rowsum(VM[[e]][idx, , drop = FALSE], GRP))
-            pm <- 100 * rowsum(IND[[e]][idx, , drop = FALSE], GRP) / NREP
-            KK_I[[e]] <- KK_I[[e]] + (abs(sweep(pm, 2, CH_I)) >= abs(sweep(OBS_I[[e]], 2, CH_I)) - 1e-9)
         }
     }
     om <- data.table(landscape = sc, engine = ENGS, chi2 = unname(CHI_OBS[ENGS]), permutations = S1_B,
@@ -229,27 +221,13 @@ for (sc in SCOPES) {
                      max_permuted_chi2 = apply(PERM_CHI, 2, max))
     om[, p := (1 + k) / (S1_B + 1)][, p_holm := p.adjust(p, method = "holm")][, seed := SEED_OF[[sc]]]
     OMNI[[sc]] <- om
-    PS[[sc]] <- rbindlist(lapply(ENGS, function(e) data.table(
-        landscape = sc, engine = e, panel = rep(RULES, ncol(KK_I[[e]])),
-        stat = rep(colnames(KK_I[[e]]), each = N_PANEL), p = as.vector((KK_I[[e]] + 1) / (S1_B + 1)))))
     print(om[, .(engine, chi2, k, p, p_holm, max_permuted_chi2)])
 }
-TR <- rbindlist(TR); OMNI <- rbindlist(OMNI); PS <- rbindlist(PS)
-stopifnot(all(PS$stat %in% PLACES), nrow(PS) == 4L * length(ENGS) * length(PLACES) * N_PANEL)
-# complements: the two-sided tests of ranks 1-3 and ranks 4-6 count the same permutations, so ranks 1-3
-# leaves the family and gets no p of its own
-cmpl <- dcast(PS[stat %in% c("r123", "r456")], landscape + engine + panel ~ stat, value.var = "p")
-stopifnot(max(abs(cmpl$r123 - cmpl$r456)) < 1e-12)
-TESTED_PLACES <- setdiff(PLACES, "r123")
-PS <- PS[stat %in% TESTED_PLACES]
-stopifnot(PS[, .N, by = .(landscape, engine)][, all(N == length(TESTED_PLACES) * N_PANEL)])
-PS[, p_holm := p.adjust(p, method = "holm"), by = .(landscape, engine)]
-TR <- merge(TR, PS, by = c("landscape", "engine", "panel", "stat"), all.x = TRUE, sort = FALSE)
-stopifnot(TR[stat %in% TESTED_PLACES, !anyNA(p)], TR[!stat %in% TESTED_PLACES, all(is.na(p))])
+TR <- rbindlist(TR); OMNI <- rbindlist(OMNI)
 ord_rows <- function(D) D[, `:=`(set_o = match(panel, PANEL_ORDER), stat_o = match(stat, names(STATS)))]
 TR <- ord_rows(TR)[, `:=`(eng_o = match(engine, ENGS), sc_o = match(landscape, SCOPES))][order(sc_o, eng_o, set_o, stat_o)]
 fwrite(TR[, .(landscape, offset_method = unname(ENG_LAB[engine]), set = set_lab(panel), statistic = unname(STATS[stat]),
-              value, lo, hi, n, p, p_holm)], file.path(OUT, "t_ranks.tsv"), sep = "\t")
+              value, lo, hi, n)], file.path(OUT, "t_ranks.tsv"), sep = "\t")
 fwrite(OMNI[, .(landscape, offset_method = unname(ENG_LAB[engine]), chi2, permutations, k, p, p_holm, seed, max_permuted_chi2)],
        file.path(OUT, "t_ranks_omnibus.tsv"), sep = "\t")
 
@@ -535,8 +513,8 @@ for (sc in SCOPES) {
 }
 add_num(TR[, .(landscape, rule = panel, stratum = "pooled", engine = unname(ENG_LAB[engine]), metric = unname(STATS[stat]), value, lo, hi,
                expected = fcase(stat %in% c("r1", "r2", "r3", "r4", "r5", "r6"), 100 / N_PANEL, stat %in% c("r12", "r56"), 200 / N_PANEL, default = 300 / N_PANEL),
-               n, p_perm = p)],
-    "Figure 2b / t_ranks within-replicate rank: % (95% bootstrap CI, 10,000 resamples), permutation P (10,000)", "rank_long.tsv")
+               n)],
+    "Figure 2b / t_ranks within-replicate rank: % (95% bootstrap CI, 10,000 resamples)", "rank_long.tsv")
 add_num(TRS[, .(landscape, rule = panel, stratum = paste0(kind, ": ", block_show(stratum)), engine = "median of 3", metric = unname(STATS[stat]), value, lo, hi, n)],
     "t_ranks_strata / s_rank_strata / s_rank_architecture", "rank_long.tsv + detection_per_seed.tsv")
 add_num(ORD[, .(landscape = "all", rule = panel, stratum = "pooled", engine = "median of 3", metric = "set_order", value = seq_len(.N))],
@@ -563,8 +541,8 @@ NUMS[, metric := as.character(metric)]
 # metric_key: the keys of the published numbers.tsv for the places it had, the metric itself otherwise
 KEY_STAT <- c("rank 1" = "top1", "ranks 1–2" = "top2", "ranks 1–3" = "top3", "rank 6" = "bottom1", "ranks 5–6" = "bottom2", "ranks 4–6" = "bottom3")
 NUMS[, metric_key := fifelse(metric %in% names(KEY_STAT), unname(KEY_STAT[metric]), metric)]
-setcolorder(NUMS, c("landscape", "figure", "rule", "set", "stratum", "engine", "metric", "metric_key", "value", "lo", "hi", "expected", "n", "p_perm", "source"))
-fwrite(NUMS[, c("landscape", "figure", "rule", "set", "stratum", "engine", "metric", "metric_key", "value", "lo", "hi", "expected", "n", "p_perm", "source"), with = FALSE],
+setcolorder(NUMS, c("landscape", "figure", "rule", "set", "stratum", "engine", "metric", "metric_key", "value", "lo", "hi", "expected", "n", "source"))
+fwrite(NUMS[, c("landscape", "figure", "rule", "set", "stratum", "engine", "metric", "metric_key", "value", "lo", "hi", "expected", "n", "source"), with = FALSE],
        file.path(OUT, "numbers.tsv"), sep = "\t")
 message(sprintf("numbers.tsv: %d rows", nrow(NUMS)))
 
@@ -619,8 +597,8 @@ writeLines(c("# t_replicates", "", "Cells: median (minimum–maximum), or a coun
                        if (!is.na(count)) format(count, big.mark = ",") else fmt_cell(median, min, max,
                            if (grepl("%", label)) "pct2" else if (grepl("VIF", label)) "dec2" else "int")))), character(1)), "")
              }))), file.path(OUT, "t_replicates.md"))
-rank_rows_p <- function(D) {
-    D <- copy(D)[, cell := paste0(f_ci(value, lo, hi), fifelse(is.na(p_holm), "", paste0(", p = ", f_ph(p_holm))))]
+rank_rows_ci <- function(D) {
+    D <- copy(D)[, cell := f_ci(value, lo, hi)]
     W <- dcast(D, set_o + panel ~ stat_o, value.var = "cell")
     vapply(seq_len(nrow(W)), function(i) md_row(c(set_lab(W$panel[i]), unlist(W[i, -(1:2)]))), character(1))
 }
@@ -628,14 +606,12 @@ omni_line <- function(sc, e) with(OMNI[landscape == sc & engine == e], sprintf(
     "Whole table (6 × 6 counts of candidate set by rank): χ² = %s; permutation p = %s (k = %d of %s permutations), Holm-adjusted over the four rankings p = %s.",
     formatC(chi2, format = "f", digits = 1, big.mark = ","), f_ph(p), k, format(permutations, big.mark = ","), f_ph(p_holm)))
 writeLines(c("# t_ranks", "",
-             paste0("Cells: % of replicates [95% bootstrap CI]. In Rank 1, Ranks 1–2, Ranks 4–6, Ranks 5–6 and Rank 6, p: the two-sided permutation test of the percentage against chance ",
-                    "(16.7% for one rank, 33.3% for two, 50% for three; candidate-set labels shuffled within each replicate, 10,000 permutations, P = (k + 1) / 10,001), ",
-                    "Holm-adjusted over the 30 tests of each ranking within one landscape (six candidate sets at five places; `t_ranks.tsv` also holds the raw `p`). ",
-                    "Ranks 1–3 is 100% minus Ranks 4–6, so its test is the Ranks 4–6 test and it has no p of its own. Last line of each ranking: the χ² of its table of candidate set by rank against the same permutations; ",
-                    "values in `t_ranks_omnibus.tsv`. Built by `benchmarks/mvp_land_tables.R`."), "",
+             paste0("Cells: % of replicates [95% bootstrap CI]; expected if the six candidate sets were interchangeable: 16.7% for one rank, 33.3% for two, 50% for three. ",
+                    "Last line of each ranking: the χ² of its table of candidate set by rank against 10,000 permutations of the candidate-set labels within each replicate ",
+                    "(P = (k + 1) / 10,001, Holm-adjusted over the four rankings); values in `t_ranks_omnibus.tsv`. Built by `benchmarks/mvp_land_tables.R`."), "",
              unlist(lapply(SCOPES, function(sc) unlist(lapply(ENGS, function(e) {
                  c(sprintf("## %s, %s", sc, ENG_LAB[[e]]), "", md_row(c("Candidate set", RANK_COLS)), md_row(rep("---", 11)),
-                   rank_rows_p(TR[landscape == sc & engine == e]), "", omni_line(sc, e), "")
+                   rank_rows_ci(TR[landscape == sc & engine == e]), "", omni_line(sc, e), "")
              }))))), file.path(OUT, "t_ranks.md"))
 KIND_TITLE <- c(`genetic architecture` = "Genetic architecture", `demographic scenario` = "Demographic scenario", `design cell` = "Design cell")
 rank_rows <- function(D, lead) {
@@ -722,16 +698,6 @@ if (dir.exists(REF)) {
     cmp("t_ranks_strata", rn("t_ranks_strata.tsv")[statistic %in% ref_st$statistic], ref_st, c("stratum_kind", "stratum", "set", "statistic"), c("value", "lo", "hi", "n"))
     cmp("t_ranks_omnibus", rn("t_ranks_omnibus.tsv"), rs(file.path(REF, "t_ranks_omnibus.tsv")), "offset_method", c("chi2", "permutations", "k", "p", "p_holm", "seed"))
     cmp("t_rank_tests", rn("t_rank_tests.tsv"), rs(file.path(REF, "t_rank_tests.tsv")), c("test", "set"), c("H", "df", "p", "p_holm", "n", "groups"))
-    # raw per-set p against the published permutation tests (Table_S1.tsv section a)
-    TS1 <- fread(file.path(EVAL, "figures_ld_ms/Table_S1.tsv"), sep = "\t")[section == "a"]
-    A2S <- c("% replicates least accurate" = "rank 6", "% replicates among the two least accurate" = "ranks 5–6",
-             "% replicates most accurate" = "rank 1", "% replicates among the two most accurate" = "ranks 1–2")
-    TS1[, `:=`(statistic = unname(A2S[metric]), set = fifelse(set == "LFMM", "LFMM2", set))]
-    nr <- fread(file.path(OUT, "t_ranks.tsv"), sep = "\t")[landscape == "SS-Clines"]
-    xp <- merge(TS1[, .(offset_method = engine, set, statistic, p_pub = p)], nr[, .(offset_method, set, statistic, p)], by = c("offset_method", "set", "statistic"))
-    stopifnot(nrow(xp) == 96L)
-    GATE[[length(GATE) + 1L]] <- data.table(table = "raw per-set p vs Table_S1.tsv (a)", rows_published = 96L, rows_new = nrow(xp), cells = 96L,
-                                            cells_differ = xp[abs(p - p_pub) > 1e-12, .N], max_abs_diff = xp[, max(abs(p - p_pub))], rows_unmatched = 96L - nrow(xp))
     # Figure S3 and S1 numbers against the published numbers
     PN <- fread(file.path(EVAL, "figures_ld_ms/numbers.tsv"), sep = "\t")
     p3 <- PN[startsWith(figure, "Figure S3") & metric %in% c("TP_median", "FP_median", "n_empty"), .(label = rule, cutoff = as.numeric(sub("cutoff ([0-9.]+)%", "\\1", stratum)), metric, v = value)]
@@ -762,14 +728,6 @@ if (dir.exists(REF)) {
     GATE <- rbindlist(GATE)
     fwrite(GATE, file.path(OUT, "gate_ssclines.tsv"), sep = "\t")
     print(GATE)
-    # Holm columns: exempt, their change reported
-    hr <- rs(file.path(REF, "t_ranks.tsv"))[p_holm != ""]
-    hn <- rn("t_ranks.tsv")[, .(offset_method, set, statistic, p, p_holm)]
-    hx <- merge(hr[, .(offset_method, set, statistic, p_holm_published = as.numeric(p_holm))], hn, by = c("offset_method", "set", "statistic"))
-    hx[, `:=`(p = as.numeric(p), p_holm = as.numeric(p_holm))]
-    fwrite(hx, file.path(OUT, "gate_holm_change.tsv"), sep = "\t")
-    message(sprintf("Holm: %d published rows; below 0.05: published %d (24 tests), p_holm (30 tests) %d", nrow(hx),
-                    hx[p_holm_published < 0.05, .N], hx[p_holm < 0.05, .N]))
     if (sum(GATE$cells_differ) + sum(GATE$rows_unmatched) > 0) warning("GATE: SS-Clines rows differ from the published tables, see gate_ssclines.tsv")
     else message("GATE PASSED: every SS-Clines cell equals the published tables")
 }
