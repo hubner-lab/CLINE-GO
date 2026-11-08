@@ -14,13 +14,16 @@
 # Writes landscape_ms/explain/figures/track_*.{svg,png} (180 mm, PNG 600 dpi), track_*_preview.png (200 dpi),
 #        figures.tsv and tracking_fig_numbers.tsv (every plotted value).
 # Usage: Rscript benchmarks/mvp_land_tracking_fig.R
+#   FP_PCA_OUT=<dir> (Data S1 Job B, 2026-11-08): draw only the supplement figure s_fp_pca into <dir>, with its
+#   numbers (s_fp_pca_numbers.tsv) and the plotted points (s_fp_pca_plotted.tsv); nothing else is written.
 # =============================================================================
 suppressPackageStartupMessages({library(data.table); library(ggplot2)})
 ROOT <- Sys.getenv("PIPELINE_ROOT", "/pipeline")
 LMS  <- file.path(ROOT, "benchmarks/mvp_eval/landscape_ms")
 EXP  <- file.path(LMS, "explain")
 OUT  <- file.path(EXP, "figures")
-dir.create(OUT, showWarnings = FALSE, recursive = TRUE)
+FP_OUT <- Sys.getenv("FP_PCA_OUT", "")
+if (!nzchar(FP_OUT)) dir.create(OUT, showWarnings = FALSE, recursive = TRUE) else dir.create(FP_OUT, showWarnings = FALSE, recursive = TRUE)
 source(file.path(ROOT, "benchmarks/ms_style.R"))
 
 # ------------------------------------------------------------------ vocabulary (copied from mvp_land_figures.R)
@@ -58,6 +61,7 @@ grob_text <- function(g) {
 fig_text <- function(p) { grDevices::pdf(NULL); on.exit(grDevices::dev.off()); grob_text(ggplotGrob(p)) }
 FIGS <- list()
 save_fig <- function(stem, p, w, h, what, texts) {
+    if (nzchar(FP_OUT)) return(invisible(NULL))          # FP_PCA_OUT: the review variants are not drawn
     n_txt <- vocab_check(c(texts, if (inherits(p, "ggplot")) fig_text(p)), paste0(stem, " (figure text)"))
     ms_save(file.path(OUT, stem), p, w, h)
     ggsave(file.path(OUT, paste0(stem, "_preview.png")), p, width = w, height = h, units = "mm", dpi = 200, bg = "white")
@@ -322,18 +326,25 @@ if (all(c("pca1_r_temp", "pca1_r_sal") %in% names(TRK)) && all(SET6 %in% unique(
         guides(fill = guide_legend(order = 1, override.aes = list(shape = 21, size = 2.4)),
                shape = guide_legend(order = 2, override.aes = list(fill = "#9aa1aa", size = 2.4))) +
         labs(x = "|r| of the false positives' first principal component\nwith temperature (median over replicates)",
-             y = "|r| with salinity") +
+             y = "|r| with Env2") +                     # the paper's label for the second environment (2026-11-08)
         theme_ms() + theme(legend.position = "right", legend.box = "vertical", legend.justification = "top",
                            panel.grid.major = element_line(colour = "#eef0f3", linewidth = 0.25))
     save_fig("track_v6_fp_pca", p6, 140, 90, "V6: PC1 of each set's false positives against temperature and salinity, shape = landscape",
              fig_text(p6))
 
     # ---- the final supplement figure (user, 2026-11-07: V6 plus the diagonal) and its numbers for the registry
+    if (nzchar(FP_OUT)) {
+        ms_save(file.path(FP_OUT, "s_fp_pca"), p6, 140, 90)
+        LD <- as.data.table(layer_data(p6, 2L))
+        stopifnot(nrow(LD) == nrow(S6))
+        fwrite(cbind(S6[, .(landscape, set)], LD[, .(x, y)]), file.path(FP_OUT, "s_fp_pca_plotted.tsv"), sep = "\t")
+    } else {
     ms_save(file.path(LMS, "figures", "s_fp_pca"), p6, 140, 90)
     FT <- fread(file.path(LMS, "figures", "figures.tsv"))
     FT <- rbind(FT[stem != "s_fp_pca"], data.table(stem = "s_fp_pca", role = "supp", w_mm = 140, h_mm = 90,
                 source = "explain/set_tracking.tsv (benchmarks/mvp_land_set_tracking.R), the 1,800 replicates"), fill = TRUE)
     fwrite(FT, file.path(LMS, "figures", "figures.tsv"), sep = "\t")
+    }
     Q <- TRK[set %in% SETV6 & part == "neutral" & n > 0, .(
         fp_pc1_r_temp = median(pca1_r_temp, na.rm = TRUE), t25 = quantile(pca1_r_temp, .25, na.rm = TRUE, names = FALSE),
         t75 = quantile(pca1_r_temp, .75, na.rm = TRUE, names = FALSE),
@@ -361,11 +372,13 @@ if (all(c("pca1_r_temp", "pca1_r_sal") %in% names(TRK)) && all(SET6 %in% unique(
         row(CT, "causal loci of temperature identified per replicate, mean", "causal_temp_mean", "temp_mean", figure = "text: causal loci by trait"),
         row(CT, "causal loci of salinity identified per replicate, median", "causal_sal_median", "sal_median", figure = "text: causal loci by trait"),
         row(CT, "causal loci of salinity identified per replicate, mean", "causal_sal_mean", "sal_mean", figure = "text: causal loci by trait"))
-    fwrite(NB[order(match(landscape, LAND_LEV), metric_key, match(rule, SETV6))], file.path(LMS, "tables", "fp_pca_numbers.tsv"), sep = "\t")
+    fwrite(NB[order(match(landscape, LAND_LEV), metric_key, match(rule, SETV6))], if (nzchar(FP_OUT)) file.path(FP_OUT, "s_fp_pca_numbers.tsv") else file.path(LMS, "tables", "fp_pca_numbers.tsv"), sep = "\t")
     message("final: figures/s_fp_pca.{svg,png} (140 x 90 mm), tables/fp_pca_numbers.tsv (", nrow(NB), " rows)")
 }
 
 # ------------------------------------------------------------------ write
-fwrite(rbindlist(FIGS), file.path(OUT, "figures.tsv"), sep = "\t")
-fwrite(rbindlist(NUM, fill = TRUE), file.path(EXP, "tracking_fig_numbers.tsv"), sep = "\t")
+if (!nzchar(FP_OUT)) {
+    fwrite(rbindlist(FIGS), file.path(OUT, "figures.tsv"), sep = "\t")
+    fwrite(rbindlist(NUM, fill = TRUE), file.path(EXP, "tracking_fig_numbers.tsv"), sep = "\t")
+}
 message("figures: ", length(FIGS), "; numbers: ", sum(vapply(NUM, nrow, 0L)), " rows")

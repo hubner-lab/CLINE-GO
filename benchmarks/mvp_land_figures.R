@@ -17,6 +17,12 @@
 #   FIG_MODE=supp   s_rda_correction, s_aucpr_methods, s_cutoffs (a row per landscape);
 #                   s_detection_cells_{parts_a,b,c, rows}; s_detection_demography_parts_*,
 #                   s_rank_architecture_parts_*, s_rank_strata_parts_* (a = SS-Clines, b = SS-Mtn, c = Est-Clines)
+#   FIG_MODE=merge  (Data S1 Job F, 2026-11-08; docs/manuscript/lab/data_s1_landscapes_LAB_PROMPT.md) the merged
+#                   figures of the story restructure: s_precision_recall (a s_aucpr_methods above b s_rda_correction),
+#                   s_detection_design_parts_{a,b,c} (a design cells above b demographic scenarios, landscape title),
+#                   s_rank_strata_parts_{a,b,c} (% of replicates in the top three, landscape title). Each member is
+#                   also saved alone under its published stem into CHECK_OUT (default <FIG_OUT>/../checks/members), so
+#                   its SVG can be compared with the published one; the strata cells go to CHECK_OUT/../strata_top3.tsv.
 # Writes PNG (600 dpi) + SVG and appends to figures.tsv (stem, role, w_mm, h_mm, source).
 # Usage: FIG_MODE=<mode> FIG_OUT=<dir> TAB_DIR=<tables> Rscript benchmarks/mvp_land_figures.R
 # =============================================================================
@@ -28,7 +34,8 @@ EVAL <- file.path(ROOT, "benchmarks/mvp_eval")
 OUT  <- Sys.getenv("FIG_OUT", file.path(EVAL, "landscape_ms/figures"))
 TAB  <- Sys.getenv("TAB_DIR", file.path(EVAL, "landscape_ms/tables"))
 MODE <- Sys.getenv("FIG_MODE", "main")
-stopifnot(MODE %in% c("ab", "main", "supp"))
+stopifnot(MODE %in% c("ab", "main", "supp", "merge"))
+CHECK <- Sys.getenv("CHECK_OUT", file.path(OUT, "..", "checks", "members"))
 JITTER_SEED <- 16L
 source(file.path(ROOT, "benchmarks/ms_style.R"))
 source(file.path(ROOT, "benchmarks/mvp_rank_ties.R"))
@@ -272,9 +279,9 @@ pDcells <- function(D) plane_ms(D, list(vars = "panel", layer = facet_wrap(vars(
 pDdemo  <- function(D) plane_ms(D, list(vars = "block", layer = facet_wrap(vars(block), nrow = 2, scales = "free_x",
                                                                             labeller = labeller(block = BLOCK_SHOW))))
 HEAT_COL <- c(MINOU[["teal"]], "#FFFFFF", MINOU[["red"]])
-make_heat <- function(chance, heat_max, step, name, v) {
+make_heat <- function(chance, heat_max, step, name, v, cols = HEAT_COL) {
     at <- scales::rescale(c(0, chance, heat_max))
-    heat_fill <- function(x) scales::gradient_n_pal(HEAT_COL, at)(scales::rescale(x, from = c(0, heat_max)))
+    heat_fill <- function(x) scales::gradient_n_pal(cols, at)(scales::rescale(x, from = c(0, heat_max)))
     function(D, x, facet_layer = NULL, legend = TRUE) {
         D <- copy(D)[, `:=`(panel = factor(panel, levels = rev(PANEL_ORDER)), least_pct = get(v))]
         D[, tone := ms_text_on(heat_fill(least_pct))]
@@ -282,7 +289,7 @@ make_heat <- function(chance, heat_max, step, name, v) {
             geom_tile(colour = "white", linewidth = 0.4) +
             geom_text(aes(label = sprintf("%.1f", least_pct), colour = tone), size = MS_LAB) +
             facet_layer +
-            scale_fill_gradientn(colours = HEAT_COL, values = at, limits = c(0, heat_max),
+            scale_fill_gradientn(colours = cols, values = at, limits = c(0, heat_max),
                                  breaks = seq(0, heat_max, step), labels = function(b) paste0(b, "%"), name = name,
                                  guide = if (legend) guide_colourbar(theme = theme(
                                      legend.key.width = grid::unit(45, "mm"), legend.key.height = grid::unit(2.5, "mm"),
@@ -297,7 +304,8 @@ strata_fig <- function(L, heat) {
     M3 <- RL[engine == "median of 3" & landscape == L, .(seed, panel, rank)]
     COV <- unique(DET[landscape == L, .(seed, arch, pleio, regime, block)])
     I3 <- merge(rank_indicators(rank_split(M3, "seed"), "seed", n_set = N_PANEL), COV, by = "seed")
-    strat <- function(cols) I3[, .(least_pct = 100 * mean(bottom1), half_pct = 100 * mean(bottom3), n = .N), by = c("panel", cols)]
+    strat <- function(cols) I3[, .(least_pct = 100 * mean(bottom1), half_pct = 100 * mean(bottom3), top3_pct = 100 * mean(top3), n = .N),
+                               by = c("panel", cols)]
     C <- strat(c("arch", "pleio", "regime")); B <- strat("block")
     a <- heat(C, "regime", facet_grid(cols = vars(arch, pleio), labeller = labeller(arch = ARCH_WRAP)), legend = FALSE)
     b <- heat(B, "block") + scale_x_discrete(labels = function(x) unname(BLOCK_SHOW[x]))
@@ -470,6 +478,49 @@ if (MODE == "supp") {
     save_ms("s_detection_cells_rows", cowplot::plot_grid(plotlist = unname(PC[LAND_LEV]), ncol = 1, labels = paste(c("a", "b", "c"), LAND_LEV), label_size = 8,
                                                          label_fontface = "bold", label_fontfamily = theme_ms()$text$family, hjust = 0, label_x = 0.01,
                                                          vjust = 1), 180, 495, "supp", SRC_DET)
+}
+# =============================================================================
+# FIG_MODE=merge: the merged figures of the story restructure (Data S1 Job F, 2026-11-08)
+# =============================================================================
+if (MODE == "merge") {
+    dir.create(CHECK, recursive = TRUE, showWarnings = FALSE)
+    save_member <- function(stem, p, w, h) { ms_save(file.path(CHECK, stem), p, w, h); message("  member ", stem) }
+    page_title <- function(p, title, h_body)                 # the landscape name above a page, panel letters unchanged
+        cowplot::plot_grid(cowplot::ggdraw() + cowplot::draw_label(title, fontfamily = theme_ms()$text$family, fontface = "bold",
+                                                                   size = 9, x = 0.01, hjust = 0),
+                           p, ncol = 1, rel_heights = c(7, h_body))
+    # F1 s_precision_recall: a = s_aucpr_methods, b = s_rda_correction, each as published (180 x 170 mm)
+    SINGLE <- intersect(PANEL_ORDER, c("LFMM", "RDA", "EMMAX"))
+    A2 <- s2_data(SINGLE)
+    pa <- single_cloud(A2, "label", rev(set_lab(SINGLE)), SINGLE, RULE_COL,
+                       facet_grid(rows = vars(landscape), cols = vars(arch), scales = "free_x", labeller = labeller(arch = ARCH_WRAP)))
+    S1 <- s1_data()[, landscape := factor(landscape, levels = LAND_LEV)]
+    pb <- single_cloud(S1, "series", rev(sub("^LFMM$", "LFMM2", S1_SERIES)), S1_SERIES, S1_COL,
+                       facet_grid(rows = vars(landscape), cols = vars(arch), scales = "free_x", labeller = labeller(arch = ARCH_WRAP)))
+    save_member("s_aucpr_methods", pa, 180, 170); save_member("s_rda_correction", pb, 180, 170)
+    save_ms("s_precision_recall", grid2(pa, pb, c(170, 170)), 180, 340, "supp", "B4_aucpr_per_seed.tsv; {rdaunc,onefit}_rda2x_ldb/rank_metrics.tsv")
+    # F2 s_detection_design_parts_*: a = design cells (180 x 165), b = demographic scenarios (180 x 110); F5 s_rank_strata_parts_*
+    HEAT_R <- make_heat(50, 100, 25, "Replicates in ranks 4–6 (white: chance, 50%)", "half_pct")           # the published key
+    HEAT_T <- make_heat(50, 100, 25, "% of replicates in the top three (white: 50%, the average of the six sets)", "top3_pct",
+                        cols = rev(HEAT_COL))                                  # teal above 50%, red below
+    ST <- list()
+    for (L in LAND_LEV) {
+        k <- PART_OF[[L]]; D <- DET[landscape == L]
+        a <- pDcells(D); check_ticks(a, paste("s_detection_cells", L))
+        b <- pDdemo(D); check_ticks(b, paste("s_detection_demography", L))
+        save_member(paste0("s_detection_cells_parts_", k), a, 180, 165)
+        save_member(paste0("s_detection_demography_parts_", k), b, 180, 110)
+        save_ms(paste0("s_detection_design_parts_", k), page_title(grid2(a, b, c(165, 110)), L, 275), 180, 282, "supp part",
+                paste(L, SRC_DET))
+        save_member(paste0("s_rank_strata_parts_", k), strata_fig(L, HEAT_R)$fig, 180, 110)
+        sf <- strata_fig(L, HEAT_T)
+        save_ms(paste0("s_rank_strata_parts_", k), page_title(sf$fig, L, 110), 180, 117, "supp part", paste(L, SRC_RANK, "+", SRC_DET))
+        ST[[L]] <- rbind(sf$C[, .(landscape = L, stratum_kind = "design cell", stratum = paste(arch, pleio, regime, sep = ", "),
+                                  panel, least_pct, half_pct, top3_pct, n)],
+                         sf$B[, .(landscape = L, stratum_kind = "demographic scenario", stratum = as.character(BLOCK_SHOW[as.character(block)]),
+                                  panel, least_pct, half_pct, top3_pct, n)])
+    }
+    fwrite(rbindlist(ST), file.path(CHECK, "..", "strata_top3.tsv"), sep = "\t")
 }
 F <- rbindlist(lapply(names(FIGS), function(k) data.table(stem = k, role = FIGS[[k]]$role, w_mm = FIGS[[k]]$w, h_mm = FIGS[[k]]$h, source = FIGS[[k]]$source)))
 fwrite(F, file.path(OUT, sprintf("figures_%s.tsv", MODE)), sep = "\t")
