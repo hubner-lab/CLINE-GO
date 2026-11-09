@@ -13,7 +13,9 @@
 # at which the running minimum of the smoothed curve falls to a target:
 #   critical -- the background LD of unlinked markers: the 95th percentile of
 #               sqrt(r^2) between markers on different chromosomes, squared
-#               (Breseghello & Sorrells 2006, as applied by Laido et al. 2014);
+#               (Breseghello & Sorrells 2006, as applied by Laido et al. 2014),
+#               the median over LDdecay.background_draws seeded marker samples,
+#               with its 2.5-97.5 % range over draws (ld_summarise_draws());
 #   half     -- half of the short-range LD (Zhao et al. 2011; Vos et al. 2017);
 #   r2thr    -- a fixed r^2 level.
 #
@@ -166,6 +168,37 @@ ld_background_markers <- function(chr, pos, per_chr, max_markers, seed) {
     picked <- dt[, .SD[sort(sample.int(.N, min(.N, k)))], by = chr]
     if (nrow(picked) > max_markers) picked <- picked[sort(sample.int(.N, max_markers))]
     list(markers = picked, per_chr = k)
+}
+
+# The marker samples of `draws` background draws: draw b is ld_background_markers() on
+# seed + b - 1, so draw 1 is the single draw that LDdecay.background_draws: 1 gives.
+# Every draw holds the same number of markers; when no chromosome has more SNPs than
+# are drawn from it, every draw holds the same markers.
+ld_background_draws <- function(chr, pos, per_chr, max_markers, seed, draws) {
+    stopifnot(draws >= 1)
+    lapply(seq_len(draws), function(b)
+        ld_background_markers(chr, pos, per_chr, max_markers, seed + b - 1L))
+}
+
+# The range over draws that the critical r^2 is reported with, as quantiles of the
+# per-draw values (fixed, not a config key).
+LD_BACKGROUND_INTERVAL <- c(0.025, 0.975)
+
+# One background summary from per-draw values: the median critical r^2 (the point
+# estimate) with its LD_BACKGROUND_INTERVAL quantiles over draws, and the median mean
+# r^2 and pair count. A draw with no unlinked pairs (NA) is left out of each statistic;
+# all NA gives NA. One draw gives that draw's values, with lo = hi = the value.
+ld_summarise_draws <- function(critical_r2, mean_r2, n_pairs,
+                               probs = LD_BACKGROUND_INTERVAL) {
+    med <- function(x) {
+        x <- x[is.finite(x)]
+        if (length(x)) stats::median(x) else NA_real_
+    }
+    crit <- critical_r2[is.finite(critical_r2)]
+    q <- if (length(crit)) stats::quantile(crit, probs, names = FALSE) else c(NA_real_, NA_real_)
+    list(critical_r2 = med(critical_r2), critical_r2_lo = q[1], critical_r2_hi = q[2],
+         mean_r2 = med(mean_r2), n_unlinked_pairs = med(n_pairs),
+         n_draws = length(critical_r2))
 }
 
 # The contigs among `chrs` (VCF names) that `exclude` names: LDdecay.exclude_chromosomes

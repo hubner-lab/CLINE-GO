@@ -387,11 +387,15 @@ check_in_list(LD_DECAY_SCOPE, ['genome_wide', 'per_chromosome', 'both'], 'LDdeca
 # background (ld_decay_background). max_pairs caps the pairs PLINK reports per group:
 # above it, a seeded sample of anchor SNPs is paired with every SNP of their window.
 # background_markers_per_chr markers per chromosome give the unlinked pairs whose
-# background_quantile of sqrt(r2), squared, is the critical r2. r2_threshold is the
-# level of the r2_threshold decay rule. loess_span smooths the binned curve.
+# background_quantile of sqrt(r2), squared, is the critical r2. They are drawn
+# background_draws times, draw b on seed + b - 1 (so 1 draw is the single draw of runs
+# before the key existed); the critical r2 is the median over draws, reported with its
+# 2.5-97.5 % range. r2_threshold is the level of the r2_threshold decay rule.
+# loess_span smooths the binned curve.
 LD_DECAY_MAX_PAIRS = float(_ld_decay.get('max_pairs', 2e7))
 LD_DECAY_SEED = int(_ld_decay.get('seed', _ld_decay.get('background_seed', 1)))
 LD_DECAY_BG_MARKERS_PER_CHR = int(_ld_decay.get('background_markers_per_chr', 50))
+LD_DECAY_BG_DRAWS = int(_ld_decay.get('background_draws', 100))
 LD_DECAY_BG_QUANTILE = float(_ld_decay.get('background_quantile', 0.95))
 LD_DECAY_R2_THRESHOLD = float(_ld_decay.get('r2_threshold', 0.2))
 LD_DECAY_LOESS_SPAN = float(_ld_decay.get('loess_span', 0.3))
@@ -406,6 +410,8 @@ if LD_DECAY_MAX_PAIRS < 1e4:
     raise ValueError("LDdecay.max_pairs must be >= 10000")
 if LD_DECAY_BG_MARKERS_PER_CHR < 2:
     raise ValueError("LDdecay.background_markers_per_chr must be >= 2")
+if LD_DECAY_BG_DRAWS < 1:
+    raise ValueError("LDdecay.background_draws must be >= 1")
 if not 0 < LD_DECAY_BG_QUANTILE < 1:
     raise ValueError("LDdecay.background_quantile must lie strictly between 0 and 1")
 if not 0 < LD_DECAY_R2_THRESHOLD < 1:
@@ -1546,6 +1552,7 @@ O['mantel_stats']         = _ph('mantel_stats')
 O['amova_plot']           = _ph('amova_plot')
 O['ld_decay_table']       = _ph('ld_decay_table')
 O['ld_decay_background']  = _ph('ld_decay_background')
+O['ld_decay_background_draws'] = _ph('ld_decay_background_draws')
 O['ld_decay_curve']       = _ph('ld_decay_curve')
 O['ld_decay_plot_gw']     = _ph('ld_decay_plot_gw')
 O['ld_decay_plot_gw_svg'] = _ph('ld_decay_plot_gw_svg')
@@ -1699,6 +1706,8 @@ def add_kbest_paths():
     W['ld_decay_pairs_summary'] = f"{_ld_base}pairs_summary.tsv"
     O['ld_decay_table'] = f"{MOD_STRUCT}tables/ld_decay_half_distances.tsv"
     O['ld_decay_background'] = f"{MOD_STRUCT}tables/ld_decay_background.tsv"
+    # one row per group and draw; a side file of ld_decay_background, never a declared output
+    O['ld_decay_background_draws'] = f"{MOD_STRUCT}tables/ld_decay_background_draws.tsv"
     O['ld_decay_curve'] = f"{MOD_STRUCT}tables/ld_decay_curve.tsv"
     O['ld_decay_plot_gw'] = f"{MOD_STRUCT}plots/ld_decay/ld_decay_genome_wide.png"
     O['ld_decay_plot_gw_svg'] = f"{MOD_STRUCT}plots/ld_decay/ld_decay_genome_wide.svg"

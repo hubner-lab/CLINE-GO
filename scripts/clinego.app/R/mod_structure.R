@@ -200,11 +200,19 @@ mod_structure_server <- function(id, project_data) {
             })
 
             ld_r2_note <- shiny::reactive({
+                ld_tbl <- load_ld_decay_table(pd$name)
+                n_draws <- ld_decay_background_draws(ld_tbl)
+                draws_txt <- if (is.na(n_draws)) "" else if (n_draws == 1L)
+                    ", from one background draw" else
+                    paste0(", the median over ", n_draws, " background draws; the shaded ",
+                           "bands are its 2.5–97.5 % range over draws and the distances ",
+                           "where the curve meets that range")
                 info <- filter_note(
                     "critical r²",
                     paste0(
                         "Points are binned mean r² (PLINK), lines the LOESS curves. The dashed ",
-                        "line is the critical r² of unlinked markers for 'All'; the vertical lines ",
+                        "line is the critical r² of unlinked markers for 'All'", draws_txt,
+                        ". The vertical lines ",
                         "mark where its curve meets that level (critical r²) and where it falls to ",
                         "half its short-range value (half-decay). The distances per group are ",
                         "tabulated below; an auto_* clumping distance is read from them under ",
@@ -215,7 +223,7 @@ mod_structure_server <- function(id, project_data) {
                 # auto_* distance. A table without ld_status is judged as the pipeline
                 # judges it (96e4fd), not called "not assessed".
                 htmltools::tagList(
-                    ld_decay_note(ld_decay_genome_wide_status(load_ld_decay_table(pd$name))),
+                    ld_decay_note(ld_decay_genome_wide_status(ld_tbl)),
                     info
                 )
             })
@@ -239,12 +247,17 @@ mod_structure_server <- function(id, project_data) {
             pd  <- project_data()
             tbl <- as.data.frame(ld_decay_table_status(load_ld_decay_table(pd$name)))
             ld_cols <- c("decay_critical_bp", "decay_half_bp", "decay_r2thr_bp")
+            # the critical distance's range over background draws, in tables since 2026-11-09
+            iv_cols <- c("decay_critical_bp_lo", "decay_critical_bp_hi")
             if (nrow(tbl) > 0 && all(ld_cols %in% names(tbl))) {
-                for (cc in ld_cols) tbl[[cc]] <- round(tbl[[cc]] / 1000, 2)
-                tbl <- tbl[, c("group", "scope", "ld_status", "decay_critical_bp", "decay_half_bp",
-                               "decay_r2thr_bp", "short_r2", "background_r2",
-                               "n_samples", "n_pairs")]
+                has_iv <- all(iv_cols %in% names(tbl))
+                for (cc in c(ld_cols, if (has_iv) iv_cols)) tbl[[cc]] <- round(tbl[[cc]] / 1000, 2)
+                tbl <- tbl[, c("group", "scope", "ld_status", "decay_critical_bp",
+                               if (has_iv) iv_cols, "decay_half_bp", "decay_r2thr_bp",
+                               "short_r2", "background_r2", "n_samples", "n_pairs")]
                 names(tbl) <- c("Group", "Scope", "Status", "Critical r² distance (kb)",
+                                if (has_iv) c("Critical distance, lower (kb)",
+                                              "Critical distance, upper (kb)"),
                                 "Half-decay (kb)", "r² threshold distance (kb)",
                                 "Short-range r²", "Critical r²", "N samples", "N pairs")
             } else if (nrow(tbl) > 0) {

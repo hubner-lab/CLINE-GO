@@ -333,9 +333,13 @@ rule ld_decay_pairs:
 
 rule ld_decay_background:
     """Background LD of unlinked markers per group: r2 between markers on different
-    chromosomes (a seeded sample per chromosome, PLINK --r2 inter-chr) and its critical
-    value, the 95th percentile of sqrt(r2), squared (Breseghello & Sorrells 2006).
-    Contigs in LDdecay.exclude_chromosomes give no markers."""
+    chromosomes (PLINK --r2 inter-chr) for LDdecay.background_draws seeded samples of
+    markers per chromosome, and its critical value, the 95th percentile of sqrt(r2),
+    squared (Breseghello & Sorrells 2006): the median over draws, with its 2.5 and
+    97.5 % quantiles. Draw b takes seed LDdecay.seed + b - 1, so one draw gives the
+    single-draw values of earlier runs. The per-draw table is a side file passed as a
+    param, not a declared output, so a tree finished before it existed is not
+    incomplete. Contigs in LDdecay.exclude_chromosomes give no markers."""
     input:
         vcf = W['vcf_filt'],
         prep = W['ld_decay_prep_done']
@@ -346,13 +350,17 @@ rule ld_decay_background:
         markers_per_chr = LD_DECAY_BG_MARKERS_PER_CHR,
         quantile = LD_DECAY_BG_QUANTILE,
         seed = LD_DECAY_SEED,
+        draws = LD_DECAY_BG_DRAWS,
+        draws_table = O['ld_decay_background_draws'],
         exclude = LD_DECAY_EXCLUDE_ARG
+    threads: min(CPU, 16)
     log: f"{LOGDIR}structure/ld_decay_background.log"
     shell:
         """
         Rscript /pipeline/scripts/ld_decay_background.R \
             {input.vcf} {params.sample_lists_dir} {params.markers_per_chr} \
-            {params.quantile} {params.seed} {output.table} "{params.exclude}" > {log} 2>&1
+            {params.quantile} {params.seed} {output.table} {params.draws} \
+            {params.draws_table} "{params.exclude}" > {log} 2>&1
         """
 
 rule ld_decay_analyze:

@@ -115,6 +115,8 @@ LDdecay:
   scope: "both"                    # "genome_wide", "per_chromosome", or "both"
   max_pairs: 20000000              # PLINK --r2 pairs per group; above it, seeded anchor SNPs
   background_markers_per_chr: 50   # unlinked markers per chromosome for the critical r2
+  background_draws: 100            # marker samples: the critical r2 is their median, with
+                                   # its 2.5-97.5 % range (1 = the single draw of older runs)
   r2_threshold: 0.2                # level of the r2_threshold decay rule
   min_signal_ratio: 2              # reliable curve: short-range r2 >= this x the critical r2;
                                    # an auto_* clumping distance stops on an unreliable one

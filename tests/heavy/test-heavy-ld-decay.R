@@ -69,7 +69,7 @@ test_that("ld_decay_background.R gives the mean and critical r2 of unlinked pair
     d  <- withr::local_tempdir()
     fx <- heavy_ld_fixture(d)
     out <- file.path(d, "bg.tsv")
-    res <- run_wrapper("ld_decay_background.R", c(fx$vcf, fx$sl, "15", "0.95", "1", out, "NULL"), wd = d)
+    res <- run_wrapper("ld_decay_background.R", c(fx$vcf, fx$sl, "15", "0.95", "1", out, "1", "NULL", "NULL"), wd = d)
     expect_identical(res$status, 0L, info = paste(res$output, collapse = "\n"))
     bg <- data.table::fread(out, colClasses = c(group = "character"))
     expect_identical(bg$group, c("All", "G 1"))
@@ -82,6 +82,48 @@ test_that("ld_decay_background.R gives the mean and critical r2 of unlinked pair
     expect_identical(bg[group == "All", n_unlinked_pairs], length(r2))
     expect_equal(bg[group == "All", mean_r2], mean(r2), tolerance = 1e-4)
     expect_equal(bg[group == "All", critical_r2], ld_critical_r2(r2, 0.95), tolerance = 1e-4)
+    expect_false(dir.exists(file.path(d, "background_tmp")))
+})
+
+test_that("background draws: draw 1 is the single draw, the summary their median and range", {
+    require_tools(c("plink", "bcftools"))
+    d  <- withr::local_tempdir()
+    fx <- heavy_ld_fixture(d)
+    # 5 of each chromosome's 15 SNPs per draw, so the three draws hold different markers
+    one <- file.path(d, "bg1.tsv")
+    res <- run_wrapper("ld_decay_background.R",
+                       c(fx$vcf, fx$sl, "5", "0.95", "1", one, "1", "NULL", "NULL"), wd = d)
+    expect_identical(res$status, 0L, info = paste(res$output, collapse = "\n"))
+    three <- file.path(d, "bg3.tsv")
+    per_draw <- file.path(d, "tables", "bg3_draws.tsv")
+    res <- run_wrapper("ld_decay_background.R",
+                       c(fx$vcf, fx$sl, "5", "0.95", "1", three, "3", per_draw, "NULL"), wd = d)
+    expect_identical(res$status, 0L, info = paste(res$output, collapse = "\n"))
+    b1 <- data.table::fread(one, colClasses = c(group = "character"))
+    b3 <- data.table::fread(three, colClasses = c(group = "character"))
+    pd <- data.table::fread(per_draw, colClasses = c(group = "character"))
+    expect_identical(names(b3), c("group", "n_markers", "n_unlinked_pairs", "critical_r2",
+                                  "mean_r2", "quantile", "markers_per_chr", "seed", "n_draws",
+                                  "critical_r2_lo", "critical_r2_hi"))
+    expect_identical(names(pd), c("group", "draw", "seed", "n_markers", "n_unlinked_pairs",
+                                  "critical_r2", "mean_r2"))
+    expect_identical(nrow(pd), 3L * nrow(b3))
+    expect_identical(sort(unique(pd$seed)), 1:3)
+    # draw 1 of three is the single draw
+    first <- pd[draw == 1L]
+    expect_identical(first$group, b1$group)
+    expect_equal(first$critical_r2, b1$critical_r2)
+    expect_equal(first$mean_r2, b1$mean_r2)
+    expect_identical(first$n_unlinked_pairs, b1$n_unlinked_pairs)
+    # the summary is the median over draws, inside the draws' 2.5-97.5 % range
+    med <- pd[, .(critical_r2 = stats::median(critical_r2)), by = group]
+    expect_equal(b3$critical_r2, round(med$critical_r2, 6))
+    expect_true(all(b3$critical_r2_lo <= b3$critical_r2 & b3$critical_r2 <= b3$critical_r2_hi))
+    expect_true(all(b3$critical_r2_lo < b3$critical_r2_hi))   # different markers, a real range
+    expect_identical(b3$n_draws, rep(3L, nrow(b3)))
+    # one draw: the interval is a point
+    expect_identical(b1$critical_r2_lo, b1$critical_r2)
+    expect_identical(b1$critical_r2_hi, b1$critical_r2)
     expect_false(dir.exists(file.path(d, "background_tmp")))
 })
 
@@ -112,7 +154,7 @@ test_that("X, Y, MT and Pt contigs run through both scripts under the VCF's name
 
     # the background takes the same contigs: every between-contig pair but Y's
     out <- file.path(d, "bg.tsv")
-    res <- run_wrapper("ld_decay_background.R", c(fx$vcf, fx$sl, "15", "0.95", "1", out, "NULL"), wd = d)
+    res <- run_wrapper("ld_decay_background.R", c(fx$vcf, fx$sl, "15", "0.95", "1", out, "1", "NULL", "NULL"), wd = d)
     expect_identical(res$status, 0L, info = paste(res$output, collapse = "\n"))
     bg <- data.table::fread(out, colClasses = c(group = "character"))
     X <- no_y$X; chr <- no_y$info$chr
@@ -147,7 +189,8 @@ test_that("LDdecay.exclude_chromosomes leaves its contigs out of the curve and t
 
     out <- file.path(d, "bg.tsv")
     res <- run_wrapper("ld_decay_background.R",
-                       c(fx$vcf, fx$sl, "15", "0.95", "1", out, "X,Y,chrM,pt"), wd = d)
+                       c(fx$vcf, fx$sl, "15", "0.95", "1", out, "1", "NULL", "X,Y,chrM,pt"),
+                       wd = d)
     expect_identical(res$status, 0L, info = paste(res$output, collapse = "\n"))
     bg <- data.table::fread(out, colClasses = c(group = "character"))
     X <- auto$X; chr <- auto$info$chr
@@ -219,7 +262,8 @@ test_that("a VCF whose chromosomes are out of PLINK's order keeps its names and 
     # order-bound; 15 markers per chromosome = every SNP, the same set in both orders
     bg <- function(vcf, out) {
         res <- run_wrapper("ld_decay_background.R",
-                           c(vcf, fx$sl, "15", "0.95", "1", file.path(d, out), "NULL"), wd = d)
+                           c(vcf, fx$sl, "15", "0.95", "1", file.path(d, out), "1", "NULL",
+                             "NULL"), wd = d)
         expect_identical(res$status, 0L, info = paste(res$output, collapse = "\n"))
         data.table::fread(file.path(d, out))
     }

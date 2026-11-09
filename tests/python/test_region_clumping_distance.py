@@ -239,6 +239,8 @@ class TestLdDecayKeys(unittest.TestCase):
         self.assertEqual(ns["LD_DECAY_MAX_PAIRS"], 2e7)
         self.assertEqual(ns["LD_DECAY_R2_THRESHOLD"], 0.2)
         self.assertEqual(ns["LD_DECAY_SEED"], 1)
+        self.assertEqual(ns["LD_DECAY_BG_DRAWS"], 100)
+        self.assertEqual(load(LDdecay__background_draws=1)["LD_DECAY_BG_DRAWS"], 1)
         self.assertEqual(ns["LD_DECAY_MIN_SIGNAL_RATIO"], 2.0)
         self.assertEqual(load(LDdecay__min_signal_ratio=3)["LD_DECAY_MIN_SIGNAL_RATIO"], 3.0)
         self.assertTrue(ns["LD_DECAY_TAG"].startswith("plink_"))
@@ -249,6 +251,20 @@ class TestLdDecayKeys(unittest.TestCase):
         rule = re.search(r"^rule ld_decay_analyze:\n(.*?)(?=^rule |\Z)", text, re.S | re.M).group(1)
         self.assertIn("min_signal_ratio = LD_DECAY_MIN_SIGNAL_RATIO", rule)
         self.assertIn("{params.loess_span} \\\n            {params.min_signal_ratio} > {log}", rule)
+
+    def test_background_draws_reach_the_rule_as_params(self):
+        with open(STRUCTURE) as handle:
+            text = handle.read()
+        rule = re.search(r"^rule ld_decay_background:\n(.*?)(?=^rule |\Z)", text,
+                         re.S | re.M).group(1)
+        self.assertIn("draws = LD_DECAY_BG_DRAWS", rule)
+        self.assertIn("draws_table = O['ld_decay_background_draws']", rule)
+        self.assertIn('{params.draws} \\\n            {params.draws_table} "{params.exclude}" > {log}',
+                      rule)
+        # The per-draw table is a side file. As a declared output it would make every tree
+        # finished before it existed incomplete, and rerun the background there.
+        output = re.search(r"output:\n(.*?)\n    params:", rule, re.S).group(1)
+        self.assertNotIn("draws", output)
 
     def test_exclude_chromosomes_is_none_by_default(self):
         ns = load()
@@ -284,6 +300,7 @@ class TestLdDecayKeys(unittest.TestCase):
     def test_invalid_values_fail_at_parse_time(self):
         for key, value in (("LDdecay__max_pairs", 10), ("LDdecay__r2_threshold", 1.5),
                            ("LDdecay__background_markers_per_chr", 1),
+                           ("LDdecay__background_draws", 0),
                            ("LDdecay__max_distance", 0), ("LDdecay__min_signal_ratio", 1),
                            ("LDdecay__min_signal_ratio", 0.5)):
             with self.subTest(key=key):

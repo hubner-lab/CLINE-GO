@@ -151,6 +151,45 @@ test_that("ld_background_markers keeps per_chr per chromosome and never exceeds 
     expect_identical(data.table::uniqueN(frag$markers$chr), 2000L)
 })
 
+test_that("ld_background_draws: draw b is the single draw on seed + b - 1", {
+    chr <- rep(c("1", "2", "3"), each = 40)
+    pos <- rep(seq_len(40) * 1000L, 3)
+    d <- ld_background_draws(chr, pos, per_chr = 10, max_markers = 2000, seed = 7, draws = 3)
+    expect_length(d, 3L)
+    # draw 1 is what LDdecay.background_draws: 1 gives, the single draw of earlier runs
+    expect_identical(d[[1]], ld_background_markers(chr, pos, 10, 2000, 7))
+    expect_identical(d[[3]], ld_background_markers(chr, pos, 10, 2000, 9))
+    expect_identical(vapply(d, function(x) nrow(x$markers), 1L), rep(30L, 3))
+    expect_false(identical(d[[1]]$markers, d[[2]]$markers))
+    # every SNP drawn: every draw holds the same markers, so the interval is a point
+    all_snps <- ld_background_draws(chr, pos, per_chr = 40, max_markers = 2000, seed = 7, draws = 3)
+    expect_identical(all_snps[[1]]$markers, all_snps[[2]]$markers)
+    expect_identical(all_snps[[1]]$markers, all_snps[[3]]$markers)
+})
+
+test_that("ld_summarise_draws: the median critical r2 lies inside its range over draws", {
+    crit <- c(0.10, 0.12, 0.08, 0.11, 0.09)
+    s <- ld_summarise_draws(crit, mean_r2 = c(0.03, 0.04, 0.02, 0.05, 0.03),
+                            n_pairs = c(100, 102, 98, 101, 99))
+    expect_equal(s$critical_r2, 0.10)
+    expect_equal(s$critical_r2_lo, stats::quantile(crit, 0.025, names = FALSE))
+    expect_equal(s$critical_r2_hi, stats::quantile(crit, 0.975, names = FALSE))
+    expect_true(s$critical_r2_lo <= s$critical_r2 && s$critical_r2 <= s$critical_r2_hi)
+    expect_equal(s$mean_r2, 0.03)
+    expect_equal(s$n_unlinked_pairs, 100)
+    expect_identical(s$n_draws, 5L)
+    # one draw: the estimate is that draw and the interval a point
+    one <- ld_summarise_draws(0.1234, 0.05, 321)
+    expect_identical(c(one$critical_r2, one$critical_r2_lo, one$critical_r2_hi), rep(0.1234, 3))
+    # a draw without unlinked pairs is left out; none at all gives NA
+    gap <- ld_summarise_draws(c(NA, 0.1, 0.2), c(NA, 0.01, 0.03), c(0, 10, 12))
+    expect_equal(gap$critical_r2, 0.15)
+    expect_identical(gap$n_draws, 3L)
+    none <- ld_summarise_draws(c(NA_real_, NA_real_), c(NA_real_, NA_real_), c(0, 0))
+    expect_true(is.na(none$critical_r2) && is.na(none$critical_r2_lo) &&
+                is.na(none$critical_r2_hi) && is.na(none$mean_r2))
+})
+
 test_that("ld_scratch_dir makes a fresh folder beside a file or a folder", {
     d <- withr::local_tempdir()
     s <- ld_scratch_dir(file.path(d, "out.tsv"), "x_tmp")
@@ -196,7 +235,13 @@ test_that("ld_decay_analyze.R writes background-aware distances and curves", {
                                    "short_r2", "background_r2", "background_mean_r2",
                                    "decay_critical_bp", "decay_half_bp", "decay_r2thr_bp",
                                    "r2_threshold", "decay_method", "ld_status",
-                                   "ld_status_reason"))
+                                   "ld_status_reason", "background_r2_lo", "background_r2_hi",
+                                   "decay_critical_bp_lo", "decay_critical_bp_hi",
+                                   "n_background_draws"))
+    # a background table from before the draws: no interval and no draw count
+    expect_true(all(is.na(unlist(tab[, .(background_r2_lo, background_r2_hi,
+                                         decay_critical_bp_lo, decay_critical_bp_hi,
+                                         n_background_draws)]))))
     expect_identical(tab$ld_status, "reliable")   # short r2 ~0.6 over a critical 0.1
     expect_equal(tab$decay_method, "loess_log")
     expect_equal(tab$background_r2, 0.1)
@@ -207,6 +252,36 @@ test_that("ld_decay_analyze.R writes background-aware distances and curves", {
     expect_gt(nrow(cv), 100L)
     expect_true(all(diff(cv$r2_mono) <= 0))
     expect_false(dir.exists(file.path(d, "analyze_tmp")))   # scratch removed, never in tempdir()
+})
+
+test_that("ld_decay_analyze.R reads the critical distance's range off the background draws", {
+    d <- withr::local_tempdir()
+    gw <- file.path(d, "stat_gw"); dir.create(gw)
+    fx_stat_gz(gw, "All")      # 0.6 * exp(-d / 20000) + 0.02, at 1-60 kb
+    mf <- write_tsv(data.table::data.table(group = "All", n_samples = 50L, list_file = "All"),
+                    file.path(d, "manifest.tsv"))
+    bg <- write_tsv(data.table::data.table(
+        group = "All", n_markers = 250L, n_unlinked_pairs = 25000L, critical_r2 = 0.1,
+        mean_r2 = 0.04, quantile = 0.95, markers_per_chr = 50L, seed = 1L, n_draws = 100L,
+        critical_r2_lo = 0.08, critical_r2_hi = 0.12), file.path(d, "ld_decay_background.tsv"))
+    out <- file.path(d, "half.tsv"); png <- file.path(d, "gw.png")
+    res <- run_wrapper("ld_decay_analyze.R",
+                       c("genome_wide", gw, file.path(d, "none"), mf,
+                         file.path(d, "chromosomes.txt"), out, png, "NULL",
+                         bg, "0.2", "NULL", "0.3", "2"), wd = d)
+    expect_equal(res$status, 0L, info = paste(res$output, collapse = "\n"))
+    tab <- data.table::fread(out)
+    expect_equal(c(tab$background_r2, tab$background_r2_lo, tab$background_r2_hi),
+                 c(0.1, 0.08, 0.12))
+    expect_identical(tab$n_background_draws, 100L)
+    # the curve falls, so the higher r2 is met first; analytic crossings of r2 on
+    # 0.6 * exp(-d / 20000) + 0.02 at d = 20000 * log(0.6 / (r2 - 0.02))
+    expect_equal(tab$decay_critical_bp_lo, 20000 * log(0.6 / 0.10), tolerance = 0.08)
+    expect_equal(tab$decay_critical_bp_hi, 20000 * log(0.6 / 0.06), tolerance = 0.08)
+    expect_lt(tab$decay_critical_bp_lo, tab$decay_critical_bp)
+    expect_gt(tab$decay_critical_bp_hi, tab$decay_critical_bp)
+    expect_true(any(grepl("over 100 background draws", res$output)))
+    expect_gt(file.size(png), 0)   # the plot with its two bands
 })
 
 test_that("ld_decay_analyze.R marks a curve with no room to decay unreliable", {

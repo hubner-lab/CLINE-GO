@@ -71,8 +71,8 @@ fx_pvalues <- function(d, name = "pvalues.tsv") {
 }
 
 # LD-decay table as mode=structure writes it (ld_decay_analyze.R): one genome-wide row
-# for the group "All". The critical-r2 rule resolves to 3,100 bp, half-decay to
-# 1,240 bp and r2 = 0.2 to 2,600 bp.
+# for the group "All". The critical-r2 rule resolves to 3,100 bp (2,800 to 3,500 bp
+# over 100 background draws), half-decay to 1,240 bp and r2 = 0.2 to 2,600 bp.
 fx_ld_decay <- function(path) {
     dir.create(dirname(path), recursive = TRUE, showWarnings = FALSE)
     write_tsv(data.table::data.table(
@@ -80,7 +80,9 @@ fx_ld_decay <- function(path) {
         max_dist_bp = 500000, short_r2 = 0.45, background_r2 = 0.06,
         background_mean_r2 = 0.02, decay_critical_bp = 3100, decay_half_bp = 1240,
         decay_r2thr_bp = 2600, r2_threshold = 0.2, decay_method = "loess_log",
-        ld_status = "reliable", ld_status_reason = ""), path)
+        ld_status = "reliable", ld_status_reason = "", background_r2_lo = 0.05,
+        background_r2_hi = 0.07, decay_critical_bp_lo = 2800, decay_critical_bp_hi = 3500,
+        n_background_draws = 100L), path)
     path
 }
 
@@ -423,7 +425,7 @@ fx_dbmem_diag <- function(d, name = "dbmem_diagnostics.tsv") {
     write_tsv(dt, file.path(d, name))
 }
 
-# The fifteen columns of ld_decay_analyze.R's table (the populated table and the
+# The twenty columns of ld_decay_analyze.R's table (the populated table and the
 # empty skeleton now share them), which write_summary.R's structure branch reads
 # back: one fixture for both sides, so a column rename cannot pass one and fail the
 # other silently. The group == "All" & scope == "genome_wide" row is what it picks;
@@ -444,7 +446,12 @@ fx_ld_decay_table <- function(d, name = "ld_decay_half_distances.tsv") {
         r2_threshold = 0.2,
         decay_method = "loess_log",
         ld_status = "reliable",
-        ld_status_reason = ""),
+        ld_status_reason = "",
+        background_r2_lo = c(0.07, 0.07, 0.27),
+        background_r2_hi = c(0.09, 0.09, 0.33),
+        decay_critical_bp_lo = c(2900, 2800, 2300),
+        decay_critical_bp_hi = c(3300, 3150, 2600),
+        n_background_draws = 100L),
         file.path(d, name))
 }
 

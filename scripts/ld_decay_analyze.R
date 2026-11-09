@@ -12,6 +12,10 @@
 #                        (Zhao et al. 2011; Vos et al. 2017);
 #   decay_r2thr_bp    -- where it falls to the fixed r^2 R2_THRESHOLD.
 # NA means the curve never reaches that level within the measured distance.
+# The critical r^2 is the median over the background's draws (ld_decay_background.R);
+# background_r2_lo / _hi are its 2.5 and 97.5 % quantiles over draws, and
+# decay_critical_bp_lo / _hi where the curve meets the higher and the lower of them,
+# from n_background_draws draws. A background table written before the draws gives NA.
 # ld_status / ld_status_reason: whether the curve can give a distance at all
 # (ld_reliability() in region_distance.R: short-range r^2 at least MIN_SIGNAL_RATIO times
 # the critical r^2);
@@ -101,7 +105,10 @@ message(paste0("INFO: Groups to analyze: ", paste(manifest$group, collapse = ", 
 bg <- if (BACKGROUND_TABLE != "NULL" && file.exists(BACKGROUND_TABLE)) {
     fread(BACKGROUND_TABLE, colClasses = c(group = "character"))
 } else data.table(group = character(), critical_r2 = numeric(), mean_r2 = numeric())
-if (!"mean_r2" %in% names(bg)) bg[, mean_r2 := NA_real_]
+# A table from before the background draws has no interval and no draw count.
+for (col in c("mean_r2", "critical_r2_lo", "critical_r2_hi", "n_draws")) {
+    if (!col %in% names(bg)) bg[, (col) := NA_real_]
+}
 bg_of <- function(grp, col) {
     v <- bg[group == grp][[col]]
     if (length(v) == 0) NA_real_ else v[1]
@@ -136,13 +143,19 @@ analyze_one <- function(raw, grp, n_samp, scope) {
             dist_bp = round(dist_bp, 1), r2 = round(r2, 6), r2_mono = round(r2_mono, 6))]
     }
     rel <- ld_reliability(dd$short_r2, dd$background_r2, dd$method, MIN_SIGNAL_RATIO)
+    # The curve falls with distance, so the higher r^2 of the interval is met first.
+    r2_lo <- bg_of(grp, "critical_r2_lo"); r2_hi <- bg_of(grp, "critical_r2_hi")
     data.table(group = grp, scope = scope, n_samples = n_samp, n_pairs = sum(raw$n_pairs),
                max_dist_bp = max(raw$dist_bp), short_r2 = round(dd$short_r2, 4),
                background_r2 = dd$background_r2,
                background_mean_r2 = bg_of(grp, "mean_r2"),
                decay_critical_bp = round(dd$critical_bp), decay_half_bp = round(dd$half_bp),
                decay_r2thr_bp = round(dd$r2thr_bp), r2_threshold = R2_THRESHOLD,
-               decay_method = dd$method, ld_status = rel$status, ld_status_reason = rel$reason)
+               decay_method = dd$method, ld_status = rel$status, ld_status_reason = rel$reason,
+               background_r2_lo = r2_lo, background_r2_hi = r2_hi,
+               decay_critical_bp_lo = round(ld_first_crossing(dd$curve, r2_hi)),
+               decay_critical_bp_hi = round(ld_first_crossing(dd$curve, r2_lo)),
+               n_background_draws = as.integer(bg_of(grp, "n_draws")))
 }
 
 if (SCOPE %in% c("genome_wide", "both")) {
@@ -152,9 +165,12 @@ if (SCOPE %in% c("genome_wide", "both")) {
         row <- analyze_one(raw, manifest$group[i], manifest$n_samples[i], "genome_wide")
         if (!is.null(row)) {
             results[[length(results) + 1]] <- row
+            interval <- if (is.na(row$n_background_draws)) "" else
+                paste0(" (", .kb(row$decay_critical_bp_lo), " to ", .kb(row$decay_critical_bp_hi),
+                       " over ", row$n_background_draws, " background draws)")
             message(paste0("INFO: ", row$group, " genome-wide: critical ", .kb(row$decay_critical_bp),
-                           ", half-decay ", .kb(row$decay_half_bp), ", r2 = ", R2_THRESHOLD,
-                           " at ", .kb(row$decay_r2thr_bp)))
+                           interval, ", half-decay ", .kb(row$decay_half_bp), ", r2 = ",
+                           R2_THRESHOLD, " at ", .kb(row$decay_r2thr_bp)))
             if (row$ld_status == "unreliable") {
                 message(paste0("WARNING: ", row$group, " genome-wide LD decay is unreliable: ",
                                row$ld_status_reason))
@@ -185,7 +201,9 @@ result_table <- if (length(results) > 0) rbindlist(results) else
                decay_critical_bp = numeric(), decay_half_bp = numeric(),
                decay_r2thr_bp = numeric(), r2_threshold = numeric(),
                decay_method = character(), ld_status = character(),
-               ld_status_reason = character())
+               ld_status_reason = character(), background_r2_lo = numeric(),
+               background_r2_hi = numeric(), decay_critical_bp_lo = numeric(),
+               decay_critical_bp_hi = numeric(), n_background_draws = integer())
 fwrite(result_table, OUT_TABLE, sep = "\t")
 message(paste0("INFO: Written results table: ", OUT_TABLE, " (", nrow(result_table), " rows)"))
 
@@ -227,7 +245,28 @@ decay_plot <- function(pts, crv, res, facet = FALSE) {
                     all_res[!is.na(decay_half_bp), .(scope, dist_bp = decay_half_bp,
                                                       rule = "half-decay")])
     hline <- all_res[!is.na(background_r2), .(scope, r2 = background_r2)]
-    p <- ggplot() +
+    # The critical r^2's range over background draws (horizontal band, across the data's
+    # distances: the log axis turns -Inf into NaN) and the distances where the 'All'
+    # curve meets it (vertical band). A point interval draws nothing.
+    x_rng <- rbind(pts[, .(scope, dist_bp)], crv[, .(scope, dist_bp)])[
+        , .(x_min = min(dist_bp), x_max = max(dist_bp)), by = scope]
+    band_r2 <- merge(all_res[is.finite(background_r2_lo) & is.finite(background_r2_hi),
+                             .(scope, r2_lo = background_r2_lo, r2_hi = background_r2_hi)],
+                     x_rng, by = "scope")
+    band_bp <- all_res[is.finite(decay_critical_bp_lo) & is.finite(decay_critical_bp_hi),
+                       .(scope, bp_lo = decay_critical_bp_lo, bp_hi = decay_critical_bp_hi)]
+    p <- ggplot()
+    if (nrow(band_r2)) {
+        p <- p + geom_rect(data = band_r2, aes(xmin = x_min, xmax = x_max, ymin = r2_lo,
+                                               ymax = r2_hi),
+                           fill = CLINEGO_THRESHOLD, alpha = 0.15)
+    }
+    if (nrow(band_bp)) {
+        p <- p + geom_rect(data = band_bp, aes(xmin = bp_lo, xmax = bp_hi, ymin = -Inf,
+                                               ymax = Inf),
+                           fill = CLINEGO_THRESHOLD, alpha = 0.15)
+    }
+    p <- p +
         geom_point(data = pts, aes(dist_bp, mean_r2, color = group_label), size = 0.6, alpha = 0.5) +
         geom_line(data = crv, aes(dist_bp, r2, color = group_label, linewidth = group_label)) +
         scale_color_manual(values = cols, name = "Group") +

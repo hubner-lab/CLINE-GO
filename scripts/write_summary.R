@@ -438,6 +438,13 @@ if (MODE == 'processing') {
                 row('structure', 'ld_decay_r2_threshold_genome_wide', gw_all$decay_r2thr_bp[1]),
                 row('structure', 'ld_decay_critical_r2', gw_all$background_r2[1])
             )
+            # the critical distance's range over the background draws (tables since 2026-11-09)
+            if (all(c('decay_critical_bp_lo', 'decay_critical_bp_hi') %in% names(gw_all))) {
+                new_rows <- rbind(new_rows,
+                    row('structure', 'ld_decay_critical_bp_lo', gw_all$decay_critical_bp_lo[1]),
+                    row('structure', 'ld_decay_critical_bp_hi', gw_all$decay_critical_bp_hi[1])
+                )
+            }
             if ('ld_status' %in% names(gw_all)) {
                 new_rows <- rbind(new_rows,
                     row('structure', 'ld_decay_status_genome_wide', gw_all$ld_status[1]),

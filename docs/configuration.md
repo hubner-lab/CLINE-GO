@@ -197,6 +197,7 @@ LDdecay:
   scope: both
   max_pairs: 20000000
   background_markers_per_chr: 50
+  background_draws: 100
   background_quantile: 0.95
   r2_threshold: 0.2
   loess_span: 0.3
@@ -212,6 +213,7 @@ LDdecay:
 | `LDdecay.scope` | `"genome_wide"`, `"per_chromosome"`, or `"both"` | `"both"` |
 | `LDdecay.max_pairs` | SNP pairs PLINK computes per group; above it, a seeded sample of anchor SNPs is paired with every SNP of their window (all distances thinned evenly) | `2e7` |
 | `LDdecay.background_markers_per_chr` | Markers sampled per chromosome for the unlinked (between-chromosome) pairs | `50` |
+| `LDdecay.background_draws` | Independent marker samples (draw b on seed `seed + b - 1`). The critical r² is the median over draws; `ld_decay_background.tsv` adds its 2.5 and 97.5 % quantiles over draws, and the LD-decay table the critical distances at those levels (`decay_critical_bp_lo`, `_hi`). `ld_decay_background_draws.tsv` holds every draw. `1` gives the single draw of runs before this key, value for value | `100` |
 | `LDdecay.background_quantile` | Quantile of sqrt(r²) of unlinked pairs whose square is the critical r² | `0.95` |
 | `LDdecay.r2_threshold` | r² level of the `r2_threshold` decay rule | `0.2` |
 | `LDdecay.loess_span` | Span of the LOESS curve through the binned mean r² | `0.3` |

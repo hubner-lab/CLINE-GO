@@ -307,9 +307,10 @@ HEAVY_WRAPPERS <- list(
         outputs = function(d) file.path(d, "EMMAX_pvalues.tsv")
     ),
     list(
-        # Background LD of unlinked markers: plink --r2 inter-chr on a seeded sample
-        # of markers per chromosome, for All and one sub-group. testdata.vcf has five
-        # chromosomes, so both rows get unlinked pairs and a finite critical r2.
+        # Background LD of unlinked markers: plink --r2 inter-chr on three seeded
+        # samples of markers per chromosome, for All and one sub-group, with the
+        # per-draw side table. testdata.vcf has five chromosomes, so both rows get
+        # unlinked pairs and a finite critical r2.
         label   = "ld_decay_background.R (plink inter-chr r2)",
         script  = "ld_decay_background.R",
         tools   = c("plink", "bcftools"),
@@ -328,8 +329,10 @@ HEAVY_WRAPPERS <- list(
             list(vcf = vcf, sl = sl)
         },
         args    = function(d, f) c(f$vcf, f$sl, "20", "0.95", "1",
-                                   file.path(d, "ld_decay_background.tsv"), "NULL"),
-        outputs = function(d) file.path(d, "ld_decay_background.tsv")
+                                   file.path(d, "ld_decay_background.tsv"), "3",
+                                   file.path(d, "ld_decay_background_draws.tsv"), "NULL"),
+        outputs = function(d) file.path(d, c("ld_decay_background.tsv",
+                                             "ld_decay_background_draws.tsv"))
     ),
     list(
         # LD-decay pairs: PLINK --r2 within 20 kb on a 26-chromosome fixture with

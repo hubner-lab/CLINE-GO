@@ -93,6 +93,19 @@ ld_decay_genome_wide_status <- function(tbl, group = "All") {
     list(status = st, reason = if (is.na(reason)) "" else reason)
 }
 
+#' Number of background draws behind a group's genome-wide critical r² (the median of
+#' that many draws, LDdecay.background_draws).
+#' @param tbl LD-decay table (load_ld_decay_table()).
+#' @return an integer, or NA for a table from before the draws (no n_background_draws)
+#'   or with no genome-wide row for the group.
+#' @noRd
+ld_decay_background_draws <- function(tbl, group = "All") {
+    if (!nrow(tbl) || !"n_background_draws" %in% names(tbl)) return(NA_integer_)
+    want <- group
+    n <- tbl$n_background_draws[tbl$group == want & tbl$scope == "genome_wide"]
+    if (!length(n)) NA_integer_ else as.integer(n[1])
+}
+
 #' Load sample heterozygosity table
 #' @noRd
 load_sample_heterozygosity <- function(project) {

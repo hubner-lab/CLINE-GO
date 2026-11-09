@@ -234,6 +234,17 @@ test_that("ld_decay_genome_wide_status reads ld_status of a group's genome-wide 
     expect_null(ld_decay_genome_wide_status(data.table::data.table()))
 })
 
+test_that("ld_decay_background_draws reads a group's draw count, NA for an older table", {
+    tbl <- data.table::data.table(group = c("All", "All", "C1"),
+                                  scope = c("1", "genome_wide", "genome_wide"),
+                                  n_background_draws = c(7L, 100L, 100L))
+    expect_identical(ld_decay_background_draws(tbl), 100L)
+    expect_identical(ld_decay_background_draws(tbl, "nowhere"), NA_integer_)
+    # a table from before the draws, and no table at all
+    expect_identical(ld_decay_background_draws(tbl[, !"n_background_draws"]), NA_integer_)
+    expect_identical(ld_decay_background_draws(data.table::data.table()), NA_integer_)
+})
+
 test_that("a table without ld_status is judged as the pipeline judges it (96e4fd, 8bbdee)", {
     tbl <- data.table::fread(ld_table_file(), colClasses = c(group = "character"))
     old <- tbl[, !c("ld_status", "ld_status_reason")]

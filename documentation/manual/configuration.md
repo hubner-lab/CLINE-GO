@@ -125,6 +125,7 @@ which significant SNPs are merged (see `GEA.snp_clumping_distance`).
 | `LDdecay.r2_threshold` | 0.2 | The r² level of the `r2_threshold` rule. |
 | `LDdecay.min_signal_ratio` | 2 | A decay curve counts as reliable when its short-range r² is at least this many times the r² of unlinked markers. An `auto_*` distance stops on an unreliable genome-wide curve; then give a distance in bp. |
 | `LDdecay.exclude_chromosomes` | none | Contigs left out of the curve, as one string: `"X,Y,MT,Pt"`. |
+| `LDdecay.background_draws` | 100 | Independent marker samples for the r² of unlinked markers. The critical r² is their median, and the LD-decay table gives its 2.5-97.5 % range and the critical distances at those two levels. `1` gives the single draw of earlier runs. |
 | `LDdecay.max_pairs`, `background_markers_per_chr`, `background_quantile`, `loess_span`, `seed` | 2e7, 50, 0.95, 0.3, 1 | Sampling and smoothing details; the defaults suit most data. |
 
 ## GEA
