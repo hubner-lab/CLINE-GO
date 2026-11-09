@@ -20,6 +20,11 @@
 #   resources/modes.tsv                         one row per finished run
 #
 # ARAB_CORES and ARAB_MEMORY override --cores 120 and --memory 500g.
+#
+# The image is the code that runs: clinego executes the pipeline baked at /pipeline, not this
+# checkout, and --image skips clinego's check that the two agree. So each config is pinned to an
+# image below, built with `clinego build --tag` from the commit its runs need. A pipeline change
+# reaches a project only through a new image and a new line here.
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "$0")/../.." && pwd -P)
@@ -27,7 +32,6 @@ SELF=$ROOT/manuscript/arabidopsis/run_mode.sh
 [ -x "$SELF" ] || { echo "run_mode.sh: $SELF is not executable" >&2; exit 2; }
 cd "$ROOT" || exit 2
 
-IMAGE=cline-go:6cdedcc
 CORES=${ARAB_CORES:-120}
 MEMORY=${ARAB_MEMORY:-500g}
 INTERVAL=15
@@ -56,6 +60,11 @@ shift 2
 [ -f "$CONFIG" ] || { echo "run_mode.sh: no config $CONFIG in $ROOT" >&2; exit 2; }
 STEM=$(basename "$CONFIG" .yaml)
 NAME=clinego-$STEM-$MODE
+case "$STEM" in
+    # ce4c704: compute_relatedness prunes SNPs passing Filter.maf and snp_miss (plan shiny-seeking-scott)
+    config_Arabidopsis1135maf01) IMAGE=cline-go:1700e49 ;;
+    *) IMAGE=cline-go:6cdedcc ;;
+esac
 
 if [ "${ARAB_DETACHED:-}" != 1 ]; then
     mkdir -p "$RUNLOGS" "$RESOURCES"
