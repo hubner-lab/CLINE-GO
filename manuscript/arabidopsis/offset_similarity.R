@@ -33,7 +33,9 @@ gardens <- fread(file.path(data_dir, "garden_sites.tsv"), select = c("garden", "
 setnames(gardens, "bio_1", "bio_garden")
 
 paths <- Sys.glob(file.path(tables, "*", "*", "garden_*", "genetic_offset_site.tsv"))
-if (length(paths) == 0L) stop("No garden offsets under ", tables)
+# Only the <set>_nospatial runs: a spatial Gradient Forest would otherwise enter as one more set.
+paths <- paths[endsWith(basename(dirname(dirname(paths))), "_nospatial")]
+if (length(paths) == 0L) stop("No nospatial garden offsets under ", tables)
 offsets <- rbindlist(lapply(paths, function(path) {
   run_dir <- dirname(dirname(path))
   x <- fread(path, select = c("sample", "genetic_offset"), colClasses = c(sample = "character"))

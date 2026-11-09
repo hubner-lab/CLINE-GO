@@ -1,7 +1,7 @@
 #!/usr/bin/env Rscript
 # offset_eval.R: do genomic offsets predict first-year fitness in the GrENE-net gardens?
 #
-#   Rscript manuscript/arabidopsis/offset_eval.R <project> [--drop-gardens 10,13,26,60]
+#   Rscript manuscript/arabidopsis/offset_eval.R <project> [--drop-gardens 10,13,26,60] [--tag spatial]
 #   Rscript manuscript/arabidopsis/offset_eval.R --reproduce
 #   Rscript manuscript/arabidopsis/offset_eval.R --self-test
 #
@@ -32,6 +32,11 @@
 # Reads data/arabidopsis1135/ and <project>_results/Maladaptation/tables/. Writes
 # ANALYSIS/Arabidopsis1135/offset/: baseline_reproduction.tsv, and per project summary.tsv,
 # garden_means.tsv, replicate_rho.tsv, coverage.tsv. --drop-gardens writes to a subfolder.
+#
+# Runs are told apart by their folder tag. The default scores the <set>_nospatial runs only, so a
+# spatial Gradient Forest beside them never enters the table or its Holm family. --tag spatial scores
+# the <set>_spatial runs alone (Gradient Forest is the only method with them) into
+# offset/<project>_spatial/, with Holm over those runs.
 #
 # Run from the repo root, in the image.
 
@@ -118,13 +123,17 @@ spread <- function(rho, prefix) {
            paste0(prefix, c("_mean", "_median", "_q1", "_q3")))
 }
 
-discover_runs <- function(results) {
+discover_runs <- function(results, tag = "nospatial") {
   paths <- Sys.glob(file.path(results, "Maladaptation", "tables", "*", "*", "garden_*",
                               "genetic_offset_site.tsv"))
   if (length(paths) == 0L) stop("No garden offsets under ", results)
   run_dirs <- dirname(dirname(paths))
-  data.table(method = basename(dirname(run_dirs)), set = sub("_nospatial$", "", basename(run_dirs)),
-             garden = as.integer(sub("^garden_", "", basename(dirname(paths)))), path = paths)
+  suffix <- paste0("_", tag)
+  keep <- endsWith(basename(run_dirs), suffix)   # "_spatial" is not a suffix of "_nospatial"
+  if (!any(keep)) stop("No ", tag, " garden offsets under ", results)
+  data.table(method = basename(dirname(run_dirs[keep])),
+             set = substr(basename(run_dirs[keep]), 1L, nchar(basename(run_dirs[keep])) - nchar(suffix)),
+             garden = as.integer(sub("^garden_", "", basename(dirname(paths[keep])))), path = paths[keep])
 }
 
 # One method and set: rho of the offset and of its paired baseline, per replicate. Offsets join the
@@ -157,12 +166,18 @@ score_run <- function(files, inputs, replicates) {
 
 # Every stored set against every method. A set the pipeline used but with no offsets is reported;
 # a run missing some gardens would make its gardens unpaired, so that stops.
-check_coverage <- function(results, files, n_gardens) {
+check_coverage <- function(results, files, n_gardens, tag = "nospatial") {
   stored <- fread(file.path(results, "Maladaptation", "tables", "snp_sets_summary.tsv"),
                   select = c("set", "n_snps", "used", "reason"))
   stopifnot(all(files$set %in% stored$set))
+  methods <- offset_methods
+  if (tag != "nospatial") {
+    # Spatial runs exist only for Gradient Forest and only for the sets asked for.
+    methods <- "gradient_forest"
+    stored <- stored[set %in% files$set]
+  }
   found <- files[, .(gardens_found = uniqueN(garden)), by = .(method, set)]
-  coverage <- found[CJ(method = offset_methods, set = stored$set), on = .(method, set)]
+  coverage <- found[CJ(method = methods, set = stored$set), on = .(method, set)]
   coverage <- stored[coverage, on = "set"]
   coverage[is.na(gardens_found), gardens_found := 0L]
 
@@ -200,10 +215,10 @@ compare_to_draws <- function(per_replicate, garden_means) {
   merge(draws, tests, by = c("method", "target"))
 }
 
-evaluate_tree <- function(results, out_dir, inputs, drop_gardens = integer()) {
+evaluate_tree <- function(results, out_dir, inputs, drop_gardens = integer(), tag = "nospatial") {
   replicates <- inputs$replicates[!garden %in% drop_gardens]
-  files <- discover_runs(results)[!garden %in% drop_gardens]
-  coverage <- check_coverage(results, files, uniqueN(replicates$garden))
+  files <- discover_runs(results, tag)[!garden %in% drop_gardens]
+  coverage <- check_coverage(results, files, uniqueN(replicates$garden), tag)
 
   per_replicate <- files[, score_run(.SD, inputs, replicates), by = .(method, set)]
   if (anyNA(per_replicate$rho_offset) || anyNA(per_replicate$rho_climate)) {
@@ -344,7 +359,7 @@ self_test <- function(inputs) {
   columns_of <- split(inputs$replicates$column, inputs$replicates$garden)
   set.seed(42L)
   write_run <- function(method, set, offset_of, dropped = character(), blanked = character(),
-                        id_prefix = "") {
+                        id_prefix = "", tag = "nospatial") {
     for (this_garden in inputs$gardens$garden) {
       garden_bio <- inputs$gardens[garden == this_garden, bio_garden]
       rows <- samples[!sample %in% dropped]
@@ -354,7 +369,7 @@ self_test <- function(inputs) {
       # All 17 digits: fwrite's 15 turn a near-tie in garden 49 into a tie, and rho moves by 8e-5.
       rows[, genetic_offset := sprintf("%.17g", genetic_offset)]
       rows <- rows[sample.int(nrow(rows)), .(site, sample, genetic_offset)]   # order must not matter
-      garden_dir <- file.path(tables, method, paste0(set, "_nospatial"), paste0("garden_", this_garden))
+      garden_dir <- file.path(tables, method, paste0(set, "_", tag), paste0("garden_", this_garden))
       dir.create(garden_dir, recursive = TRUE)
       fwrite(rows, file.path(garden_dir, "genetic_offset_site.tsv"), sep = "\t")
     }
@@ -425,6 +440,18 @@ self_test <- function(inputs) {
   stopifnot(nrow(covered) == 3L * 7L, covered[method == "geometric_offset" & set == "gea.oracle", gardens_found] == 30L,
             covered[set == "gea.tiny", all(gardens_found == 0L)])
 
+  # A spatial Gradient Forest beside the nospatial runs: the default ignores it, and --tag spatial
+  # scores it alone, on the same founders as its nospatial twin.
+  write_run("gradient_forest", "gea.same", squared_distance, dropped, blanked, tag = "spatial")
+  again <- evaluate_tree(results, file.path(out_dir, "again"), inputs)
+  stopifnot(identical(again$summary$rho_mean, full$summary$rho_mean),
+            identical(again$summary$climate_p_holm, full$summary$climate_p_holm))
+  spatial <- evaluate_tree(results, file.path(out_dir, "spatial"), inputs, tag = "spatial")
+  stopifnot(nrow(spatial$summary) == 1L, spatial$summary$method == "gradient_forest",
+            spatial$summary$set == "gea.same", nrow(spatial$coverage) == 1L,
+            identical(spatial$per_replicate$rho_offset, same$rho_offset))
+  unlink(file.path(tables, "gradient_forest", "gea.same_spatial"), recursive = TRUE)
+
   dropped_gardens <- c(10L, 13L, 26L, 60L)
   subset_run <- evaluate_tree(results, file.path(out_dir, "subset"), inputs, dropped_gardens)
   n_kept <- inputs$replicates[!garden %in% dropped_gardens, .N]
@@ -460,10 +487,9 @@ self_test <- function(inputs) {
 
 # Main ----------------------------------------------------------------------------------------
 
+usage <- "usage: offset_eval.R <project> [--drop-gardens a,b,c] [--tag spatial] | --reproduce | --self-test"
 args <- commandArgs(trailingOnly = TRUE)
-if (length(args) == 0L) {
-  stop("usage: offset_eval.R <project> [--drop-gardens a,b,c] | --reproduce | --self-test")
-}
+if (length(args) == 0L) stop(usage)
 inputs <- read_inputs()
 
 if (args[1] == "--self-test") {
@@ -473,15 +499,26 @@ if (args[1] == "--self-test") {
 } else {
   project <- args[1]
   drop_gardens <- integer()
-  out_dir <- file.path(out_root, project)
-  if (length(args) == 3L && args[2] == "--drop-gardens") {
-    drop_gardens <- as.integer(strsplit(args[3], ",", fixed = TRUE)[[1]])
-    stopifnot(!anyNA(drop_gardens), all(drop_gardens %in% inputs$gardens$garden))
-    out_dir <- file.path(out_dir, paste0("without_", paste(drop_gardens, collapse = "_")))
-  } else if (length(args) != 1L) {
-    stop("usage: offset_eval.R <project> [--drop-gardens a,b,c] | --reproduce | --self-test")
+  tag <- "nospatial"
+  options <- args[-1]
+  while (length(options) > 0L) {
+    if (length(options) < 2L) stop(usage)
+    if (options[1] == "--drop-gardens") {
+      drop_gardens <- as.integer(strsplit(options[2], ",", fixed = TRUE)[[1]])
+      stopifnot(!anyNA(drop_gardens), all(drop_gardens %in% inputs$gardens$garden))
+    } else if (options[1] == "--tag") {
+      tag <- options[2]
+      if (!tag %in% c("nospatial", "spatial")) stop(usage)
+    } else {
+      stop(usage)
+    }
+    options <- options[-(1:2)]
   }
-  outcome <- evaluate_tree(here(paste0(project, "_results")), out_dir, inputs, drop_gardens)
+  out_dir <- file.path(out_root, if (tag == "nospatial") project else paste0(project, "_", tag))
+  if (length(drop_gardens) > 0L) {
+    out_dir <- file.path(out_dir, paste0("without_", paste(drop_gardens, collapse = "_")))
+  }
+  outcome <- evaluate_tree(here(paste0(project, "_results")), out_dir, inputs, drop_gardens, tag)
   print_summary(outcome$summary)
   message("Wrote ", out_dir)
 }
