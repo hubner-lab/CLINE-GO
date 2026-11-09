@@ -149,6 +149,12 @@ rule compute_relatedness:
     user can pick a sensible threshold. Sample removal only happens when Filter.relatedness is
     set AND Filter.relatedness_action is 'remove' (see relatedness_filter below; default action
     is 'keep' — visualize/count only).
+    SNPs: those passing Filter.maf and Filter.snp_miss among these samples (filter_vcf's --maf
+    and --geno), then LD-pruned with LD.*. The first plink call filters before it prunes, and
+    --genome extracts the pruned list. Until 2026-11-09 it pruned every raw SNP, rare ones
+    included, which lifts every pair's IBS (1001G median 0.944 against 0.73 at MAF 0.05), so a
+    threshold chosen on that panel does not carry over. It reads the raw VCF: the depth mask
+    (Filter.min_depth / max_depth) that filter_vcf sees does not apply here.
     NOTE: IBS is model-free (no Hardy-Weinberg/outbred assumption), so it works for both
     high-selfing and outcrossing species — unlike pi-hat, which collapses under high selfing.
     Selfers show a higher IBS baseline overall; duplicates/clones cluster near 1.0."""
@@ -159,13 +165,15 @@ rule compute_relatedness:
         genome = W['relatedness_genome'],
         pairs  = O['qc_relatedness_pairs']
     params:
-        prefix = f"{INTER}qc/relatedness_tmp", win = LD_WIN, step = LD_STEP, r2 = LD_R2
+        prefix = f"{INTER}qc/relatedness_tmp", win = LD_WIN, step = LD_STEP, r2 = LD_R2,
+        maf = MAF, miss = MISS
     log:    f"{LOGDIR}processing/compute_relatedness.log"
     threads: CPU
     shell:
         """
         plink --vcf {input.vcf} --const-fid --chr-set 95 --allow-extra-chr --output-chr MT \
             --set-missing-var-ids @:# --keep {input.samples} \
+            --maf {params.maf} --geno {params.miss} \
             --indep-pairwise {params.win} {params.step} {params.r2} \
             --out {params.prefix} > {log} 2>&1
 

@@ -44,7 +44,7 @@ left out.
 | `Filter.sample_miss` | 0.5 | Largest share of SNPs a sample may be missing, 0 to 1. |
 | `Filter.min_depth`, `Filter.max_depth` | null (off) | Set a genotype to missing when its read depth (`FORMAT/DP`) is below or above this. |
 | `Filter.het_outlier_sd` | null (off) | Remove samples whose heterozygosity lies more than this many standard deviations from the mean. |
-| `Filter.relatedness` | off (template 0.99) | Allele-sharing (IBS) level above which two samples count as related; 0 to 1. |
+| `Filter.relatedness` | off (template 0.99) | Allele-sharing (IBS) level above which two samples count as related; 0 to 1. IBS is computed on LD-pruned SNPs that pass `Filter.maf` and `Filter.snp_miss`, so a level chosen for one SNP panel does not carry over to another. |
 | `Filter.relatedness_action` | `keep` | `keep` only marks and counts related pairs; `remove` drops the member of each pair with more missing data. |
 
 ## LD

@@ -736,6 +736,16 @@ significance rule, GWAS `missing_strategy`), each with `set_by` (`config`, `defa
   missingness filter), its bounds (mean ± k population SD) and its removals (`outlier_flag`).
   Without it: a preview on the final cohort and the filtered VCF, flagged at ±3 sample SD, which
   does not show what `het_outlier_sd: 3` would remove.
+- `Processing/tables/relatedness_pairs.tsv` — plink `--genome`'s IBS (`DST`) for every pair of the
+  samples that passed the missingness filter (and the het filter, when set), on the SNPs that pass
+  `Filter.maf` and `Filter.snp_miss` among those samples (filter_vcf's `--maf` and `--geno`), then
+  LD-pruned with `LD.window`, `LD.step` and `LD.r2`. It reads the raw VCF, so a depth mask
+  (`Filter.min_depth` / `max_depth`) does not reach it, while filter_vcf's `--geno` counts masked
+  calls as missing. Before 2026-11-09 it pruned every raw SNP: rare variants lift every pair's IBS
+  (Arabidopsis 1001G: median 0.944 on the raw VCF against 0.73 at MAF 0.05), so a
+  `Filter.relatedness` threshold chosen on one SNP panel does not carry over to another. Pick it
+  again from the histogram after a change to `Filter.maf` or `Filter.snp_miss`, or after a tree
+  written before that date is rerun.
 - Heterozygosity (`F_inbreeding`, the het filter) and relatedness (`relatedness_pairs.tsv`, plink
   `--genome`) count autosomes only, as plink computes them: SNPs on contigs named `X`, `Y`, `XY`
   or `MT` (and numbered 96-99, which plink reads as those) do not enter them. Every other step,

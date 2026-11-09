@@ -13,6 +13,10 @@ Three wiring facts the R tests cannot see, all properties of the rule graph:
             harness does not execute (the file is not plain Python), so they are evaluated here.
   * 787ffe  mode=processing asks for sample_qc_by_site.tsv, and plot_qc_processing makes it with
             the input metadata (every sample's site, dropped ones included) among its inputs.
+  * 2026-11-09  compute_relatedness prunes, then runs --genome, on the SNPs that pass the
+            project's Filter.maf and Filter.snp_miss (filter_vcf's --maf and --geno). It pruned
+            every raw SNP before, and rare variants lift every pair's IBS, so the histogram a
+            threshold is picked from described another panel than the one the analysis uses.
 """
 import os
 import re
@@ -110,6 +114,43 @@ class TestDepthFromTheRawVcf(unittest.TestCase):
         self.assertRegex(shell, r"awk '\{\{print \$2\}\}' \{input\.samples\} > \{params\.prefix\}\.keep")
         self.assertEqual(len(re.findall(r"--keep \{params\.prefix\}\.keep", shell)), 2)
         self.assertIn("*.gz) VCF_FLAG=--gzvcf", shell)
+
+
+def plink_calls(shell):
+    """The plink invocations of a rule's shell text, continuation lines joined, in order."""
+    joined = re.sub(r"\\\n\s*", " ", shell)
+    return [line.strip() for line in joined.splitlines() if line.strip().startswith("plink ")]
+
+
+class TestRelatednessOnFilteredSnps(unittest.TestCase):
+
+    # Values no default carries, so a hard-coded 0.05 / 0.1 cannot pass.
+    ODD = {"Filter__maf": 0.013, "Filter__snp_miss": 0.17}
+
+    def test_params_are_the_projects_filters_in_every_configuration(self):
+        for label, (overrides, has_dp) in CONFIGS.items():
+            with self.subTest(config=label):
+                ns, rules = load({**overrides, **self.ODD}, has_dp)
+                rel, real = rules["compute_relatedness"], rules["filter_vcf"]
+                self.assertEqual((rel["params"]["maf"], rel["params"]["miss"]), (0.013, 0.17))
+                self.assertEqual(rel["params"]["maf"], real["params"]["maf"])
+                self.assertEqual(rel["params"]["miss"], real["params"]["miss"])
+
+    def test_the_pruning_call_filters_and_genome_reads_its_list(self):
+        calls = plink_calls(load()[1]["compute_relatedness"]["shell"])
+        self.assertEqual(len(calls), 2)
+        prune, genome = calls
+        self.assertIn("--indep-pairwise", prune)
+        self.assertIn("--maf {params.maf}", prune)
+        self.assertIn("--geno {params.miss}", prune)
+        self.assertNotIn("--indep-pairwise", genome)
+        self.assertIn("--genome", genome)
+        self.assertIn("--extract {params.prefix}.prune.in", genome)
+        # Both calls read the same VCF over the same keep-list, so the frequencies the filter
+        # used are the ones --genome sees.
+        for call in calls:
+            self.assertIn("--vcf {input.vcf}", call)
+            self.assertIn("--keep {input.samples}", call)
 
 
 class TestSiteTableIsTargeted(unittest.TestCase):

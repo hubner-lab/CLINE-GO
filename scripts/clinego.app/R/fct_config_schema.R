@@ -100,7 +100,7 @@ config_schema <- function() {
         s("Filter.relatedness", "Max relatedness (IBS)", "processing", NULL,
           "numeric", FALSE, group = "Sample Filtering",
           min = 0, max = 1, step = 0.05,
-          help = "Optional. Colors/counts related pairs (plink IBS allele-sharing) above this in the Processing relatedness histogram (blank = skip). Does NOT remove samples by itself \u2014 see 'Relatedness action' below. IBS is model-free \u2014 works for selfers and outcrossers alike; duplicates/clones cluster near 1.0 \u2014 set from the histogram, not a fixed outbred default."),
+          help = "Optional. Colors/counts related pairs (plink IBS allele-sharing) above this in the Processing relatedness histogram (blank = skip). Does NOT remove samples by itself \u2014 see 'Relatedness action' below. IBS is model-free \u2014 works for selfers and outcrossers alike; duplicates/clones cluster near 1.0 \u2014 set from the histogram, not a fixed outbred default. IBS is computed on LD-pruned SNPs that pass 'Minor allele freq' and 'SNP missingness', so pick the threshold again after changing either."),
         s("Filter.relatedness_action", "Relatedness action", "processing", NULL,
           "select",  FALSE, group = "Sample Filtering",
           choices = c("keep", "remove"),
