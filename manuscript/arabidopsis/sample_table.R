@@ -1,9 +1,10 @@
 #!/usr/bin/env Rscript
 # sample_table.R: what became of each of the 1,135 accessions in the VCF.
 #
-# Reads the 1,135 accessions of data/Arabidopsis_1001G_metadata.tsv.bak, the project's inputs under
-# data/arabidopsis1135/, and what mode=processing removed under Arabidopsis1135_results/. Writes
-# ANALYSIS/Arabidopsis1135/sample_table.tsv, one row per accession:
+# Reads the 1,135 accessions of data/Arabidopsis_1001G_metadata.tsv.bak, the inputs build_inputs.R
+# wrote under data/arabidopsis1135/ (the project's config must read its metadata from there), and what
+# mode=processing removed under <project>_results/. Writes ANALYSIS/<project>/sample_table.tsv, one
+# row per accession:
 #   sample accession country latitude longitude site FT10 FT16 F_MISS in_grenenet p0 status reason ibs
 #
 # latitude and longitude are the accession's own, empty where the source has 0, 0. site is the
@@ -16,15 +17,22 @@
 #
 # Run from the repo root, in the image:
 #   docker run --rm --user $(id -u):$(id -g) -e USER=pipeline -e HOME=/tmp -v $PWD:/data -w /data \
-#     cline-go:6cdedcc Rscript manuscript/arabidopsis/sample_table.R
+#     cline-go:6cdedcc Rscript manuscript/arabidopsis/sample_table.R <project>
 
 suppressPackageStartupMessages({
   library(data.table)
   library(here)
+  library(yaml)
 })
 
-project <- "Arabidopsis1135"
+args <- commandArgs(trailingOnly = TRUE)
+if (length(args) != 1L) stop("usage: sample_table.R <project>")
+project <- args[1]
 input_dir <- here("data", "arabidopsis1135")
+metadata_input <- read_yaml(here(paste0("config_", project, ".yaml")))$Input$metadata
+if (!identical(metadata_input, "arabidopsis1135/Arabidopsis1135_metadata.tsv"))
+  stop("config_", project, ".yaml reads its metadata from ", metadata_input,
+       ", not the build_inputs.R table this script counts")
 results <- here(paste0(project, "_results"))
 samples_dir <- file.path(results, "_intermediate", "samples")
 tables_dir <- file.path(results, "Processing", "tables")
@@ -93,6 +101,7 @@ stopifnot(
 #-------------------------------------------------------------------------- write
 setcolorder(accessions, c("sample", "accession", "country", "latitude", "longitude", "site", "FT10",
                           "FT16", "F_MISS", "in_grenenet", "p0", "status", "reason", "ibs"))
+dir.create(dirname(out_file), recursive = TRUE, showWarnings = FALSE)
 fwrite(accessions, out_file, sep = "\t", na = "")
 
 print(accessions[, .N, by = .(status, reason)][order(status, reason)])

@@ -9,24 +9,36 @@
 # the plot goes to ANALYSIS/ instead of the results tree. No pipeline code changes; the results tree and
 # the app keep the plot without RDA.
 #
-# Run from the repo root, with no mode running:
-#   manuscript/arabidopsis/miami_with_rda.sh
-# Returns once the container is started. It writes, under ANALYSIS/Arabidopsis1135/:
-#   figures/miami/miami_combined_K6{.png,.svg,_background.png,_coords.json}
+# Run from the repo root, with no mode of <project> running:
+#   manuscript/arabidopsis/miami_with_rda.sh <project>
+# K is the project's sNMF.k_best (the K in the p-value tables' names). The methods, predictors and
+# traits below are the Arabidopsis configs' (GEA EMMAX/LFMM/RDA on 19 BIO, GWAS EMMAX/BLINK on FT10
+# and FT16). Returns once the container is started. It writes, under ANALYSIS/<project>/:
+#   figures/miami/miami_combined_K<k>{.png,.svg,_background.png,_coords.json}
 #   runlogs/miami_with_rda.log, and runlogs/miami_with_rda.exit when the plot is done
 set -euo pipefail
 
-IMAGE=cline-go:6cdedcc
-NAME=arab-miami-rda
-RESULTS=/data/Arabidopsis1135_results
-OUT=ANALYSIS/Arabidopsis1135/figures/miami
-RUNLOGS=ANALYSIS/Arabidopsis1135/runlogs
+PROJECT=${1:?usage: miami_with_rda.sh <project>}
+CONFIG=config_$PROJECT.yaml
+[ -f "$CONFIG" ] || { echo "miami_with_rda.sh: no $CONFIG in $PWD" >&2; exit 2; }
+K=$(awk '/^sNMF:/ {s = 1; next} s && /^[^ ]/ {s = 0} s && $1 == "k_best:" {print $2}' "$CONFIG")
+[[ "$K" =~ ^[0-9]+$ ]] || { echo "miami_with_rda.sh: no integer sNMF.k_best in $CONFIG" >&2; exit 2; }
 
-GEA="EMMAX:bonf_0.05:$RESULTS/GEA/tables/methods/EMMAX/EMMAX_pvalues_K6.tsv"
-GEA+=",LFMM:bonf_0.05:$RESULTS/GEA/tables/methods/LFMM/LFMM_pvalues_K6.tsv"
-GEA+=",RDA:bonf_0.05:$RESULTS/GEA/tables/methods/RDA/RDA_pvalues_K6.tsv"
-GWAS="EMMAX:bonf_0.05:$RESULTS/GWAS/tables/methods/EMMAX/EMMAX_pvalues_K6.tsv"
-GWAS+=",BLINK:bonf_0.05:$RESULTS/GWAS/tables/methods/BLINK/BLINK_pvalues_K6.tsv"
+IMAGE=cline-go:6cdedcc
+NAME=arab-miami-rda-$PROJECT
+RESULTS=/data/${PROJECT}_results
+OUT=ANALYSIS/$PROJECT/figures/miami
+RUNLOGS=ANALYSIS/$PROJECT/runlogs
+
+GEA="EMMAX:bonf_0.05:$RESULTS/GEA/tables/methods/EMMAX/EMMAX_pvalues_K$K.tsv"
+GEA+=",LFMM:bonf_0.05:$RESULTS/GEA/tables/methods/LFMM/LFMM_pvalues_K$K.tsv"
+GEA+=",RDA:bonf_0.05:$RESULTS/GEA/tables/methods/RDA/RDA_pvalues_K$K.tsv"
+GWAS="EMMAX:bonf_0.05:$RESULTS/GWAS/tables/methods/EMMAX/EMMAX_pvalues_K$K.tsv"
+GWAS+=",BLINK:bonf_0.05:$RESULTS/GWAS/tables/methods/BLINK/BLINK_pvalues_K$K.tsv"
+for spec in ${GEA//,/ } ${GWAS//,/ }; do
+    table=${spec##*:}
+    [ -f "${table#/data/}" ] || { echo "miami_with_rda.sh: no ${table#/data/}" >&2; exit 2; }
+done
 GEA_TRAITS="bio_1,bio_2,bio_3,bio_4,bio_5,bio_6,bio_7,bio_8,bio_9,bio_10,bio_11,bio_12,bio_13,bio_14"
 GEA_TRAITS+=",bio_15,bio_16,bio_17,bio_18,bio_19,climate_multivariate"
 GWAS_TRAITS="FT10,FT16"
@@ -44,6 +56,6 @@ rm -f "$RUNLOGS/miami_with_rda.exit"
 docker_cli run -d --rm --name "$NAME" --user "$(id -u):$(id -g)" -e USER=pipeline -e HOME=/tmp \
     -e OMP_NUM_THREADS=16 -e OPENBLAS_NUM_THREADS=16 --memory 120g \
     -v "$PWD":/data -w /data "$IMAGE" \
-    bash -c 'Rscript /pipeline/scripts/plot_miami.R "$1" "$2" "$3" "$4" 6 "/data/$5/" > "/data/$6/miami_with_rda.log" 2>&1
+    bash -c 'Rscript /pipeline/scripts/plot_miami.R "$1" "$2" "$3" "$4" "$7" "/data/$5/" > "/data/$6/miami_with_rda.log" 2>&1
              echo $? > "/data/$6/miami_with_rda.exit"' \
-    _ "$GEA" "$GWAS" "$GEA_TRAITS" "$GWAS_TRAITS" "$OUT" "$RUNLOGS"
+    _ "$GEA" "$GWAS" "$GEA_TRAITS" "$GWAS_TRAITS" "$OUT" "$RUNLOGS" "$K"

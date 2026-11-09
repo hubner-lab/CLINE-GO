@@ -18,6 +18,11 @@ genotypes, so a run's cross-entropy carries a mask effect across K: the same run
 most K with no better fit behind it. Solutions are compared by mean cross-entropy, with mask_effect
 removed: the run's mean deviation over K 2 to 6, where all runs reach one solution.
 
+Usage: k_evidence.py <project> [--stable-k FROM:TO]. The paths, the K range and the runs come from
+<project>'s prestructure run record (_intermediate/run_records/prestructure.json), the config sNMF ran
+with. --stable-k sets the K over which the mask effect is averaged (default 2:6); every K in it must
+hold one solution, or the script stops.
+
 A sample belongs to a cluster at more than 60 % of its ancestry, the 1001 Genomes Consortium's rule
 (Alonso-Blanco et al. 2016); the rest are admixed. Its main cluster is the largest column, which is
 how the pipeline's per-cluster LD decay assigns it (scripts/ld_decay_prepare.R).
@@ -25,7 +30,7 @@ how the pipeline's per-cluster LD decay assigns it (scripts/ld_decay_prepare.R).
 Stops if the sample order of metadata.tsv differs from the pruned .fam, or if a best-run Q matrix
 differs from the pipeline's clusters_K{k}.tsv.
 
-Writes under ANALYSIS/Arabidopsis1135/k_evidence/:
+Writes under ANALYSIS/<project>/k_evidence/:
   curve.tsv              K, runs, mean, sd, min, max, step, step_over_sd, step_ratio
   reproducibility.tsv    K, median over run pairs of mean and worst r and of samples keeping their
                          main cluster; clusters of the best run replicated
@@ -38,9 +43,10 @@ Writes under ANALYSIS/Arabidopsis1135/k_evidence/:
 
 Run from the repo root, in the image:
   docker run --rm --user $(id -u):$(id -g) -e USER=pipeline -e HOME=/tmp -v $PWD:/data -w /data \
-    cline-go:6cdedcc python3 -B manuscript/arabidopsis/k_evidence.py
+    cline-go:6cdedcc python3 -B manuscript/arabidopsis/k_evidence.py <project>
 """
 import itertools
+import json
 import pathlib
 import sys
 
@@ -48,27 +54,64 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import linear_sum_assignment
 
-PROJECT = "Arabidopsis1135"
-RESULTS = pathlib.Path(f"{PROJECT}_results")
-WORK = RESULTS / "_work/maf0.05_miss0.1_smiss0.5_rel0.998/ld0.2_win100_step20"
-SNMF = WORK / "Arabidopsis_1001G.snmf"
-FAM = WORK / "Arabidopsis_1001G.fam"
-TABLES = RESULTS / "PreStructure/tables"
-METADATA = RESULTS / "Processing/tables/metadata.tsv"
+USAGE = "usage: k_evidence.py <project> [--stable-k FROM:TO]"
 SOURCE_METADATA = pathlib.Path("data/Arabidopsis_1001G_metadata.tsv.bak")
-OUT = pathlib.Path("ANALYSIS/Arabidopsis1135/k_evidence")
+# Set by configure() from the command line and the project's prestructure run record.
+RESULTS = WORK = SNMF = VCF_BASE = FAM = TABLES = METADATA = OUT = None
+K_VALUES = STABLE_K = RUNS = None
 
-K_VALUES = range(2, 13)
-STABLE_K = range(2, 7)
-RUNS = range(1, 11)
 REPLICATED_R = 0.9
 REPLICATED_RUNS = 8
 MEMBER_SHARE = 0.6
 LD_MIN_SAMPLES = 10
 
 
+def configure(argv):
+    """Point the module's paths at <project>, from the config its prestructure run used.
+
+    The LD-pruned work folder is named as common.smk names it (FILT_TAG / LD_TAG); a depth or het
+    filter adds a tag this does not rebuild, so such a config stops here."""
+    global RESULTS, WORK, SNMF, VCF_BASE, FAM, TABLES, METADATA, OUT, K_VALUES, STABLE_K, RUNS
+    if len(argv) not in (1, 3) or (len(argv) == 3 and argv[1] != "--stable-k"):
+        sys.exit(USAGE)
+    project = argv[0]
+    stable = (2, 6)
+    if len(argv) == 3:
+        try:
+            stable = tuple(int(x) for x in argv[2].split(":"))
+        except ValueError:
+            sys.exit(USAGE)
+        if len(stable) != 2 or stable[0] > stable[1]:
+            sys.exit(USAGE)
+    RESULTS = pathlib.Path(f"{project}_results")
+    record = RESULTS / "_intermediate/run_records/prestructure.json"
+    if not record.is_file():
+        sys.exit(f"k_evidence: no {record}; run mode=prestructure first")
+    config = json.loads(record.read_text())["config"]
+    filt, ld, snmf = config["Filter"], config["LD"], config["sNMF"]
+    if any(filt.get(key) is not None for key in ("min_depth", "max_depth", "het_outlier_sd")):
+        sys.exit("k_evidence: a depth or het filter names the work folder in a way this does not rebuild")
+    tag = f"maf{filt['maf']}_miss{filt['snp_miss']}_smiss{filt.get('sample_miss', 0.5)}"
+    if filt.get("relatedness") is not None and str(filt.get("relatedness_action", "keep")).lower() == "remove":
+        tag += f"_rel{filt['relatedness']}"
+    WORK = RESULTS / "_work" / tag / f"ld{ld['r2']}_win{ld['window']}_step{ld['step']}"
+    VCF_BASE = pathlib.Path(config["Input"]["vcf"]).name.removesuffix(".gz").removesuffix(".vcf")
+    SNMF = WORK / f"{VCF_BASE}.snmf"
+    FAM = WORK / f"{VCF_BASE}.fam"
+    if not SNMF.is_dir() or not FAM.is_file():
+        sys.exit(f"k_evidence: no {SNMF} or {FAM}")
+    TABLES = RESULTS / "PreStructure/tables"
+    METADATA = RESULTS / "Processing/tables/metadata.tsv"
+    OUT = pathlib.Path("ANALYSIS") / project / "k_evidence"
+    K_VALUES = range(int(snmf["k_start"]), int(snmf["k_end"]) + 1)
+    STABLE_K = range(stable[0], stable[1] + 1)
+    if not set(STABLE_K) <= set(K_VALUES):
+        sys.exit(f"k_evidence: --stable-k {stable[0]}:{stable[1]} is outside K {K_VALUES[0]}-{K_VALUES[-1]}")
+    RUNS = range(1, int(snmf["repeats"]) + 1)
+
+
 def read_q(k, run):
-    return np.loadtxt(SNMF / f"K{k}" / f"run{run}" / f"Arabidopsis_1001G_r{run}.{k}.Q")
+    return np.loadtxt(SNMF / f"K{k}" / f"run{run}" / f"{VCF_BASE}_r{run}.{k}.Q")
 
 
 def cross_correlation(a, b):
@@ -123,6 +166,7 @@ def check_sample_order(meta):
 
 
 def main():
+    configure(sys.argv[1:])
     OUT.mkdir(parents=True, exist_ok=True)
     meta = pd.read_csv(METADATA, sep="\t", dtype={"site": str, "sample": str})
     check_sample_order(meta)
@@ -211,6 +255,11 @@ def main():
                 "countries": top_countries(meta[main_cluster == new]["country"], 4),
                 "previous_mean_r": r.mean(), "previous_worst_r": r.min()})
         previous_best = best
+
+    split = sorted({row["K"] for row in solution_rows if row["K"] in STABLE_K and row["solution"] > 1})
+    if split:
+        sys.exit(f"k_evidence: runs reach more than one solution at K {split}, inside --stable-k "
+                 f"{STABLE_K[0]}:{STABLE_K[-1]}, so the mask effect would carry real fit differences")
 
     pd.DataFrame(reproducibility).to_csv(OUT / "reproducibility.tsv", sep="\t", index=False)
     pd.DataFrame(composition).to_csv(OUT / "composition.tsv", sep="\t", index=False)

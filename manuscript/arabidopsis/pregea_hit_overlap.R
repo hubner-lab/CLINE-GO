@@ -6,9 +6,12 @@
 # chi-squared by that predictor's own lambda, EMMAX applies no recalibration, and each predictor is
 # its own Bonferroni family. A hit is one SNP on one predictor.
 #
-# Reads _intermediate/pregea/{lfmm,emmax}/<rung>/pvalues.tsv and the two ladder tables. Stops unless
-# each rung's count per predictor equals the ladder's hits_bonf. Writes
-# ANALYSIS/Arabidopsis1135/pregea/rung_hit_overlap.tsv, one row per rung:
+#   Rscript manuscript/arabidopsis/pregea_hit_overlap.R <project> [--lfmm-k FROM:TO]
+#
+# Reads <project>_results/_intermediate/pregea/{lfmm,emmax}/<rung>/pvalues.tsv and the two ladder
+# tables. The rungs are every rung a ladder table lists; --lfmm-k keeps the LFMM rungs K FROM to TO,
+# which must all be in it. Stops unless each rung's count per predictor equals the ladder's hits_bonf.
+# Writes ANALYSIS/<project>/pregea/rung_hit_overlap.tsv, one row per rung:
 #   engine rung reference n_hits n_snps n_shared_with_reference jaccard_with_reference
 #
 # The reference is K = k_best for LFMM and n_pcs = 0 for EMMAX. These are pruned markers, so the
@@ -17,7 +20,7 @@
 # Run from the repo root, in the image:
 #   docker run --rm --name arab-hit-overlap --user $(id -u):$(id -g) -e USER=pipeline -e HOME=/tmp \
 #     -e OPENBLAS_NUM_THREADS=1 -v $PWD:/data -w /data cline-go:6cdedcc \
-#     Rscript manuscript/arabidopsis/pregea_hit_overlap.R
+#     Rscript manuscript/arabidopsis/pregea_hit_overlap.R <project> [--lfmm-k FROM:TO]
 
 suppressPackageStartupMessages({
   library(data.table)
@@ -25,7 +28,16 @@ suppressPackageStartupMessages({
   library(yaml)
 })
 
-project <- "Arabidopsis1135"
+usage <- "usage: pregea_hit_overlap.R <project> [--lfmm-k FROM:TO]"
+args <- commandArgs(trailingOnly = TRUE)
+if (!length(args) %in% c(1L, 3L) || (length(args) == 3L && args[2] != "--lfmm-k")) stop(usage)
+project <- args[1]
+lfmm_k <- NULL
+if (length(args) == 3L) {
+  bounds <- suppressWarnings(as.integer(strsplit(args[3], ":", fixed = TRUE)[[1]]))
+  if (length(bounds) != 2L || anyNA(bounds) || bounds[1] > bounds[2]) stop(usage)
+  lfmm_k <- seq(bounds[1], bounds[2])
+}
 bonferroni_alpha <- 0.05
 
 results <- here(paste0(project, "_results"))
@@ -53,9 +65,24 @@ rung_hits <- function(engine, rung, apply_gc, ladder) {
   hits[, rung := rung]
 }
 
-compare_rungs <- function(engine, rungs, reference, apply_gc) {
-  ladder <- fread(file.path(results, "PreGEA", "tables", engine, paste0(engine, "_ladder.tsv")),
-                  colClasses = c(rung_value = "character"))
+read_ladder <- function(engine) {
+  fread(file.path(results, "PreGEA", "tables", engine, paste0(engine, "_ladder.tsv")),
+        colClasses = c(rung_value = "character"))
+}
+
+# Every rung the ladder lists, in numeric order, or only `values` (all of which it must list).
+ladder_rungs <- function(ladder, prefix, values = NULL) {
+  listed <- sort(unique(ladder$rung_value_num))
+  if (is.null(values)) values <- listed
+  absent <- setdiff(values, listed)
+  if (length(absent) > 0L) stop("the ", ladder$engine[1], " ladder has no rung ",
+                                paste0(prefix, absent, collapse = ", "))
+  paste0(prefix, values)
+}
+
+compare_rungs <- function(engine, rungs, reference, apply_gc, ladder) {
+  if (!reference %in% rungs) stop(engine, ": the reference rung ", reference, " is not among ",
+                                  paste(rungs, collapse = ", "))
   hits <- rbindlist(lapply(rungs, function(r) rung_hits(engine, r, apply_gc, ladder)))
   hits[, key := paste(snp, predictor)]
   reference_keys <- hits[rung == reference, key]
@@ -68,11 +95,12 @@ compare_rungs <- function(engine, rungs, reference, apply_gc) {
   }))
 }
 
-lfmm_rungs <- paste0("K", 4:8)
-emmax_rungs <- paste0("npc", 0:10)
+lfmm_ladder <- read_ladder("lfmm")
+emmax_ladder <- read_ladder("emmax")
 result <- rbind(
-  compare_rungs("lfmm", lfmm_rungs, paste0("K", config$sNMF$k_best), apply_gc = TRUE),
-  compare_rungs("emmax", emmax_rungs, "npc0", apply_gc = FALSE)
+  compare_rungs("lfmm", ladder_rungs(lfmm_ladder, "K", lfmm_k), paste0("K", config$sNMF$k_best),
+                apply_gc = TRUE, lfmm_ladder),
+  compare_rungs("emmax", ladder_rungs(emmax_ladder, "npc"), "npc0", apply_gc = FALSE, emmax_ladder)
 )
 
 dir.create(dirname(out_file), recursive = TRUE, showWarnings = FALSE)

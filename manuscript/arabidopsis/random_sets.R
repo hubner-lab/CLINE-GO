@@ -17,9 +17,9 @@
 #
 # Writes <project>_results/_intermediate/snp_sets/random.<real set>.<d>/ (selected_snps.tsv,
 # snp_set.yaml): mode=maladaptation's `snp_sets: all` takes every stored set, and offset_eval.R reads
-# random.<set>.<d> as a draw of <set>. Also writes ANALYSIS/Arabidopsis1135/random_sets/<real set>/
-# maf_match.tsv, one row per draw. Refuses to touch an existing draw directory. Run from the repo
-# root, in the image.
+# random.<set>.<d> as a draw of <set>. Also writes ANALYSIS/<project>/random_sets/<real set>/
+# maf_match.tsv, one row per draw, so one project's draws never overwrite another's table. Refuses to
+# touch an existing draw directory. Run from the repo root, in the image.
 
 suppressPackageStartupMessages({
   library(data.table)
@@ -50,7 +50,7 @@ removed_file <- Sys.glob(file.path(results, "_work", "*", "*.removed"))
 if (length(vcfsnp_file) != 1L) stop("Expected one *imp_maf*.vcfsnp under _work/, found ", length(vcfsnp_file))
 if (length(removed_file) != 1L) stop("Expected one .removed under _work/, found ", length(removed_file))
 stopifnot(file.exists(real_file), file.exists(matrix_file))
-out_dir <- here("ANALYSIS", "Arabidopsis1135", "random_sets", real_set)
+out_dir <- here("ANALYSIS", project, "random_sets", real_set)
 draw_names <- sprintf("random.%s.%d", real_set, seq_len(n_draws))
 taken <- draw_names[dir.exists(file.path(store, draw_names))]
 if (length(taken) > 0L) stop("Draw directories exist already: ", paste(taken, collapse = ", "))
