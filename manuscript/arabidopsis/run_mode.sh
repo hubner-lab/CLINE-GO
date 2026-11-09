@@ -61,8 +61,10 @@ shift 2
 STEM=$(basename "$CONFIG" .yaml)
 NAME=clinego-$STEM-$MODE
 case "$STEM" in
-    # ce4c704: compute_relatedness prunes SNPs passing Filter.maf and snp_miss (plan shiny-seeking-scott)
-    config_Arabidopsis1135maf01) IMAGE=cline-go:1700e49 ;;
+    # 6e7efbb: the critical r2 from LDdecay.background_draws draws, on top of ce4c704's relatedness
+    # on SNPs passing Filter.maf and snp_miss (plan shiny-seeking-scott). 1700e49 ran processing and
+    # prestructure; the two images differ only in ld_decay_background, write_summary.R and the app.
+    config_Arabidopsis1135maf01) IMAGE=cline-go:6e7efbb ;;
     *) IMAGE=cline-go:6cdedcc ;;
 esac
 
