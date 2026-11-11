@@ -71,6 +71,9 @@ j2)  # s_qc: the audit 3b copy of fig3/plot_qc_ms.R with run_qc_ms.sh's 25 pipel
      run latest j2 --memory=48g --cpus=4 -e DUMP_SCRIPT=$SCR -e DUMP_OUT=$O/dump -e "DUMP_ARGS=$ARGS" \
          -e DUMP_OBJECTS=$([[ $V == repro ]] && echo p_smiss,p_rel,p_mds,p_density,p_maf || echo p_smiss,p_rel,p_mds,p_density,p_snpmiss,p_maf) \
          -- "${DUMP[@]}" ;;
+j7merge) # check only: FIG_MODE=merge after page_title() was hoisted; its pages must equal the Data S1 published ones
+     run paper j7merge --memory=32g --cpus=4 -e FIG_MODE=merge -e FIG_OUT=$O -e CHECK_OUT=$O/members \
+         -- Rscript /pipeline/benchmarks/mvp_land_figures.R ;;
 *) die "unknown step $step" ;;
 esac; done
 echo "=== $V done $(date -Is)"
