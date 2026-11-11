@@ -11,8 +11,9 @@
 #                            (the MINOU block: AN = the 150 kb offset run's offset_minou, its tables)
 # Each script runs unchanged through sys.source() in its own environment (commandArgs() answered from that
 # environment), writes its member files into CHECK_OUT, where their SVGs are compared with the published ones, and
-# leaves its plot object (gPCA, gStructure, p7, fig), which is composed here: a above b, a at its own width at the
-# left, panel letters a and b only, the members at their published sizes. Nothing is refitted or recomputed.
+# leaves its plot object (gPCA, gStructure, p7, fig), which is composed here: a above b, a at its own width, centred
+# (final redraw 2026-11-11; was at the left), panel letters a and b only, the members at their published sizes. Nothing
+# is refitted or recomputed.
 # Usage (inside the image, the MINOU variables of run_closeout.sh set):
 #   FIG_OUT=<dir> CHECK_OUT=<dir> Rscript benchmarks/mvp_land_data_s1_trifolium.R
 # =============================================================================
@@ -32,11 +33,13 @@ run_script <- function(file, args = character()) {
     e
 }
 HEAD_MM <- 4                                              # a strip above each panel for its letter, clear of the member's text
-compose <- function(a, b, wa, ha, hb) {                  # a above b, a at its own width at the left of a 180 mm page
-    top <- plot_grid(a, NULL, nrow = 1, rel_widths = c(wa, 180 - wa))
+compose <- function(a, b, wa, ha, hb) {                  # a above b, a at its own width, centred on a 180 mm page
+    side <- (180 - wa) / 2                               # final redraw 2026-11-11 (Jobs 3, 4): a centred above b, was at
+    top <- plot_grid(NULL, a, NULL, nrow = 1, rel_widths = c(side, wa, side))   # the left; its letter moves with it
     with_head <- function(p, h) plot_grid(NULL, p, ncol = 1, rel_heights = c(HEAD_MM, h))
     plot_grid(with_head(top, ha), with_head(b, hb), ncol = 1, rel_heights = c(HEAD_MM + ha, HEAD_MM + hb),
-              labels = c("a", "b"), label_size = 8, label_fontface = "bold", label_fontfamily = FAM)
+              labels = c("a", "b"), label_x = c(side / 180, 0), label_size = 8, label_fontface = "bold",
+              label_fontfamily = FAM)
 }
 
 # ---- F3 -------------------------------------------------------------------------------------------------------------

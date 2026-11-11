@@ -23,6 +23,9 @@
 #                   s_rank_strata_parts_{a,b,c} (% of replicates in the top three, landscape title). Each member is
 #                   also saved alone under its published stem into CHECK_OUT (default <FIG_OUT>/../checks/members), so
 #                   its SVG can be compared with the published one; the strata cells go to CHECK_OUT/../strata_top3.tsv.
+#   FIG_MODE=archtitle (final redraw, 2026-11-11, Job 7) s_rank_architecture_parts_{a,b,c} with the landscape title of
+#                   s_rank_strata_parts_* (page_title(), 180 x 127 mm); each untitled page is also saved under its
+#                   published stem into CHECK_OUT, so its SVG can be compared with the published one.
 # Writes PNG (600 dpi) + SVG and appends to figures.tsv (stem, role, w_mm, h_mm, source).
 # Usage: FIG_MODE=<mode> FIG_OUT=<dir> TAB_DIR=<tables> Rscript benchmarks/mvp_land_figures.R
 # =============================================================================
@@ -34,7 +37,7 @@ EVAL <- file.path(ROOT, "benchmarks/mvp_eval")
 OUT  <- Sys.getenv("FIG_OUT", file.path(EVAL, "landscape_ms/figures"))
 TAB  <- Sys.getenv("TAB_DIR", file.path(EVAL, "landscape_ms/tables"))
 MODE <- Sys.getenv("FIG_MODE", "main")
-stopifnot(MODE %in% c("ab", "main", "supp", "merge"))
+stopifnot(MODE %in% c("ab", "main", "supp", "merge", "archtitle"))
 CHECK <- Sys.getenv("CHECK_OUT", file.path(OUT, "..", "checks", "members"))
 JITTER_SEED <- 16L
 source(file.path(ROOT, "benchmarks/ms_style.R"))
@@ -479,16 +482,16 @@ if (MODE == "supp") {
                                                          label_fontface = "bold", label_fontfamily = theme_ms()$text$family, hjust = 0, label_x = 0.01,
                                                          vjust = 1), 180, 495, "supp", SRC_DET)
 }
+page_title <- function(p, title, h_body)                 # the landscape name above a page, panel letters unchanged
+    cowplot::plot_grid(cowplot::ggdraw() + cowplot::draw_label(title, fontfamily = theme_ms()$text$family, fontface = "bold",
+                                                               size = 9, x = 0.01, hjust = 0),
+                       p, ncol = 1, rel_heights = c(7, h_body))
 # =============================================================================
 # FIG_MODE=merge: the merged figures of the story restructure (Data S1 Job F, 2026-11-08)
 # =============================================================================
 if (MODE == "merge") {
     dir.create(CHECK, recursive = TRUE, showWarnings = FALSE)
     save_member <- function(stem, p, w, h) { ms_save(file.path(CHECK, stem), p, w, h); message("  member ", stem) }
-    page_title <- function(p, title, h_body)                 # the landscape name above a page, panel letters unchanged
-        cowplot::plot_grid(cowplot::ggdraw() + cowplot::draw_label(title, fontfamily = theme_ms()$text$family, fontface = "bold",
-                                                                   size = 9, x = 0.01, hjust = 0),
-                           p, ncol = 1, rel_heights = c(7, h_body))
     # F1 s_precision_recall: a = s_aucpr_methods, b = s_rda_correction, each as published (180 x 170 mm)
     SINGLE <- intersect(PANEL_ORDER, c("LFMM", "RDA", "EMMAX"))
     A2 <- s2_data(SINGLE)
@@ -521,6 +524,18 @@ if (MODE == "merge") {
                                   panel, least_pct, half_pct, top3_pct, n)])
     }
     fwrite(rbindlist(ST), file.path(CHECK, "..", "strata_top3.tsv"), sep = "\t")
+}
+# =============================================================================
+# FIG_MODE=archtitle: s_rank_architecture_parts_* with a landscape title (final redraw 2026-11-11, Job 7)
+# =============================================================================
+if (MODE == "archtitle") {
+    dir.create(CHECK, recursive = TRUE, showWarnings = FALSE)
+    for (L in LAND_LEV) {
+        k <- PART_OF[[L]]
+        p <- rank_dist(RX[landscape == L], "arch", facet_grid(rows = vars(arch), cols = vars(engine_lab)))   # as FIG_MODE=supp
+        ms_save(file.path(CHECK, paste0("s_rank_architecture_parts_", k)), p, 180, 120)
+        save_ms(paste0("s_rank_architecture_parts_", k), page_title(p, L, 120), 180, 127, "supp part", paste(L, SRC_RANK))
+    }
 }
 F <- rbindlist(lapply(names(FIGS), function(k) data.table(stem = k, role = FIGS[[k]]$role, w_mm = FIGS[[k]]$w, h_mm = FIGS[[k]]$h, source = FIGS[[k]]$source)))
 fwrite(F, file.path(OUT, sprintf("figures_%s.tsv", MODE)), sep = "\t")

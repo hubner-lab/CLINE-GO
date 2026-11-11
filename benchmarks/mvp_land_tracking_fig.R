@@ -325,7 +325,7 @@ if (all(c("pca1_r_temp", "pca1_r_sal") %in% names(TRK)) && all(SET6 %in% unique(
                            expand = expansion(mult = 0.02)) +
         guides(fill = guide_legend(order = 1, override.aes = list(shape = 21, size = 2.4)),
                shape = guide_legend(order = 2, override.aes = list(fill = "#9aa1aa", size = 2.4))) +
-        labs(x = "|r| of the false positives' first principal component\nwith temperature (median over replicates)",
+        labs(x = "|r| with temperature",                # final redraw 2026-11-11: the explanation moves to the caption
              y = "|r| with Env2") +                     # the paper's label for the second environment (2026-11-08)
         theme_ms() + theme(legend.position = "right", legend.box = "vertical", legend.justification = "top",
                            panel.grid.major = element_line(colour = "#eef0f3", linewidth = 0.25))
