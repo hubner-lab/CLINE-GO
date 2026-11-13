@@ -65,6 +65,8 @@ case "$STEM" in
     # on SNPs passing Filter.maf and snp_miss (plan shiny-seeking-scott). 1700e49 ran processing and
     # prestructure; the two images differ only in ld_decay_background, write_summary.R and the app.
     config_Arabidopsis1135maf01) IMAGE=cline-go:6e7efbb ;;
+    # Iteration 3 (plan valiant-mixing-sparrow): 6e7efbb, since no pipeline commit came after it.
+    config_Arabidopsis1135it3) IMAGE=cline-go:6e7efbb ;;
     *) IMAGE=cline-go:6cdedcc ;;
 esac
 
