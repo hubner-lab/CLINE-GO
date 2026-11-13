@@ -11,9 +11,10 @@
 #
 # MAF comes from the matrix every offset script reads,
 # <project>_results/_intermediate/climate_subset/lfmm_imp_full_climate.lfmm (imputed, climate-valid
-# samples), its columns named chr:pos by the one *imp_maf*.vcfsnp under _work/, the file the offset
-# rules take as W['vcfsnp_imp_full']. SNPs in that _work folder's .removed list stay out of the pool,
-# as the offset scripts leave them out.
+# samples), its columns named chr:pos by the *_K<k_best>imp_maf<X>.vcfsnp under _work/ whose X is the
+# config's sNMF.imputed_maf (Filter.maf when blank), the file the offset rules take as
+# W['vcfsnp_imp_full']. SNPs in that _work folder's .removed list stay out of the pool, as the offset
+# scripts leave them out.
 #
 # Writes <project>_results/_intermediate/snp_sets/random.<real set>.<d>/ (selected_snps.tsv,
 # snp_set.yaml): mode=maladaptation's `snp_sets: all` takes every stored set, and offset_eval.R reads
@@ -45,9 +46,24 @@ results <- here(paste0(project, "_results"))
 store <- file.path(results, "_intermediate", "snp_sets")
 real_file <- file.path(store, real_set, "selected_snps.tsv")
 matrix_file <- file.path(results, "_intermediate", "climate_subset", "lfmm_imp_full_climate.lfmm")
-vcfsnp_file <- Sys.glob(file.path(results, "_work", "*", "*imp_maf*.vcfsnp"))
+# The stem the offset rules read, by common.smk's IMP_TAG: _K<sNMF.k_best>imp_maf<sNMF.imputed_maf, or
+# Filter.maf when that is blank>. A project rerun at another sNMF.imputed_maf keeps the old stem beside
+# the new one (Arabidopsis1135maf01 holds imp_maf0.01 and imp_maf0.05), so the glob alone is not enough.
+config <- yaml::read_yaml(here(paste0("config_", project, ".yaml")))
+imputed_maf <- config$sNMF$imputed_maf
+if (is.null(imputed_maf) || (is.character(imputed_maf) && !nzchar(trimws(imputed_maf)))) {
+  imputed_maf <- config$Filter$maf
+}
+imputed_maf <- as.numeric(imputed_maf)
+candidates <- Sys.glob(file.path(results, "_work", "*", sprintf("*_K%simp_maf*.vcfsnp", config$sNMF$k_best)))
+candidate_maf <- suppressWarnings(as.numeric(sub(".*imp_maf(.*)\\.vcfsnp$", "\\1", basename(candidates))))
+vcfsnp_file <- candidates[!is.na(candidate_maf) & abs(candidate_maf - imputed_maf) < 1e-9]
 removed_file <- Sys.glob(file.path(results, "_work", "*", "*.removed"))
-if (length(vcfsnp_file) != 1L) stop("Expected one *imp_maf*.vcfsnp under _work/, found ", length(vcfsnp_file))
+if (length(vcfsnp_file) != 1L) {
+  stop("Expected one *_K", config$sNMF$k_best, "imp_maf", imputed_maf, ".vcfsnp under _work/, found ",
+       length(vcfsnp_file))
+}
+message("INFO: SNP labels from ", vcfsnp_file)
 if (length(removed_file) != 1L) stop("Expected one .removed under _work/, found ", length(removed_file))
 stopifnot(file.exists(real_file), file.exists(matrix_file))
 out_dir <- here("ANALYSIS", project, "random_sets", real_set)

@@ -1,7 +1,7 @@
 #!/usr/bin/env Rscript
 # k_evidence_plot.R: the figures behind the choice of sNMF.k_best.
 #
-# Reads ANALYSIS/Arabidopsis1135/k_evidence/, written by k_evidence.py, and the pipeline's
+# Reads ANALYSIS/<project>/k_evidence/, written by k_evidence.py, and the pipeline's
 # cross-entropy table. Writes into the same folder:
 #   k_evidence_curve.png  cross-entropy of every run, its drop from K-1 against the run-to-run
 #                         spread, and how many of the 10 runs reach the best run's solution
@@ -12,7 +12,7 @@
 #
 # Run from the repo root, in the image:
 #   docker run --rm --user $(id -u):$(id -g) -e USER=pipeline -e HOME=/tmp -v $PWD:/data -w /data \
-#     cline-go:6cdedcc Rscript manuscript/arabidopsis/k_evidence_plot.R 6 11
+#     cline-go:6cdedcc Rscript manuscript/arabidopsis/k_evidence_plot.R <project> 6 11
 
 suppressPackageStartupMessages({
   library(data.table)
@@ -23,17 +23,20 @@ suppressPackageStartupMessages({
 })
 source("/pipeline/scripts/R/utils/theme_clinego.R")
 
-map_k <- as.integer(commandArgs(trailingOnly = TRUE))
-if (length(map_k) == 0 || anyNA(map_k)) stop("k_evidence_plot.R: name the K values to map")
+args <- commandArgs(trailingOnly = TRUE)
+project <- args[1]
+map_k <- suppressWarnings(as.integer(args[-1]))
+if (length(args) < 2 || anyNA(map_k)) stop("usage: k_evidence_plot.R <project> <K> [<K> ...]")
 
-evidence_dir <- here("ANALYSIS", "Arabidopsis1135", "k_evidence")
+evidence_dir <- here("ANALYSIS", project, "k_evidence")
 read_evidence <- function(name, ...) fread(file.path(evidence_dir, name), ...)
 
 curve <- read_evidence("curve.tsv")
 solutions <- read_evidence("solutions.tsv")
 clusters <- read_evidence("clusters.tsv")
 assignments <- read_evidence("assignments.tsv", colClasses = c(sample = "character"))
-runs <- fread(here("Arabidopsis1135_results", "PreStructure", "tables", "cross_entropy_K2-12.tsv"))
+runs <- fread(here(paste0(project, "_results"), "PreStructure", "tables",
+                   sprintf("cross_entropy_K%d-%d.tsv", min(curve$K), max(curve$K))))
 
 k_axis <- scale_x_continuous(breaks = curve$K, name = "K")
 

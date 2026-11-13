@@ -6,7 +6,7 @@
 #
 # Reads the LD-pruned PCA (LEA projections and eigenvalues), samples_order.list, the scaled climate
 # table, metadata.tsv, clusters_K<k_best>.tsv and the config. Writes
-# ANALYSIS/Arabidopsis1135/pregea/pc_climate_r2.tsv, one row per PC:
+# ANALYSIS/<project>/pregea/pc_climate_r2.tsv, one row per PC:
 #   pc pct_variance cum_pct_variance r2_samples r2_adj_samples r2_sites r2_adj_sites r2_main_cluster
 #
 # r2_samples is lm(PC ~ predictors) over the samples. r2_sites is the same over one row per site,
@@ -16,7 +16,7 @@
 #
 # Run from the repo root, in the image:
 #   docker run --rm --user $(id -u):$(id -g) -e USER=pipeline -e HOME=/tmp -e OPENBLAS_NUM_THREADS=1 \
-#     -v $PWD:/data -w /data cline-go:6cdedcc Rscript manuscript/arabidopsis/pc_climate_r2.R
+#     -v $PWD:/data -w /data cline-go:6cdedcc Rscript manuscript/arabidopsis/pc_climate_r2.R <project>
 
 suppressPackageStartupMessages({
   library(data.table)
@@ -24,7 +24,9 @@ suppressPackageStartupMessages({
   library(yaml)
 })
 
-project <- "Arabidopsis1135"
+args <- commandArgs(trailingOnly = TRUE)
+if (length(args) != 1L) stop("usage: pc_climate_r2.R <project>")
+project <- args[1]
 n_pcs <- 20L
 min_cluster_r2 <- 0.2
 

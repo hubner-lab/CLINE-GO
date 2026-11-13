@@ -1,5 +1,5 @@
 #!/usr/bin/env Rscript
-# collect_resources.R: wall time and peak memory of every pipeline mode run of the three Arabidopsis
+# collect_resources.R: wall time and peak memory of every pipeline mode run of the four Arabidopsis
 # projects, as manuscript/arabidopsis/run_mode.sh recorded them.
 #
 # Reads ANALYSIS/Arabidopsis1135/resources/modes.tsv, one row per finished run_mode.sh call, and for
@@ -12,8 +12,8 @@
 #   skipped.tsv      the other rows of modes.tsv and why: dry runs (an -n token in the arguments, the
 #                    failed `-- -n` call included) and the pilot's pregea, which the user stopped
 #   coverage.tsv     each project's planned modes, measured or not, and why not
-#   totals.tsv       wall time and largest peak per project, over its chain (each mode once) and over all
-#                    its runs
+#   totals.tsv       wall time and largest peak per project, over its chain (each mode once, plus chain
+#                    work done inside a run outside the chain, chain_part_seconds) and over all its runs
 #   time_memory.png  draft figure: wall time and peak memory per mode, memory over each project's runs
 #
 # Units and limits of the record:
@@ -53,14 +53,17 @@ MAX_STAMP_LAG <- 60  # seconds from a file's stamp to the start modes.tsv record
 MODES <- c("processing", "prestructure", "structure", "climate", "traits", "pregea", "gea", "gwas",
            "gea_x_gwas", "maladaptation")
 
-# The three projects, in order of filtered matrix size. The stress test plans five modes (Phase 16).
+# The four projects, in order of filtered matrix size. The stress test plans five modes (Phase 16).
+# Arabidopsis1135maf01 is iteration 2 (plan shiny-seeking-scott): MAF 0.01, 902 x 1.76 M.
 projects <- data.table(
-  config = c("config_Arabidopsis1135chr5", "config_Arabidopsis1135", "config_Arabidopsis1135stress"),
-  project = c("Arabidopsis1135chr5", "Arabidopsis1135", "Arabidopsis1135stress"),
-  role = c("pilot, chromosome 5", "main", "stress test"))
+  config = c("config_Arabidopsis1135chr5", "config_Arabidopsis1135", "config_Arabidopsis1135maf01",
+             "config_Arabidopsis1135stress"),
+  project = c("Arabidopsis1135chr5", "Arabidopsis1135", "Arabidopsis1135maf01", "Arabidopsis1135stress"),
+  role = c("pilot, chromosome 5", "main", "iteration 2, MAF 0.01", "stress test"))
 planned <- rbind(
   data.table(project = "Arabidopsis1135chr5", mode = MODES),
   data.table(project = "Arabidopsis1135", mode = MODES),
+  data.table(project = "Arabidopsis1135maf01", mode = MODES),
   data.table(project = "Arabidopsis1135stress",
              mode = c("processing", "prestructure", "structure", "gea", "gwas")))
 
@@ -73,20 +76,69 @@ stopped <- data.table(
 # chain is a second pass, not part of running each mode once.
 run_notes <- data.table(
   config = c("config_Arabidopsis1135chr5", "config_Arabidopsis1135chr5", "config_Arabidopsis1135",
-             "config_Arabidopsis1135", "config_Arabidopsis1135", "config_Arabidopsis1135stress"),
-  mode = c("processing", "processing", "pregea", "maladaptation", "maladaptation", "gea"),
+             "config_Arabidopsis1135", "config_Arabidopsis1135", "config_Arabidopsis1135stress",
+             "config_Arabidopsis1135", "config_Arabidopsis1135", "config_Arabidopsis1135maf01",
+             "config_Arabidopsis1135maf01", "config_Arabidopsis1135maf01", "config_Arabidopsis1135maf01",
+             "config_Arabidopsis1135maf01"),
+  mode = c("processing", "processing", "pregea", "maladaptation", "maladaptation", "gea",
+           "maladaptation", "pregea", "processing", "processing", "processing", "gea", "pregea"),
   start = c("2026-11-05T19:59:57+02:00", "2026-11-05T20:19:53+02:00", "2026-11-06T14:19:26+02:00",
-            "2026-11-07T13:11:19+02:00", "2026-11-07T15:36:04+02:00", "2026-11-07T21:50:49+02:00"),
+            "2026-11-07T13:11:19+02:00", "2026-11-07T15:36:04+02:00", "2026-11-07T21:50:49+02:00",
+            "2026-11-09T13:04:52+02:00", "2026-11-09T16:05:23+02:00", "2026-11-09T13:39:02+02:00",
+            "2026-11-09T14:07:23+02:00", "2026-11-09T16:01:42+02:00", "2026-11-09T17:11:11+02:00",
+            "2026-11-09T21:04:02+02:00"),
   note = c("whole mode at Filter.relatedness 0.99",
            "rerun from relatedness_filter at Filter.relatedness 0.998 (attempt 1)",
            "RDA ladder at 99 permutations on 32 forks (attempt 3)",
            "3 offset methods x 6 SNP sets x 30 gardens",
            "20 MAF-matched random draws of the union set; the 18 real runs did not rerun",
-           "LEA geno2lfmm() segfaulted (exit 139) on the full matrix"),
+           "LEA geno2lfmm() segfaulted (exit 139) on the full matrix",
+           "Track B: spatial Gradient Forest (16 dbMEMs) on the six real sets, 6 fits and 6 projections (attempt 6); the nospatial runs did not rerun",
+           "Track B: LFMM ladder widened to K 1-11 (PreGEA.k_offset 5, attempt 16), target pregea_lfmm_ladder; only rungs K 1-3 and 9-11 ran, K 4-8 were reused",
+           "target relatedness_pairs.tsv on cline-go:6cdedcc, whose baked code predates the relatedness fix: its IBS on all raw SNPs was discarded, its extract_samples and calculate_sample_missing outputs were kept (chain_parts)",
+           "compute_relatedness alone on cline-go:1700e49 (target relatedness_pairs.tsv), for the threshold choice; the full run reused it",
+           "the rest of processing at Filter.relatedness 0.998",
+           "target vcf_to_lfmm_full only, the 2^31-cell gate (902 x 1,763,178 = 1.59e9 cells); coverage counts gea as measured from this run alone until the full gea run",
+           "targets pregea_lfmm_ladder and pregea_emmax_ladder only (LFMM K 9-13, EMMAX 0-10 PCs), no RDA ladder; LFMM claims 12 GB each in a 420 GB pool"),
   label = c("processing", "processing, rerun", "pregea", "maladaptation", "maladaptation, random draws",
-            "gea"),
-  in_chain = c(TRUE, FALSE, TRUE, TRUE, FALSE, TRUE))
-# Planned modes with no real run.
+            "gea", "maladaptation, spatial GF", "pregea, LFMM ladder K 1-11", "processing, old relatedness code",
+            "processing, relatedness", "processing", "gea, vcf_to_lfmm_full", "pregea, LFMM and EMMAX ladders"),
+  in_chain = c(TRUE, FALSE, TRUE, TRUE, FALSE, TRUE, FALSE, FALSE, FALSE, TRUE, TRUE, TRUE, TRUE))
+# Arabidopsis1135maf01's association ran twice (attempt 19): at tested MAF 0.01 (sNMF.imputed_maf null),
+# then at 0.05, which is the chain. The 0.01 runs stay as second passes; the parts the 0.05 runs reused
+# are chain_parts below.
+run_notes <- rbind(run_notes, data.table(
+  config = "config_Arabidopsis1135maf01",
+  mode = c("gea", "gwas", "gea", "gwas"),
+  start = c("2026-11-10T11:01:41+02:00", "2026-11-10T22:13:56+02:00", "2026-11-11T10:16:16+02:00",
+            "2026-11-11T12:02:22+02:00"),
+  note = c("the whole mode at tested MAF 0.01 (1,682,030 SNPs); superseded by the 0.05 run, which kept its sNMF imputation",
+           "the whole mode at tested MAF 0.01 (1,682,030 SNPs); superseded by the 0.05 run, which kept its phenotypes and phenomaps",
+           "tested MAF 0.05 (762,287 SNPs), -R filter_imputed_maf_full filter_imputed_maf_ld under mtime triggers; imputation from the 0.01 run",
+           "tested MAF 0.05 (762,287 SNPs), mtime triggers; phenotypes and phenomaps from the 0.01 run"),
+  label = c("gea, tested MAF 0.01", "gwas, tested MAF 0.01", "gea", "gwas"),
+  in_chain = c(FALSE, FALSE, TRUE, TRUE)))
+# Arabidopsis1135maf01's maladaptation ran twice, as the first project's did: the six real sets, then the
+# 20 draws of the union set (plan shiny-seeking-scott Phase 12).
+run_notes <- rbind(run_notes, data.table(
+  config = "config_Arabidopsis1135maf01",
+  mode = c("maladaptation", "maladaptation"),
+  start = c("2026-11-11T13:38:10+02:00", "2026-11-11T15:45:25+02:00"),
+  note = c("3 offset methods x 6 SNP sets x 30 gardens",
+           "20 MAF-matched random draws of the union set; the 18 real runs did not rerun"),
+  label = c("maladaptation", "maladaptation, random draws"),
+  in_chain = c(TRUE, FALSE)))
+# Chain work done inside a run outside the chain: outputs that run wrote and the chain kept. The
+# seconds come from the Snakemake job timestamps in the run's log, not from run_mode.sh's 15 s polls.
+chain_parts <- data.table(
+  config = "config_Arabidopsis1135maf01",
+  mode = c("processing", "gea", "gwas"),
+  start = c("2026-11-09T13:39:02+02:00", "2026-11-10T11:01:41+02:00", "2026-11-10T22:13:56+02:00"),
+  seconds = c(334, 23045, 433),
+  what = c("extract_samples (1 s) and calculate_sample_missing (333 s), 11:39:04-11:44:38 UTC in the run's log",
+           "snmf_full (11,490 s), impute_full (11,026 s) and lfmm2vcf_full (529 s), one after another 09:01:43-15:25:48 UTC in the run's log",
+           "prepare_phenotypes (1 s), piemap_gwas x 2 (432 s, 426 s) and piemap_gwas_points (412 s), side by side 20:13:58-20:21:11 UTC in the run's log"))
+# Planned modes with no real run (the script refuses a reason for a measured mode).
 not_measured <- data.table(
   project = c(rep("Arabidopsis1135chr5", 5), "Arabidopsis1135stress"),
   mode = c("pregea", "gea", "gwas", "gea_x_gwas", "maladaptation", "gwas"),
@@ -173,6 +225,12 @@ kept[, `:=`(note = "", label = mode, in_chain = TRUE)]
 kept[note_rows, `:=`(note = run_notes$note, label = run_notes$label, in_chain = run_notes$in_chain)]
 if (kept[, anyDuplicated(paste(project, label))]) stop("collect_resources.R: two runs share one label")
 if (kept[status == "failed" & note == "", .N] > 0) stop("collect_resources.R: a failed run has no note")
+part_rows <- match(key_rows(chain_parts, "chain part"), which(modes$skip_reason == ""))
+if (anyNA(part_rows)) stop("collect_resources.R: a chain part names a skipped row")
+if (any(kept$in_chain[part_rows])) stop("collect_resources.R: a chain part names a run already in the chain")
+if (any(chain_parts$seconds > kept$wall_seconds[part_rows])) stop("collect_resources.R: a chain part outlasts its run")
+kept[, chain_part_seconds := 0]
+kept[part_rows, chain_part_seconds := chain_parts$seconds]
 
 # ------------------------------------------------------------------ memory: trace and processes
 read_trace <- function(base) {
@@ -249,7 +307,7 @@ kept[, label_order := match(mode, MODES) + fifelse(in_chain, 0, 0.5)]
 setorder(kept, project_order, label_order, start)
 kept[, wall := hms(wall_seconds)]
 
-time_memory <- kept[, .(project, role, n_samples, n_snps, mode, label, note, in_chain, start, end,
+time_memory <- kept[, .(project, role, n_samples, n_snps, mode, label, note, in_chain, chain_part_seconds, start, end,
                         wall_seconds, wall, steps_planned, steps_done, exit, status, failed_rule,
                         peak_anon_gib = round(peak_anon_gib, 1), peak_cgroup_gib = round(peak_cgroup_gib, 1),
                         memory_samples, host_used_peak_gib, peak_holder, peak_holder_processes,
@@ -271,7 +329,9 @@ setorder(coverage, project_order, mode_order)
 fwrite(coverage[, .(project, mode, status, completed_runs = completed, failed_runs = failed, why)],
        file.path(out_dir, "coverage.tsv"), sep = "\t")
 
-totals <- kept[, .(runs = .N, chain_runs = sum(in_chain), chain_wall_seconds = sum(wall_seconds[in_chain]),
+totals <- kept[, .(runs = .N, chain_runs = sum(in_chain),
+                   chain_wall_seconds = sum(wall_seconds[in_chain]) + sum(chain_part_seconds),
+                   chain_part_seconds = sum(chain_part_seconds),
                    all_wall_seconds = sum(wall_seconds),
                    chain_max_peak_anon_gib = round(max(peak_anon_gib[in_chain], na.rm = TRUE), 1),
                    chain_max_peak_run = label[in_chain][which.max(peak_anon_gib[in_chain])],
@@ -285,10 +345,12 @@ fwrite(totals, file.path(out_dir, "totals.tsv"), sep = "\t")
 
 # ------------------------------------------------------------------ figure (draft)
 label_levels <- unique(kept[order(label_order), label])
-kept[, y := match(label, rev(label_levels)) + (2 - project_order) * 0.27]
+# Each mode row holds one bar per project, centred on the row: 0.8 of the row split over the projects.
+row_step <- 0.8 / nrow(projects)
+kept[, y := match(label, rev(label_levels)) + ((nrow(projects) + 1) / 2 - project_order) * row_step]
 kept[, role_label := factor(role_label, levels = projects$role_label)]
 project_colors <- setNames(CLINEGO_CATEGORICAL[seq_len(nrow(projects))], projects$role_label)
-bar_half <- 0.12
+bar_half <- 0.45 * row_step
 y_axis <- scale_y_continuous(breaks = seq_along(label_levels), labels = rev(label_levels),
                              limits = c(0.5, length(label_levels) + 0.5), expand = c(0, 0))
 
@@ -321,7 +383,8 @@ plot_memory <- ggplot(sampled) +
             hjust = -0.12, size = 2.4, color = CLINEGO_COL$secondary) +
   geom_text(data = kept[is.na(peak_anon_gib)], aes(x = 0, y = y, label = "not sampled"),
             hjust = -0.1, size = 2.4, color = CLINEGO_COL$muted) +
-  scale_x_continuous(limits = c(0, memory_max * 1.35), expand = c(0, 0)) +
+  # Room right of the largest circle for its holder label (1.35 clipped "gradient_forest_offset.R x13 305").
+  scale_x_continuous(limits = c(0, memory_max * 1.55), expand = c(0, 0)) +
   y_axis +
   scale_fill_manual(values = project_colors, name = NULL) +
   scale_color_manual(values = project_colors, guide = "none") +
@@ -367,11 +430,15 @@ caption <- paste(
   "Memory is sampled every 15 s, so a peak is a lower bound and a run under 15 s may have no sample.",
   "c: bands alternate by run; runs under 3 % of a project's time carry no label.",
   sep = "\n")
+# Heights keep the spacing of the first draft (3 projects, 12 mode rows, 13 in): about 0.193 in per bar
+# in a and b, 2 in per project in c, so more projects or rows lengthen the figure instead of crowding it.
+height_ab <- 0.193 * length(label_levels) * nrow(projects)
+height_c <- 2 * nrow(projects)
 figure <- ((plot_time | plot_memory) + plot_layout(guides = "collect") & theme(legend.position = "bottom")) /
-  plot_trace + plot_layout(heights = c(1.15, 1)) +
+  plot_trace + plot_layout(heights = c(height_ab, height_c)) +
   plot_annotation(tag_levels = "a", caption = caption,
                   theme = theme(plot.caption = element_text(hjust = 0, size = 9, color = CLINEGO_COL$secondary)))
-ggsave(file.path(out_dir, "time_memory.png"), figure, width = 14, height = 13, dpi = 200)
+ggsave(file.path(out_dir, "time_memory.png"), figure, width = 14, height = height_ab + height_c, dpi = 200)
 
 message(sprintf("collect_resources.R: %d real runs, %d skipped rows, %d of %d planned modes measured; tables and figure in %s",
                 nrow(kept), nrow(skipped), coverage[status != "not measured", .N], nrow(coverage), out_dir))
