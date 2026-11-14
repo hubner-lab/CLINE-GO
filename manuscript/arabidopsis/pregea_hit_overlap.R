@@ -12,9 +12,12 @@
 # tables. The rungs are every rung a ladder table lists; --lfmm-k keeps the LFMM rungs K FROM to TO,
 # which must all be in it. Stops unless each rung's count per predictor equals the ladder's hits_bonf.
 # Writes ANALYSIS/<project>/pregea/rung_hit_overlap.tsv, one row per rung:
-#   engine rung reference n_hits n_snps n_shared_with_reference jaccard_with_reference
+#   engine rung reference n_hits n_snps n_shared_with_reference jaccard_with_reference next_rung
+#   jaccard_with_next
 #
-# The reference is K = k_best for LFMM and n_pcs = 0 for EMMAX. These are pruned markers, so the
+# The reference is K = k_best for LFMM and n_pcs = 0 for EMMAX. next_rung is the next rung of the same
+# ladder (K + 1, or one PC more), empty on the last rung; jaccard_with_next compares the two rungs' hits,
+# so a run of high values marks where adding a factor stops changing the calls. These are pruned markers, so the
 # counts rank the rungs and are not a forecast of the whole-genome run.
 #
 # Run from the repo root, in the image:
@@ -80,18 +83,27 @@ ladder_rungs <- function(ladder, prefix, values = NULL) {
   paste0(prefix, values)
 }
 
+jaccard <- function(a, b) {
+  n <- length(union(a, b))
+  if (n == 0L) NA_real_ else signif(length(intersect(a, b)) / n, 3)
+}
+
 compare_rungs <- function(engine, rungs, reference, apply_gc, ladder) {
   if (!reference %in% rungs) stop(engine, ": the reference rung ", reference, " is not among ",
                                   paste(rungs, collapse = ", "))
   hits <- rbindlist(lapply(rungs, function(r) rung_hits(engine, r, apply_gc, ladder)))
   hits[, key := paste(snp, predictor)]
-  reference_keys <- hits[rung == reference, key]
-  rbindlist(lapply(rungs, function(r) {
-    keys <- hits[rung == r, key]
-    shared <- length(intersect(keys, reference_keys))
+  keys_of <- function(r) hits[rung == r, key]
+  reference_keys <- keys_of(reference)
+  rbindlist(lapply(seq_along(rungs), function(i) {
+    r <- rungs[i]
+    keys <- keys_of(r)
+    next_rung <- if (i < length(rungs)) rungs[i + 1L] else NA_character_
     data.table(engine = engine, rung = r, reference = reference, n_hits = length(keys),
-               n_snps = uniqueN(hits[rung == r, snp]), n_shared_with_reference = shared,
-               jaccard_with_reference = signif(shared / length(union(keys, reference_keys)), 3))
+               n_snps = uniqueN(hits[rung == r, snp]),
+               n_shared_with_reference = length(intersect(keys, reference_keys)),
+               jaccard_with_reference = jaccard(keys, reference_keys), next_rung = next_rung,
+               jaccard_with_next = if (is.na(next_rung)) NA_real_ else jaccard(keys, keys_of(next_rung)))
   }))
 }
 
