@@ -1,5 +1,5 @@
 #!/usr/bin/env Rscript
-# collect_resources.R: wall time and peak memory of every pipeline mode run of the four Arabidopsis
+# collect_resources.R: wall time and peak memory of every pipeline mode run of the five Arabidopsis
 # projects, as manuscript/arabidopsis/run_mode.sh recorded them.
 #
 # Reads ANALYSIS/Arabidopsis1135/resources/modes.tsv, one row per finished run_mode.sh call, and for
@@ -53,17 +53,21 @@ MAX_STAMP_LAG <- 60  # seconds from a file's stamp to the start modes.tsv record
 MODES <- c("processing", "prestructure", "structure", "climate", "traits", "pregea", "gea", "gwas",
            "gea_x_gwas", "maladaptation")
 
-# The four projects, in order of filtered matrix size. The stress test plans five modes (Phase 16).
+# The five projects: the pilot, the three iterations in order, then the stress test, so a project keeps
+# its colour when a later iteration is added. The stress test plans five modes (Phase 16).
 # Arabidopsis1135maf01 is iteration 2 (plan shiny-seeking-scott): MAF 0.01, 902 x 1.76 M.
+# Arabidopsis1135it3 is iteration 3 (plan valiant-mixing-sparrow): MAF 0.05, one K of 11, 902 x 783 k.
 projects <- data.table(
   config = c("config_Arabidopsis1135chr5", "config_Arabidopsis1135", "config_Arabidopsis1135maf01",
-             "config_Arabidopsis1135stress"),
-  project = c("Arabidopsis1135chr5", "Arabidopsis1135", "Arabidopsis1135maf01", "Arabidopsis1135stress"),
-  role = c("pilot, chromosome 5", "main", "iteration 2, MAF 0.01", "stress test"))
+             "config_Arabidopsis1135it3", "config_Arabidopsis1135stress"),
+  project = c("Arabidopsis1135chr5", "Arabidopsis1135", "Arabidopsis1135maf01", "Arabidopsis1135it3",
+              "Arabidopsis1135stress"),
+  role = c("pilot, chromosome 5", "main", "iteration 2, MAF 0.01", "iteration 3, MAF 0.05, K 11", "stress test"))
 planned <- rbind(
   data.table(project = "Arabidopsis1135chr5", mode = MODES),
   data.table(project = "Arabidopsis1135", mode = MODES),
   data.table(project = "Arabidopsis1135maf01", mode = MODES),
+  data.table(project = "Arabidopsis1135it3", mode = MODES),
   data.table(project = "Arabidopsis1135stress",
              mode = c("processing", "prestructure", "structure", "gea", "gwas")))
 
@@ -128,6 +132,21 @@ run_notes <- rbind(run_notes, data.table(
            "20 MAF-matched random draws of the union set; the 18 real runs did not rerun"),
   label = c("maladaptation", "maladaptation, random draws"),
   in_chain = c(TRUE, FALSE)))
+# Arabidopsis1135it3 (plan valiant-mixing-sparrow): processing in two parts, relatedness first for the
+# threshold choice (Phase 2); pregea for the K evidence only (Phase 4); maladaptation twice, as before.
+run_notes <- rbind(run_notes, data.table(
+  config = "config_Arabidopsis1135it3",
+  mode = c("processing", "processing", "pregea", "maladaptation", "maladaptation"),
+  start = c("2026-11-13T15:35:16+02:00", "2026-11-13T16:05:58+02:00", "2026-11-13T19:23:19+02:00",
+            "2026-11-14T06:50:44+02:00", "2026-11-14T09:00:03+02:00"),
+  note = c("target relatedness_pairs.tsv (extract_samples, calculate_sample_missing, compute_relatedness) on the MAF 0.05 panel, for the threshold choice; the full run reused it",
+           "the rest of processing at Filter.relatedness 0.998",
+           "targets pregea_lfmm_ladder, pregea_emmax_ladder and pregea_screeplot only (LFMM K 2-20, EMMAX 0-10 PCs), no RDA ladder, on the provisional K 11 imputation, which impute_ld wrote here and the chosen K kept; LFMM claims 12 GB each in a 420 GB pool",
+           "3 offset methods x 6 SNP sets x 30 gardens",
+           "20 MAF-matched random draws of the union set; the 18 real runs did not rerun"),
+  label = c("processing, relatedness", "processing", "pregea, LFMM and EMMAX ladders", "maladaptation",
+            "maladaptation, random draws"),
+  in_chain = c(TRUE, TRUE, TRUE, TRUE, FALSE)))
 # Chain work done inside a run outside the chain: outputs that run wrote and the chain kept. The
 # seconds come from the Snakemake job timestamps in the run's log, not from run_mode.sh's 15 s polls.
 chain_parts <- data.table(
@@ -434,7 +453,9 @@ caption <- paste(
 # in a and b, 2 in per project in c, so more projects or rows lengthen the figure instead of crowding it.
 height_ab <- 0.193 * length(label_levels) * nrow(projects)
 height_c <- 2 * nrow(projects)
-figure <- ((plot_time | plot_memory) + plot_layout(guides = "collect") & theme(legend.position = "bottom")) /
+# Two legend rows: five projects' labels in one row ran past the right edge.
+figure <- ((plot_time | plot_memory) + plot_layout(guides = "collect") & theme(legend.position = "bottom") &
+             guides(fill = guide_legend(nrow = 2, byrow = TRUE))) /
   plot_trace + plot_layout(heights = c(height_ab, height_c)) +
   plot_annotation(tag_levels = "a", caption = caption,
                   theme = theme(plot.caption = element_text(hjust = 0, size = 9, color = CLINEGO_COL$secondary)))

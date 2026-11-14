@@ -1,19 +1,23 @@
 #!/usr/bin/env python3
-"""Iteration 1 (Arabidopsis1135) against iteration 2 (Arabidopsis1135maf01), plan shiny-seeking-scott Phase 13.
+"""The Arabidopsis iterations side by side: Arabidopsis1135 (1), Arabidopsis1135maf01 (2), Arabidopsis1135it3 (3).
 
-Reads only tables that earlier phases wrote; nothing is refitted. Writes into ANALYSIS/Arabidopsis1135/compare/:
+Written for iterations 1 and 2 (plan shiny-seeking-scott Phase 13); generalised to the three iterations in plan
+valiant-mixing-sparrow Phase 9. Reads only tables that earlier phases wrote; nothing is refitted. Writes into
+ANALYSIS/Arabidopsis1135/compare/:
 
-  ld_single_draws.tsv    the genome-wide critical distance each of iteration 2's 100 background draws would give on
-                         its own (the rule before 6e7efbb took one draw, seed 1): the draw's critical r2 crossed with
-                         the project's genome-wide curve by ld_first_crossing() of scripts/R/lib/ld_decay.R. Checked
-                         first: the median and the 2.5 / 97.5 % r2 must give the pipeline's own decay_critical_bp,
-                         _lo and _hi.
+  ld_single_draws.tsv    per project with background draws (iterations 2 and 3: 100 each), the genome-wide critical
+                         distance each draw would give on its own (the rule before 6e7efbb took one draw, seed 1): the
+                         draw's critical r2 crossed with the project's genome-wide curve by ld_first_crossing() of
+                         scripts/R/lib/ld_decay.R. Checked first, on each project: the median and the 2.5 / 97.5 % r2
+                         must give the pipeline's own decay_critical_bp, _lo and _hi.
   level3_draws.tsv       per project and offset method, the union set's mean rho and each of its 20 MAF-matched draws'
                          (mean over replicates, as offset_eval.R), with the union's rank among the 21. Checked first
-                         against summary.tsv (rho_mean, random_mean, random_q95).
+                         against summary.tsv (rho_mean, random_mean, random_q95) on each project.
   level3_holm.tsv        Holm over the three union level-3 tests of each project: a sensitivity, since offset_eval.R
                          has no multiple-testing step at level 3.
-  iteration_compare.tsv  one row per metric: iteration 1, iteration 2, the file it comes from.
+  iteration_compare.tsv  one row per metric: one column per iteration, then the file each value comes from.
+
+The column names of iterations 1 and 2 are those the two-project version wrote, so readers of it keep working.
 
 Usage: python3 -I manuscript/arabidopsis/compare_iterations.py [repo root]
 """
@@ -26,9 +30,10 @@ from pathlib import Path
 ROOT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).resolve().parents[2]
 ANALYSIS = ROOT / "ANALYSIS" / "Arabidopsis1135"
 OUT = ANALYSIS / "compare"
-P1, P2 = "Arabidopsis1135", "Arabidopsis1135maf01"
-K = {P1: 6, P2: 11}
-ARM = {P1: "bonf_79kb", P2: "bonf_56kb"}
+PROJECTS = ["Arabidopsis1135", "Arabidopsis1135maf01", "Arabidopsis1135it3"]  # iterations 1, 2, 3
+K = {"Arabidopsis1135": 6, "Arabidopsis1135maf01": 11, "Arabidopsis1135it3": 11}  # sNMF.k_best, in the file names
+# The region-check arm each iteration's genome-wide critical distance gives (bonf at that distance).
+ARM = {"Arabidopsis1135": "bonf_79kb", "Arabidopsis1135maf01": "bonf_56kb", "Arabidopsis1135it3": "bonf_99kb"}
 SETS = ["emmax", "lfmm", "rda", "union", "two_of_three", "three_of_three"]  # the first project's order, everywhere
 METHODS = ["gradient_forest", "geometric_offset", "rda_offset"]
 CLASSIC = ["FRI", "FLC", "FT", "SVP", "DOG1"]
@@ -94,34 +99,50 @@ def ld_genome_wide(p):
     return gw[0]
 
 
-def ld_single_draws():
-    tables = results(P2) / "Structure/tables"
+def has_draws(p):
+    """A project whose LD background took more than one draw (LDdecay.background_draws, after 6e7efbb)."""
+    return int(ld_genome_wide(p).get("n_background_draws") or 1) > 1
+
+
+def ld_single_draws_of(p):
+    tables = results(p) / "Structure/tables"
     curve = [(float(r["dist_bp"]), float(r["r2_mono"])) for r in read(tables / "ld_decay_curve.tsv")
              if r["group"] == "All" and r["scope"] == "genome_wide"]
-    gw = ld_genome_wide(P2)
+    gw = ld_genome_wide(p)
     # The table prints r2 to 5 significant digits, so a crossing can move by a few bp; 0.1 % is far below any claim.
     for r2_col, bp_col in (("background_r2", "decay_critical_bp"), ("background_r2_hi", "decay_critical_bp_lo"),
                            ("background_r2_lo", "decay_critical_bp_hi")):
         got, want = first_crossing(curve, float(gw[r2_col])), float(gw[bp_col])
-        check(abs(got - want) / want < 1e-3, f"crossing of {r2_col} gives {got:.0f}, the pipeline {want:.0f}")
+        check(abs(got - want) / want < 1e-3, f"{p}: crossing of {r2_col} gives {got:.0f}, the pipeline {want:.0f}")
     draws = [r for r in read(tables / "ld_decay_background_draws.tsv") if r["group"] == "All"]
-    check(len(draws) == int(gw["n_background_draws"]), "one row per background draw")
+    check(len(draws) == int(gw["n_background_draws"]), f"{p}: one row per background draw")
     rows = []
     for r in sorted(draws, key=lambda r: int(r["draw"])):
         bp = first_crossing(curve, float(r["critical_r2"]))
         rows.append([int(r["draw"]), int(r["seed"]), float(r["critical_r2"]), round(bp)])
     order = sorted(rows, key=lambda r: r[3])
     rank = {r[0]: i + 1 for i, r in enumerate(order)}
-    out = [r + [rank[r[0]]] for r in rows]
-    write(OUT / "ld_single_draws.tsv", ["draw", "seed", "critical_r2", "critical_bp", "rank_shortest_first"], out)
+    out = [[p] + r + [rank[r[0]]] for r in rows]
     bps = [r[3] for r in rows]
-    return {"single_min": min(bps), "single_max": max(bps), "draw1_bp": rows[0][3], "draw1_rank": rank[1],
-            "draw1_r2": rows[0][2], "n": len(rows)}
+    return out, {"single_min": min(bps), "single_max": max(bps), "draw1_bp": rows[0][3], "draw1_rank": rank[1],
+                 "draw1_r2": rows[0][2], "n": len(rows)}
+
+
+def ld_single_draws():
+    out, summary = [], {}
+    for p in PROJECTS:
+        if has_draws(p):
+            rows, summary[p] = ld_single_draws_of(p)
+            out += rows
+    check(len(summary) >= 1, "at least one project with background draws")
+    write(OUT / "ld_single_draws.tsv", ["project", "draw", "seed", "critical_r2", "critical_bp", "rank_shortest_first"],
+          out)
+    return summary
 
 
 def level3():
     draws_out, holm_out, summary = [], [], {}
-    for p in (P1, P2):
+    for p in PROJECTS:
         offset = ANALYSIS / "offset" / p
         summ = {(r["method"], r["set"]): r for r in read(offset / "summary.tsv")}
         sums, counts = {}, {}
@@ -170,7 +191,7 @@ def merged_loci(rows):
     return loci
 
 
-def metrics(p, ld, l3):
+def metrics(p, l3):
     res, reg = results(p), ANALYSIS / "regions" / p
     m = {}
     filt = {r["stage"]: r for r in read(res / "Processing/tables/filtering_summary.tsv")}
@@ -262,12 +283,14 @@ def main():
     OUT.mkdir(exist_ok=True)
     ld = ld_single_draws()
     l3 = level3()
-    a, b = metrics(P1, ld, l3), metrics(P2, ld, l3)
-    check(list(a) == list(b), "both projects give the same metrics")
-    write(OUT / "iteration_compare.tsv", ["metric", P1, P2, "source_iteration_1", "source_iteration_2"],
-          [[k, a[k][0], b[k][0], a[k][1], b[k][1]] for k in a])
-    print(f"single-draw critical distance on {P2}: {ld['single_min']}-{ld['single_max']} bp over {ld['n']} draws; "
-          f"draw 1 (seed 1, the old default) {ld['draw1_bp']} bp, rank {ld['draw1_rank']} of {ld['n']}")
+    per = [metrics(p, l3) for p in PROJECTS]
+    check(all(list(x) == list(per[0]) for x in per), "every project gives the same metrics")
+    header = ["metric"] + PROJECTS + [f"source_iteration_{i}" for i in range(1, len(PROJECTS) + 1)]
+    write(OUT / "iteration_compare.tsv", header,
+          [[k] + [x[k][0] for x in per] + [x[k][1] for x in per] for k in per[0]])
+    for p, s in ld.items():
+        print(f"single-draw critical distance on {p}: {s['single_min']}-{s['single_max']} bp over {s['n']} draws; "
+              f"draw 1 (seed 1, the old default) {s['draw1_bp']} bp, rank {s['draw1_rank']} of {s['n']}")
 
 
 if __name__ == "__main__":
