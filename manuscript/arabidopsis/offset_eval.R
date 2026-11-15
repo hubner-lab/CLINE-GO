@@ -487,38 +487,42 @@ self_test <- function(inputs) {
 
 # Main ----------------------------------------------------------------------------------------
 
-usage <- "usage: offset_eval.R <project> [--drop-gardens a,b,c] [--tag spatial] | --reproduce | --self-test"
-args <- commandArgs(trailingOnly = TRUE)
-if (length(args) == 0L) stop(usage)
-inputs <- read_inputs()
+# Run as a script only: sourcing this file (survival_eval.R does) defines the readers above and
+# runs nothing.
+if (sys.nframe() == 0L) {
+  usage <- "usage: offset_eval.R <project> [--drop-gardens a,b,c] [--tag spatial] | --reproduce | --self-test"
+  args <- commandArgs(trailingOnly = TRUE)
+  if (length(args) == 0L) stop(usage)
+  inputs <- read_inputs()
 
-if (args[1] == "--self-test") {
-  self_test(inputs)
-} else if (args[1] == "--reproduce") {
-  reproduce(inputs)
-} else {
-  project <- args[1]
-  drop_gardens <- integer()
-  tag <- "nospatial"
-  options <- args[-1]
-  while (length(options) > 0L) {
-    if (length(options) < 2L) stop(usage)
-    if (options[1] == "--drop-gardens") {
-      drop_gardens <- as.integer(strsplit(options[2], ",", fixed = TRUE)[[1]])
-      stopifnot(!anyNA(drop_gardens), all(drop_gardens %in% inputs$gardens$garden))
-    } else if (options[1] == "--tag") {
-      tag <- options[2]
-      if (!tag %in% c("nospatial", "spatial")) stop(usage)
-    } else {
-      stop(usage)
+  if (args[1] == "--self-test") {
+    self_test(inputs)
+  } else if (args[1] == "--reproduce") {
+    reproduce(inputs)
+  } else {
+    project <- args[1]
+    drop_gardens <- integer()
+    tag <- "nospatial"
+    options <- args[-1]
+    while (length(options) > 0L) {
+      if (length(options) < 2L) stop(usage)
+      if (options[1] == "--drop-gardens") {
+        drop_gardens <- as.integer(strsplit(options[2], ",", fixed = TRUE)[[1]])
+        stopifnot(!anyNA(drop_gardens), all(drop_gardens %in% inputs$gardens$garden))
+      } else if (options[1] == "--tag") {
+        tag <- options[2]
+        if (!tag %in% c("nospatial", "spatial")) stop(usage)
+      } else {
+        stop(usage)
+      }
+      options <- options[-(1:2)]
     }
-    options <- options[-(1:2)]
+    out_dir <- file.path(out_root, if (tag == "nospatial") project else paste0(project, "_", tag))
+    if (length(drop_gardens) > 0L) {
+      out_dir <- file.path(out_dir, paste0("without_", paste(drop_gardens, collapse = "_")))
+    }
+    outcome <- evaluate_tree(here(paste0(project, "_results")), out_dir, inputs, drop_gardens, tag)
+    print_summary(outcome$summary)
+    message("Wrote ", out_dir)
   }
-  out_dir <- file.path(out_root, if (tag == "nospatial") project else paste0(project, "_", tag))
-  if (length(drop_gardens) > 0L) {
-    out_dir <- file.path(out_dir, paste0("without_", paste(drop_gardens, collapse = "_")))
-  }
-  outcome <- evaluate_tree(here(paste0(project, "_results")), out_dir, inputs, drop_gardens, tag)
-  print_summary(outcome$summary)
-  message("Wrote ", out_dir)
 }
